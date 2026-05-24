@@ -22,13 +22,21 @@ from app.models.evaluation import AiJobEvaluation, FinalDecision, RuleEvaluation
 from app.models.job import JobOffer
 from app.sources.adzuna import fetch_adzuna
 from app.sources.arbeitnow import fetch_arbeitnow
-from app.storage.files import LATEST_NORMALIZED_PATH, load_jobs, load_profile, save_jobs
+from app.storage.files import load_profile, save_jobs
+from app.storage.sqlite import (
+    DEFAULT_DB_PATH,
+    StoredOffer,
+    create_ranking_run,
+    save_ranking,
+    select_unranked_offers,
+    upsert_offers,
+)
 
 
 app = typer.Typer(help="Fetch and filter technical job offers.", no_args_is_help=True)
 console = Console()
 RankingMode = Literal["rules", "ai", "hybrid"]
-RankedResult = tuple[JobOffer, RuleEvaluation, AiJobEvaluation | None, FinalDecision]
+RankedResult = tuple[StoredOffer, RuleEvaluation, AiJobEvaluation | None, FinalDecision]
 
 
 def _format_timeout(timeout_seconds: float | None) -> str:
@@ -66,6 +74,24 @@ def _format_term_matches(matches: list[WeightedTermMatch]) -> str:
     return ", ".join(f"{match.term} ({match.weight:+d})" for match in matches)
 
 
+def _ranking_result_payload(
+    *,
+    stored_offer: StoredOffer,
+    rule_evaluation: RuleEvaluation,
+    ai_evaluation: AiJobEvaluation | None,
+    final_decision: FinalDecision,
+) -> dict[str, object]:
+    return {
+        "offer_id": stored_offer.id,
+        "job": stored_offer.job.model_dump(mode="json"),
+        "rule_evaluation": rule_evaluation.model_dump(mode="json"),
+        "raw_ai_evaluation": (
+            ai_evaluation.model_dump(mode="json") if ai_evaluation is not None else None
+        ),
+        "final_decision": final_decision.model_dump(mode="json"),
+    }
+
+
 def _save_ranked_results(
     *,
     ranked: list[RankedResult],
@@ -74,7 +100,7 @@ def _save_ranked_results(
     model_name: str | None,
     ranking_mode: RankingMode,
     profile_path: Path,
-    jobs_path: Path,
+    db_path: Path,
     weights_path: Path | None,
 ) -> Path:
     output_dir = Path("data/ranked")
@@ -92,19 +118,17 @@ def _save_ranked_results(
             "model": model_name,
             "ranking_mode": ranking_mode,
             "profile_path": str(profile_path),
-            "jobs_path": str(jobs_path),
+            "db_path": str(db_path),
             "weights_path": str(weights_path) if weights_path else None,
         },
         "results": [
-            {
-                "job": job.model_dump(mode="json"),
-                "rule_evaluation": rule_evaluation.model_dump(mode="json"),
-                "raw_ai_evaluation": (
-                    ai_evaluation.model_dump(mode="json") if ai_evaluation is not None else None
-                ),
-                "final_decision": final_decision.model_dump(mode="json"),
-            }
-            for job, rule_evaluation, ai_evaluation, final_decision in ranked
+            _ranking_result_payload(
+                stored_offer=stored_offer,
+                rule_evaluation=rule_evaluation,
+                ai_evaluation=ai_evaluation,
+                final_decision=final_decision,
+            )
+            for stored_offer, rule_evaluation, ai_evaluation, final_decision in ranked
         ],
     }
     output_path.write_text(
@@ -126,10 +150,12 @@ def fetch(
     query: str = typer.Option("c++ simulation", help="Search query for sources that support it."),
     country: str = typer.Option("fr", help="Adzuna country code, for example fr, gb, us."),
     where: str | None = typer.Option(None, help="Optional Adzuna location filter."),
+    db: Path = typer.Option(DEFAULT_DB_PATH, "--db", help="SQLite database path."),
+    export_json: bool = typer.Option(False, "--export-json", help="Also export fetched jobs to JSON."),
     min_score: int = typer.Option(10, help="Minimum rule score to print."),
     limit: int = typer.Option(20, help="Maximum number of matches to print."),
 ) -> None:
-    """Fetch jobs from one source, save normalized JSON, and print a shortlist."""
+    """Fetch jobs from one source, upsert SQLite offers, and print a shortlist."""
 
     try:
         if source == "arbeitnow":
@@ -145,11 +171,16 @@ def fetch(
         console.print(f"[red]Configuration error:[/red] {error}")
         raise typer.Exit(code=1) from error
 
-    save_jobs(jobs)
+    stats = upsert_offers(jobs, db_path=db)
+    if export_json:
+        save_jobs(jobs)
     matches = filter_jobs(jobs, min_score=min_score)
 
-    console.print(f"[bold]Fetched:[/bold] {len(jobs)} jobs from {source}")
-    console.print("[bold]Saved:[/bold] data/normalized/latest_jobs.json")
+    console.print(f"[bold]Fetched:[/bold] {stats.fetched} jobs from {source}")
+    console.print(f"[bold]Database:[/bold] {db}")
+    console.print(f"[green]Inserted:[/green] {stats.inserted} | [yellow]Updated:[/yellow] {stats.updated}")
+    if export_json:
+        console.print("[bold]JSON export:[/bold] data/normalized/latest_jobs.json")
     console.print(f"[green]Matched:[/green] {len(matches)} jobs with score >= {min_score}\n")
 
     for index, (job, evaluation) in enumerate(matches[:limit], start=1):
@@ -238,7 +269,7 @@ def _print_ranked_job(
         body_lines.extend(f"[yellow]-[/yellow] {item}" for item in final_decision.policy_adjustments)
     if ai_evaluation is None:
         body_lines.append("")
-        body_lines.append("[dim]AI evaluation skipped in rules mode.[/dim]")
+        body_lines.append("[dim]AI evaluation was not used for this result.[/dim]")
 
     console.print(
         Panel(
@@ -255,8 +286,9 @@ def _print_ranked_job(
 @app.command()
 def rank(
     profile: Path = typer.Option(Path("profiles/default.json"), help="Candidate profile JSON path."),
-    jobs_path: Path = typer.Option(LATEST_NORMALIZED_PATH, help="Normalized jobs JSON path."),
+    db: Path = typer.Option(DEFAULT_DB_PATH, "--db", help="SQLite database path."),
     limit: int = typer.Option(10, min=1, help="Maximum number of jobs to evaluate."),
+    only_recent_days: int | None = typer.Option(None, min=1, help="Only rank offers seen or published in the last N days."),
     dry_run: bool = typer.Option(False, help="Print jobs that would be evaluated without calling an LLM."),
     min_score: int = typer.Option(10, help="Minimum cheap rule score before AI evaluation."),
     weights_path: Path | None = typer.Option(None, help="Optional rule scoring weights JSON path."),
@@ -271,12 +303,12 @@ def rank(
     ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Print detailed evaluation progress."),
     debug_prompt: bool = typer.Option(False, "--debug-prompt", help="Write evaluation prompts into debug/."),
+    export_json: bool = typer.Option(False, "--export-json", help="Also export this ranking run to data/ranked/."),
 ) -> None:
-    """Rank normalized jobs against a candidate profile using an LLM provider."""
+    """Rank unranked SQLite offers against a candidate profile."""
 
     try:
         candidate_profile = load_profile(profile)
-        jobs = load_jobs(jobs_path)
     except FileNotFoundError as error:
         console.print(f"[red]Missing file:[/red] {error.filename}")
         raise typer.Exit(code=1) from error
@@ -289,33 +321,59 @@ def rank(
         console.print(f"[red]Rule scoring configuration error:[/red] {error}")
         raise typer.Exit(code=1) from error
 
+    provider_name: str | None = None
+    model_name: str | None = None
+    llm_provider = None
+    if ranking_mode != "rules":
+        try:
+            llm_provider = create_llm_provider(provider)
+            provider_name = llm_provider.name
+            model_name = llm_provider.model_name
+        except RuntimeError as error:
+            console.print(f"[red]AI ranking error:[/red] {error}")
+            raise typer.Exit(code=1) from error
+
+    algorithm = ranking_mode
+    selected_offers = select_unranked_offers(
+        db_path=db,
+        algorithm=algorithm,
+        model=model_name,
+        profile_path=str(profile),
+        limit=limit,
+        only_recent_days=only_recent_days,
+    )
+
     if ranking_mode == "ai":
         evaluated_jobs = [
-            (job, evaluate_job(job, profile=candidate_profile, config=rule_config))
-            for job in jobs[:limit]
+            (stored_offer, evaluate_job(stored_offer.job, profile=candidate_profile, config=rule_config))
+            for stored_offer in selected_offers
         ]
         candidates = evaluated_jobs
         prefilter_description = f"No rule prefilter in ai mode; evaluating first {len(candidates)} jobs"
     else:
-        candidates = filter_jobs(
-            jobs,
-            min_score=min_score,
-            profile=candidate_profile,
-            config=rule_config,
-        )[:limit]
-        prefilter_description = f"After rule filter: {len(candidates)} jobs with score >= {min_score}"
+        evaluated_jobs = [
+            (stored_offer, evaluate_job(stored_offer.job, profile=candidate_profile, config=rule_config))
+            for stored_offer in selected_offers
+        ]
+        candidates = evaluated_jobs
+        eligible_count = sum(1 for _, evaluation in candidates if evaluation.score >= min_score)
+        prefilter_description = (
+            f"Rule prefilter: {eligible_count}/{len(candidates)} jobs with score >= {min_score}"
+        )
 
     console.print(f"[bold]Profile:[/bold] {profile}")
-    console.print(f"[bold]Jobs loaded:[/bold] {len(jobs)}")
+    console.print(f"[bold]Database:[/bold] {db}")
+    console.print(f"[bold]Unranked offers selected:[/bold] {len(selected_offers)}")
     console.print(f"[bold]Ranking mode:[/bold] {ranking_mode}")
     console.print(f"[bold]{prefilter_description}[/bold]\n")
 
     if not candidates:
-        console.print("[yellow]No jobs passed the rule filter.[/yellow]")
+        console.print("[yellow]No unranked offers matched this ranking request.[/yellow]")
         raise typer.Exit()
 
     if dry_run:
-        for index, (job, rule_evaluation) in enumerate(candidates, start=1):
+        for index, (stored_offer, rule_evaluation) in enumerate(candidates, start=1):
+            job = stored_offer.job
             console.print(f"[bold]{index}. {job.title}[/bold]")
             console.print(f"{job.company} | {job.location or 'Unknown location'}")
             console.print(
@@ -329,18 +387,50 @@ def rank(
         return
 
     ranked: list[RankedResult] = []
-    provider_name: str | None = None
-    model_name: str | None = None
     run_timestamp = datetime.now()
+    config_payload = {
+        "ranking_mode": ranking_mode,
+        "min_score": min_score,
+        "limit": limit,
+        "only_recent_days": only_recent_days,
+        "weights_path": str(weights_path) if weights_path else None,
+        "rule_config": rule_config.model_dump(mode="json"),
+    }
+    run_id = create_ranking_run(
+        db_path=db,
+        started_at=run_timestamp.isoformat(timespec="seconds"),
+        algorithm=algorithm,
+        model=model_name,
+        profile_path=str(profile),
+        config=config_payload,
+    )
+
     if ranking_mode == "rules":
-        for job, rule_evaluation in candidates:
+        for stored_offer, rule_evaluation in candidates:
             final_decision = make_final_decision(rule_evaluation=rule_evaluation)
-            ranked.append((job, rule_evaluation, None, final_decision))
+            result_payload = _ranking_result_payload(
+                stored_offer=stored_offer,
+                rule_evaluation=rule_evaluation,
+                ai_evaluation=None,
+                final_decision=final_decision,
+            )
+            save_ranking(
+                db_path=db,
+                run_id=run_id,
+                offer_id=stored_offer.id,
+                algorithm=algorithm,
+                model=model_name,
+                profile_path=str(profile),
+                score=final_decision.final_score,
+                recommendation=final_decision.recommendation,
+                summary="Rule-only ranking.",
+                result=result_payload,
+            )
+            ranked.append((stored_offer, rule_evaluation, None, final_decision))
     else:
         try:
-            llm_provider = create_llm_provider(provider)
-            provider_name = llm_provider.name
-            model_name = llm_provider.model_name
+            if llm_provider is None:
+                raise RuntimeError("LLM provider was not initialized.")
             console.print(f"[bold]LLM provider:[/bold] {llm_provider.name}")
             console.print(f"[bold]Model:[/bold] {llm_provider.model_name}")
             console.print(f"[bold]Timeout:[/bold] {_format_timeout(llm_provider.timeout_seconds)}")
@@ -353,7 +443,36 @@ def rank(
                 console.print("[bold]Debug prompts:[/bold] debug/")
             console.print()
 
-            for index, (job, rule_evaluation) in enumerate(candidates, start=1):
+            for index, (stored_offer, rule_evaluation) in enumerate(candidates, start=1):
+                job = stored_offer.job
+                if ranking_mode == "hybrid" and rule_evaluation.score < min_score:
+                    final_decision = make_final_decision(rule_evaluation=rule_evaluation)
+                    result_payload = _ranking_result_payload(
+                        stored_offer=stored_offer,
+                        rule_evaluation=rule_evaluation,
+                        ai_evaluation=None,
+                        final_decision=final_decision,
+                    )
+                    save_ranking(
+                        db_path=db,
+                        run_id=run_id,
+                        offer_id=stored_offer.id,
+                        algorithm=algorithm,
+                        model=model_name,
+                        profile_path=str(profile),
+                        score=final_decision.final_score,
+                        recommendation=final_decision.recommendation,
+                        summary="Skipped by hybrid rule prefilter.",
+                        result=result_payload,
+                    )
+                    ranked.append((stored_offer, rule_evaluation, None, final_decision))
+                    if verbose:
+                        console.print(
+                            f"[dim]Skipping AI for {job.title}: rule score "
+                            f"{rule_evaluation.score} < {min_score}.[/dim]"
+                        )
+                    continue
+
                 console.print(f"[bold]Evaluation {index}/{len(candidates)}[/bold]")
                 console.print(f"[dim]Job:[/dim] {job.title}")
                 console.print("[dim]Step:[/dim] preparing prompt")
@@ -407,26 +526,46 @@ def rank(
                     rule_evaluation=rule_evaluation,
                     ai_evaluation=ai_evaluation,
                 )
-                ranked.append((job, rule_evaluation, ai_evaluation, final_decision))
+                result_payload = _ranking_result_payload(
+                    stored_offer=stored_offer,
+                    rule_evaluation=rule_evaluation,
+                    ai_evaluation=ai_evaluation,
+                    final_decision=final_decision,
+                )
+                save_ranking(
+                    db_path=db,
+                    run_id=run_id,
+                    offer_id=stored_offer.id,
+                    algorithm=algorithm,
+                    model=model_name,
+                    profile_path=str(profile),
+                    score=final_decision.final_score,
+                    recommendation=final_decision.recommendation,
+                    summary=ai_evaluation.summary,
+                    result=result_payload,
+                )
+                ranked.append((stored_offer, rule_evaluation, ai_evaluation, final_decision))
         except RuntimeError as error:
             console.print(f"[red]AI ranking error:[/red] {error}")
             raise typer.Exit(code=1) from error
 
     ranked.sort(key=lambda item: item[3].final_score, reverse=True)
     console.print("\n[bold green]Ranked shortlist[/bold green]\n")
-    for index, (job, rule_evaluation, ai_evaluation, final_decision) in enumerate(ranked, start=1):
-        _print_ranked_job(index, job, rule_evaluation, ai_evaluation, final_decision)
-    output_path = _save_ranked_results(
-        ranked=ranked,
-        timestamp=run_timestamp,
-        provider_name=provider_name,
-        model_name=model_name,
-        ranking_mode=ranking_mode,
-        profile_path=profile,
-        jobs_path=jobs_path,
-        weights_path=weights_path,
-    )
-    console.print(f"\n[bold]Saved ranked output:[/bold] {output_path}")
+    for index, (stored_offer, rule_evaluation, ai_evaluation, final_decision) in enumerate(ranked, start=1):
+        _print_ranked_job(index, stored_offer.job, rule_evaluation, ai_evaluation, final_decision)
+    console.print(f"\n[bold]Saved ranking run:[/bold] {run_id} in {db}")
+    if export_json:
+        output_path = _save_ranked_results(
+            ranked=ranked,
+            timestamp=run_timestamp,
+            provider_name=provider_name,
+            model_name=model_name,
+            ranking_mode=ranking_mode,
+            profile_path=profile,
+            db_path=db,
+            weights_path=weights_path,
+        )
+        console.print(f"[bold]JSON export:[/bold] {output_path}")
 
 
 if __name__ == "__main__":

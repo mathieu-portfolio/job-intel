@@ -68,13 +68,16 @@ def fetch_adzuna(
         jobs.append(
             JobOffer(
                 source="adzuna",
+                source_id=str(item.get("id")) if item.get("id") else None,
                 title=title,
                 company=company,
                 location=location,
                 url=url,
                 description=item.get("description") or "",
+                published_at=item.get("created"),
                 tags=[],
                 salary=salary,
+                raw_json=item,
             )
         )
 

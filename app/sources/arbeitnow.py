@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import re
+from datetime import datetime, timezone
 
 import requests
 
@@ -17,6 +18,14 @@ def _clean_html(value: str | None) -> str:
     text = re.sub(r"<[^>]+>", " ", value)
     text = html.unescape(text)
     return re.sub(r"\s+", " ", text).strip()
+
+
+def _published_at(value: object) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return datetime.fromtimestamp(value, tz=timezone.utc).isoformat(timespec="seconds")
+    return str(value)
 
 
 def fetch_arbeitnow(page: int = 1) -> list[JobOffer]:
@@ -38,13 +47,16 @@ def fetch_arbeitnow(page: int = 1) -> list[JobOffer]:
         jobs.append(
             JobOffer(
                 source="arbeitnow",
+                source_id=str(item.get("slug") or item.get("id") or "") or None,
                 title=title,
                 company=company,
                 location=item.get("location"),
                 url=url,
                 description=_clean_html(item.get("description")),
+                published_at=_published_at(item.get("created_at")),
                 tags=item.get("tags") or [],
                 remote=item.get("remote"),
+                raw_json=item,
             )
         )
 

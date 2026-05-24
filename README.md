@@ -2,7 +2,7 @@
 
 AI-assisted technical job fetching and filtering prototype.
 
-The current version is intentionally small: it fetches job offers from public APIs, normalizes them into a common schema, applies a cheap rule-based filter, and can use an LLM provider to rank the surviving jobs against a candidate profile.
+The current version is intentionally small: it fetches job offers from public APIs, stores them in SQLite, applies a cheap rule-based filter, and can use an LLM provider to rank jobs against a candidate profile.
 
 ## Requirements
 
@@ -153,7 +153,19 @@ You can also run the fetch command as a Python module:
 python -m app.cli fetch --source arbeitnow --page 1 --min-score 10
 ```
 
-Preview which jobs would be sent to an LLM without requiring provider credentials:
+Fetch writes to SQLite by default:
+
+```bash
+python -m app.cli fetch --source arbeitnow --db data/job_intel.sqlite
+```
+
+You can also export the fetched batch to JSON:
+
+```bash
+python -m app.cli fetch --source arbeitnow --export-json
+```
+
+Preview which database offers would be ranked without requiring provider credentials:
 
 ```bash
 python -m app.cli rank --dry-run
@@ -183,10 +195,16 @@ python -m app.cli rank --provider ollama
 python -m app.cli rank --provider mock
 ```
 
-Use a custom profile or jobs file:
+Use a custom profile:
 
 ```bash
-python -m app.cli rank --profile profiles/default.json --jobs-path data/normalized/latest_jobs.json --limit 10
+python -m app.cli rank --profile profiles/default.json --limit 10
+```
+
+Use a custom database or only recent offers:
+
+```bash
+python -m app.cli rank --db data/job_intel.sqlite --only-recent-days 14 --limit 10
 ```
 
 Use custom rule weights:
@@ -200,10 +218,12 @@ python -m app.cli rank --weights-path config/rule_weights.example.json
 Fetched jobs are saved to:
 
 ```text
-data/normalized/latest_jobs.json
+data/job_intel.sqlite
 ```
 
-Every ranking run is saved to a timestamped JSON file:
+SQLite is the source of truth. It contains `offers`, `ranking_runs`, and `rankings`.
+
+Optional JSON exports are written only when `--export-json` is used:
 
 ```text
 data/ranked/ranked_YYYY-MM-DD_HH-MM-SS.json
