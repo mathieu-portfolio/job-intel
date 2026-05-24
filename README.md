@@ -98,6 +98,7 @@ For Ollama ranking, set:
 ```env
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=qwen3
+OLLAMA_TIMEOUT=120
 ```
 
 Adzuna requires an `app_id` and `app_key`. Leave these empty if you only use Arbeitnow.
@@ -164,6 +165,16 @@ Rank the filtered jobs with the configured provider:
 python -m app.cli rank
 ```
 
+Choose the ranking mode:
+
+```bash
+python -m app.cli rank --ranking-mode rules
+python -m app.cli rank --ranking-mode ai
+python -m app.cli rank --ranking-mode hybrid
+```
+
+Rules mode never calls an LLM. Hybrid mode uses the weighted rule score as a prefilter and combines it with the AI score and penalties for the final decision.
+
 Switch providers explicitly:
 
 ```bash
@@ -178,6 +189,12 @@ Use a custom profile or jobs file:
 python -m app.cli rank --profile profiles/default.json --jobs-path data/normalized/latest_jobs.json --limit 10
 ```
 
+Use custom rule weights:
+
+```bash
+python -m app.cli rank --weights-path config/rule_weights.example.json
+```
+
 ## Output files
 
 Fetched jobs are saved to:
@@ -186,8 +203,8 @@ Fetched jobs are saved to:
 data/normalized/latest_jobs.json
 ```
 
-The fetch command also prints the best rule matches in the terminal. The rank command prints an explainable LLM shortlist sorted by fit score.
+The fetch command also prints the best rule matches in the terminal. The rank command prints an explainable shortlist sorted by final weighted score.
 
 ## Current filtering logic
 
-The first version uses simple keyword scoring.
+Rule scoring uses weighted positive and negative term matches. The default weights are in code, and `config/rule_weights.example.json` shows the supported configuration shape.

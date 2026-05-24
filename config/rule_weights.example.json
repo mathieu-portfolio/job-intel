@@ -1,0 +1,30 @@
+{
+  "positive_terms": {
+    "c++": 14,
+    "cpp": 10,
+    "simulation": 12,
+    "systems": 10,
+    "linux": 8,
+    "embedded": 8,
+    "graphics": 8,
+    "rendering": 8,
+    "tooling": 7,
+    "infrastructure": 6,
+    "performance": 8
+  },
+  "negative_terms": {
+    "frontend": -8,
+    "react": -8,
+    "php": -10,
+    "wordpress": -12,
+    "salesforce": -12,
+    "senior": -16,
+    "lead": -14,
+    "principal": -18,
+    "staff": -16
+  },
+  "profile_positive_weight": 8,
+  "profile_negative_weight": -10,
+  "neutral_score": 50,
+  "score_scale": 2
+}

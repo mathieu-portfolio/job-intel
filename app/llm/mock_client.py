@@ -25,19 +25,23 @@ class MockLlmProvider:
         title_text = title.lower()
 
         risk = 70 if any(term in description for term in ["rockstar", "ninja", "fast-paced"]) else 25
-        junior = 35 if any(term in title_text for term in ["senior", "lead", "principal", "staff"]) else 75
+        seniority = 35 if any(term in title_text for term in ["senior", "lead", "principal", "staff"]) else 75
         technical = 80 if any(term in description for term in ["c++", "simulation", "systems"]) else 55
-        fit = round((technical + junior + 70 + (100 - risk)) / 4)
+        fit = round((technical + seniority + 70 + (100 - risk)) / 4)
+        recommendation = "high" if fit >= 75 else "medium" if fit >= 60 else "low" if fit >= 40 else "skip"
+        if seniority < 35:
+            recommendation = "skip"
 
         return response_model.model_validate(
             {
                 "fit_score": fit,
                 "technical_fit_score": technical,
-                "junior_accessibility_score": junior,
+                "seniority_fit_score": seniority,
                 "learning_potential_score": 70,
                 "wording_risk_score": risk,
                 "portfolio_alignment_score": 65,
-                "recommendation": "apply" if fit >= 70 else "consider",
+                "summary": f"Mock evaluation for {title}.",
+                "recommendation": recommendation,
                 "reasoning": [
                     f"Mock evaluation for {title}.",
                     "Uses deterministic local scoring for development.",
@@ -45,7 +49,7 @@ class MockLlmProvider:
                 "risks": [
                     "Mock mode does not inspect the posting as deeply as a real model.",
                 ],
-                "suggested_positioning": [
+                "suggested_positioning": None if recommendation == "skip" else [
                     "Emphasize relevant technical projects and learning velocity.",
                 ],
             }

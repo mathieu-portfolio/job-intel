@@ -12,7 +12,10 @@ SYSTEM_PROMPT = """You evaluate job offers for a junior technical candidate.
 Return practical, evidence-based judgments. Penalize vague buzzword-heavy posts,
 senior-only roles, unclear engineering substance, and poor portfolio alignment.
 Use scores from 0 to 100 where higher is better, except wording_risk_score where
-higher means more vague or bullshit wording risk."""
+higher means more vague or bullshit wording risk.
+Use recommendation values exactly as: high, medium, low, skip.
+Keep recommendation consistent with scores and reasoning. A poor seniority fit
+must not receive high or medium. Use suggested_positioning as null for poor matches."""
 
 
 def _job_payload(job: JobOffer) -> dict[str, object]:
@@ -44,14 +47,15 @@ def build_job_evaluation_prompts(
             "instructions": {
                 "fit_score": "Overall suitability for this candidate.",
                 "technical_fit_score": "Match to technical interests and strengths.",
-                "junior_accessibility_score": "Likelihood a junior candidate can credibly apply.",
+                "seniority_fit_score": "Fit between the role seniority and the candidate target seniority.",
                 "learning_potential_score": "How much useful growth the role may offer.",
                 "wording_risk_score": "Higher means vaguer, buzzword-heavy, or less trustworthy.",
                 "portfolio_alignment_score": "Fit with portfolio/project positioning.",
-                "recommendation": "One of: strong_apply, apply, consider, skip.",
+                "summary": "One short sentence summarizing the evaluation.",
+                "recommendation": "One of: high, medium, low, skip. Must match the scores and reasoning.",
                 "reasoning": "Concrete reasons grounded in the posting.",
                 "risks": "Practical concerns or missing information.",
-                "suggested_positioning": "How the candidate should frame themselves if applying.",
+                "suggested_positioning": "How to frame the application, or null for poor matches.",
             },
         },
         ensure_ascii=False,
