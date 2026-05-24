@@ -2,7 +2,7 @@
 
 AI-assisted technical job fetching and filtering prototype.
 
-The current version is intentionally small: it fetches job offers from public APIs, normalizes them into a common schema, applies a cheap rule-based filter, and prints a ranked shortlist.
+The current version is intentionally small: it fetches job offers from public APIs, normalizes them into a common schema, applies a cheap rule-based filter, and can use OpenAI to rank the surviving jobs against a candidate profile.
 
 ## Requirements
 
@@ -51,24 +51,45 @@ python -m pip install -e .
 
 This installs the dependencies from `pyproject.toml` and exposes the `jobs` command.
 
+Fallback install path:
+
+```bash
+python -m pip install -r requirements.txt
+```
+
 ## Configuration
 
-The project can run without credentials using the Arbeitnow source.
-
-For Adzuna, copy the example environment file:
+Copy the example environment file:
 
 ```bash
 cp .env.example .env
 ```
 
-Then fill:
+On PowerShell:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+The project can fetch from Arbeitnow without credentials.
+
+For Adzuna, fill:
 
 ```env
 ADZUNA_APP_ID=your_app_id
 ADZUNA_APP_KEY=your_app_key
 ```
 
+For AI ranking, set:
+
+```env
+OPENAI_API_KEY=your_openai_api_key
+OPENAI_MODEL=gpt-4o-mini
+```
+
 Adzuna requires an `app_id` and `app_key`. Leave these empty if you only use Arbeitnow.
+
+AI ranking calls the OpenAI API and uses paid API credits.
 
 ## Commands
 
@@ -77,6 +98,7 @@ Show available commands:
 ```bash
 jobs --help
 jobs fetch --help
+jobs rank --help
 ```
 
 Fetch and filter jobs from Arbeitnow:
@@ -91,10 +113,28 @@ Fetch and filter jobs from Adzuna:
 jobs fetch --source adzuna --query "c++ simulation" --country fr --where France --min-score 10
 ```
 
-You can also run the CLI as a Python module:
+You can also run the fetch command as a Python module:
 
 ```bash
 python -m app.cli fetch --source arbeitnow --page 1 --min-score 10
+```
+
+Preview which jobs would be sent to OpenAI without requiring an API key:
+
+```bash
+python -m app.cli rank --dry-run
+```
+
+Rank the filtered jobs with OpenAI:
+
+```bash
+python -m app.cli rank
+```
+
+Use a custom profile or jobs file:
+
+```bash
+python -m app.cli rank --profile profiles/default.json --jobs-path data/normalized/latest_jobs.json --limit 10
 ```
 
 ## Output files
@@ -105,7 +145,7 @@ Fetched jobs are saved to:
 data/normalized/latest_jobs.json
 ```
 
-The command also prints the best matches in the terminal.
+The fetch command also prints the best rule matches in the terminal. The rank command prints an explainable AI shortlist sorted by fit score.
 
 ## Current filtering logic
 
@@ -135,13 +175,17 @@ Negative signals include:
 - lead
 - principal
 
-This is only a cheap prefilter. The next step is to add an AI evaluator that receives only the surviving jobs and ranks them more deeply against a profile.
+This is only a cheap prefilter. The AI rank command receives only the surviving jobs and ranks them more deeply against a profile.
 
 ## Project structure
 
 ```text
 app/
   cli.py
+  ai/
+    evaluator.py
+    extract.py
+    rank.py
   filtering/
     rules.py
   models/
@@ -160,30 +204,15 @@ data/
   normalized/
   ranked/
 profiles/
+  default.json
   mathieu.json
 .env.example
 pyproject.toml
 requirements.txt
 ```
 
-## About `requirements.txt`
-
-The main install path is now:
-
-```bash
-python -m pip install -e .
-```
-
-`requirements.txt` is kept as a simple fallback for tools or environments that still expect it:
-
-```bash
-python -m pip install -r requirements.txt
-```
-
 ## Next steps
 
-- Add AI ranking after the rule-based filter.
 - Store ranked results in `data/ranked/`.
 - Add deduplication by URL.
 - Expand API sources.
-- Add profile-aware scoring.

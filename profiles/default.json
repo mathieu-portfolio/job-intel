@@ -1,0 +1,37 @@
+{
+  "name": "Default junior systems candidate",
+  "interests": [
+    "systems",
+    "simulation",
+    "infrastructure",
+    "graphics",
+    "tooling"
+  ],
+  "preferred_domains": [
+    "aerospace",
+    "defense",
+    "engineering software",
+    "infrastructure"
+  ],
+  "disliked_work": [
+    "generic CRUD",
+    "pure consulting",
+    "marketing-driven products"
+  ],
+  "strengths": [
+    "C++",
+    "architecture thinking",
+    "modular design",
+    "technical curiosity"
+  ],
+  "portfolio_projects": [
+    "C++ systems projects",
+    "simulation or graphics experiments",
+    "tooling and infrastructure work"
+  ],
+  "location_preferences": [
+    "France",
+    "remote Europe"
+  ],
+  "target_seniority": "junior"
+}

@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from app.models.job import JobOffer
+from app.models.profile import CandidateProfile
 
 
 DATA_DIR = Path("data")
@@ -19,3 +20,20 @@ def save_jobs(jobs: list[JobOffer], path: Path = LATEST_NORMALIZED_PATH) -> None
             indent=2,
             ensure_ascii=False,
         )
+
+
+def load_jobs(path: Path = LATEST_NORMALIZED_PATH) -> list[JobOffer]:
+    with path.open("r", encoding="utf-8") as file:
+        raw_jobs = json.load(file)
+
+    if not isinstance(raw_jobs, list):
+        raise ValueError(f"Expected a JSON list of jobs in {path}")
+
+    return [JobOffer.model_validate(job) for job in raw_jobs]
+
+
+def load_profile(path: Path) -> CandidateProfile:
+    with path.open("r", encoding="utf-8") as file:
+        raw_profile = json.load(file)
+
+    return CandidateProfile.model_validate(raw_profile)

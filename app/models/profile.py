@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class CandidateProfile(BaseModel):
-    interests: list[str] = []
-    preferred_domains: list[str] = []
-    disliked_work: list[str] = []
-    strengths: list[str] = []
-    location_preferences: list[str] = []
+    name: str | None = None
+    interests: list[str] = Field(default_factory=list)
+    preferred_domains: list[str] = Field(default_factory=list)
+    disliked_work: list[str] = Field(default_factory=list)
+    strengths: list[str] = Field(default_factory=list)
+    portfolio_projects: list[str] = Field(default_factory=list)
+    location_preferences: list[str] = Field(default_factory=list)
     target_seniority: str | None = None
