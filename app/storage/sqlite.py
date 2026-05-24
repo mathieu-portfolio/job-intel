@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -9,6 +11,7 @@ from typing import Any
 
 from app.models.evaluation import Recommendation
 from app.models.job import JobOffer
+from app.sql import load_sql
 
 
 DEFAULT_DB_PATH = Path("data/job_intel.sqlite")
@@ -34,75 +37,31 @@ def _now_iso() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
 
-def _connect(db_path: Path) -> sqlite3.Connection:
+@contextmanager
+def _connect(db_path: Path) -> Iterator[sqlite3.Connection]:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(db_path)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
-    return connection
+    try:
+        yield connection
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
 
 
 def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
     with _connect(db_path) as connection:
-        connection.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS offers (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                source TEXT NOT NULL,
-                source_id TEXT,
-                url TEXT NOT NULL UNIQUE,
-                title TEXT NOT NULL,
-                company TEXT NOT NULL,
-                location TEXT,
-                description TEXT NOT NULL DEFAULT '',
-                published_at TEXT,
-                first_seen_at TEXT NOT NULL,
-                last_seen_at TEXT NOT NULL,
-                last_fetched_at TEXT NOT NULL,
-                raw_json TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS ranking_runs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                started_at TEXT NOT NULL,
-                algorithm TEXT NOT NULL,
-                model TEXT,
-                profile_path TEXT NOT NULL,
-                config_json TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS rankings (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                run_id INTEGER NOT NULL,
-                offer_id INTEGER NOT NULL,
-                algorithm TEXT NOT NULL,
-                model TEXT,
-                profile_path TEXT NOT NULL,
-                score INTEGER NOT NULL,
-                recommendation TEXT NOT NULL,
-                summary TEXT NOT NULL,
-                result_json TEXT NOT NULL,
-                ranked_at TEXT NOT NULL,
-                FOREIGN KEY(run_id) REFERENCES ranking_runs(id) ON DELETE CASCADE,
-                FOREIGN KEY(offer_id) REFERENCES offers(id) ON DELETE CASCADE
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_offers_newest
-                ON offers(published_at DESC, first_seen_at DESC);
-            CREATE INDEX IF NOT EXISTS idx_rankings_lookup
-                ON rankings(algorithm, model, profile_path);
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_rankings_unique_offer_algorithm_model_profile
-                ON rankings(offer_id, algorithm, COALESCE(model, ''), profile_path);
-            """
-        )
+        connection.executescript(load_sql("schema/init.sql"))
         columns = {
             row["name"]
-            for row in connection.execute("PRAGMA table_info(offers)").fetchall()
+            for row in connection.execute(load_sql("schema/offers_columns.sql")).fetchall()
         }
         if "review_status" not in columns:
-            connection.execute(
-                "ALTER TABLE offers ADD COLUMN review_status TEXT NOT NULL DEFAULT 'new'"
-            )
+            connection.execute(load_sql("schema/add_review_status.sql"))
 
 
 def upsert_offers(
@@ -120,7 +79,7 @@ def upsert_offers(
         for job in jobs:
             url = str(job.url)
             existing = connection.execute(
-                "SELECT id FROM offers WHERE url = ?",
+                load_sql("offers/select_by_url.sql"),
                 (url,),
             ).fetchone()
             raw_json = json.dumps(
@@ -130,13 +89,7 @@ def upsert_offers(
             if existing is None:
                 inserted += 1
                 connection.execute(
-                    """
-                    INSERT INTO offers (
-                        source, source_id, url, title, company, location, description,
-                        published_at, first_seen_at, last_seen_at, last_fetched_at, raw_json
-                    )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
+                    load_sql("offers/insert.sql"),
                     (
                         job.source,
                         job.source_id,
@@ -155,20 +108,7 @@ def upsert_offers(
             else:
                 updated += 1
                 connection.execute(
-                    """
-                    UPDATE offers
-                    SET source = ?,
-                        source_id = ?,
-                        title = ?,
-                        company = ?,
-                        location = ?,
-                        description = ?,
-                        published_at = ?,
-                        last_seen_at = ?,
-                        last_fetched_at = ?,
-                        raw_json = ?
-                    WHERE url = ?
-                    """,
+                    load_sql("offers/update.sql"),
                     (
                         job.source,
                         job.source_id,
@@ -228,27 +168,8 @@ def select_unranked_offers(
     params.append(limit)
 
     with _connect(db_path) as connection:
-        rows = connection.execute(
-            f"""
-            SELECT offers.*
-            FROM offers
-            WHERE NOT EXISTS (
-                SELECT 1
-                FROM rankings
-                WHERE rankings.offer_id = offers.id
-                  AND rankings.algorithm = ?
-                  AND rankings.model IS ?
-                  AND rankings.profile_path = ?
-            )
-            {recent_clause}
-            ORDER BY
-                CASE WHEN published_at IS NULL THEN 1 ELSE 0 END,
-                published_at DESC,
-                first_seen_at DESC
-            LIMIT ?
-            """,
-            params,
-        ).fetchall()
+        sql = load_sql("offers/select_unranked.sql").replace("/*RECENT_FILTER*/", recent_clause)
+        rows = connection.execute(sql, params).fetchall()
 
     return [StoredOffer(id=row["id"], job=_job_from_offer_row(row)) for row in rows]
 
@@ -265,10 +186,7 @@ def create_ranking_run(
     init_db(db_path)
     with _connect(db_path) as connection:
         cursor = connection.execute(
-            """
-            INSERT INTO ranking_runs (started_at, algorithm, model, profile_path, config_json)
-            VALUES (?, ?, ?, ?, ?)
-            """,
+            load_sql("ranking_runs/insert.sql"),
             (
                 started_at,
                 algorithm,
@@ -298,23 +216,11 @@ def save_ranking(
     ranked_at = ranked_at or _now_iso()
     with _connect(db_path) as connection:
         connection.execute(
-            """
-            DELETE FROM rankings
-            WHERE offer_id = ?
-              AND algorithm = ?
-              AND model IS ?
-              AND profile_path = ?
-            """,
+            load_sql("rankings/delete_existing.sql"),
             (offer_id, algorithm, model, profile_path),
         )
         connection.execute(
-            """
-            INSERT INTO rankings (
-                run_id, offer_id, algorithm, model, profile_path, score,
-                recommendation, summary, result_json, ranked_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
+            load_sql("rankings/insert.sql"),
             (
                 run_id,
                 offer_id,
@@ -341,9 +247,15 @@ def update_offer_status(
     init_db(db_path)
     with _connect(db_path) as connection:
         connection.execute(
-            "UPDATE offers SET review_status = ? WHERE id = ?",
+            load_sql("offers/update_status.sql"),
             (status, offer_id),
         )
+
+
+def clear_rankings(db_path: Path = DEFAULT_DB_PATH) -> None:
+    init_db(db_path)
+    with _connect(db_path) as connection:
+        connection.execute(load_sql("rankings/delete_all.sql"))
 
 
 def list_ranked_offers(
@@ -354,6 +266,7 @@ def list_ranked_offers(
     source: str | None = None,
     ranking_mode: str | None = None,
     only_recent_days: int | None = None,
+    ai_only: bool = False,
     sort: str = "score_desc",
     limit: int = 100,
 ) -> list[dict[str, Any]]:
@@ -372,6 +285,14 @@ def list_ranked_offers(
     if ranking_mode:
         clauses.append("rankings.algorithm = ?")
         params.append(ranking_mode)
+    if ai_only:
+        clauses.append(
+            "("
+            "rankings.algorithm = 'ai' "
+            "OR (rankings.algorithm = 'hybrid' "
+            "AND rankings.result_json NOT LIKE '%\"raw_ai_evaluation\": null%')"
+            ")"
+        )
     if only_recent_days is not None:
         cutoff = (datetime.now() - timedelta(days=only_recent_days)).isoformat(timespec="seconds")
         clauses.append("COALESCE(offers.published_at, offers.first_seen_at) >= ?")
@@ -389,35 +310,12 @@ def list_ranked_offers(
 
     params.append(limit)
     with _connect(db_path) as connection:
-        rows = connection.execute(
-            f"""
-            SELECT
-                rankings.id AS ranking_id,
-                rankings.offer_id,
-                rankings.algorithm,
-                rankings.model,
-                rankings.profile_path,
-                rankings.score,
-                rankings.recommendation,
-                rankings.summary,
-                rankings.result_json,
-                rankings.ranked_at,
-                offers.source,
-                offers.url,
-                offers.title,
-                offers.company,
-                offers.location,
-                offers.published_at,
-                offers.first_seen_at,
-                offers.review_status
-            FROM rankings
-            JOIN offers ON offers.id = rankings.offer_id
-            {where_sql}
-            ORDER BY {order_by}
-            LIMIT ?
-            """,
-            params,
-        ).fetchall()
+        sql = (
+            load_sql("rankings/select_review.sql")
+            .replace("/*WHERE_CLAUSE*/", where_sql)
+            .replace("/*ORDER_BY*/", order_by)
+        )
+        rows = connection.execute(sql, params).fetchall()
 
     results: list[dict[str, Any]] = []
     for row in rows:
@@ -434,15 +332,11 @@ def get_review_filter_options(db_path: Path = DEFAULT_DB_PATH) -> dict[str, list
     with _connect(db_path) as connection:
         sources = [
             row["source"]
-            for row in connection.execute(
-                "SELECT DISTINCT source FROM offers ORDER BY source"
-            ).fetchall()
+            for row in connection.execute(load_sql("rankings/select_sources.sql")).fetchall()
         ]
         algorithms = [
             row["algorithm"]
-            for row in connection.execute(
-                "SELECT DISTINCT algorithm FROM rankings ORDER BY algorithm"
-            ).fetchall()
+            for row in connection.execute(load_sql("rankings/select_algorithms.sql")).fetchall()
         ]
     return {
         "sources": sources,

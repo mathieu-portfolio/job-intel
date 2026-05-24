@@ -26,4 +26,4 @@ jobs = "app.cli:app"
 include = ["app*"]
 
 [tool.setuptools.package-data]
-app = ["ui/templates/*.html", "ui/static/*.css"]
+app = ["ui/templates/*.html", "ui/static/*.css", "sql/**/*.sql"]

@@ -12,7 +12,16 @@
         <h1>Job Intel Review</h1>
         <p>{{ db_path }}</p>
       </div>
-      <div class="count">{{ offers|length }} ranked offers</div>
+      <div class="header-actions">
+        <div class="count">{{ offers|length }} ranked offers</div>
+        <form
+          method="post"
+          action="/rankings/clear"
+          onsubmit="return confirm('Clear all ranking rows? Offers and statuses will be kept.');"
+        >
+          <button class="danger" type="submit">Clear rankings</button>
+        </form>
+      </div>
     </header>
 
     <main>
@@ -55,7 +64,11 @@
         </label>
         <label>
           Recent days
-          <input name="recency" type="number" min="1" value="{{ filters.recency }}">
+          <input name="recency" type="number" min="1" required value="{{ filters.recency }}">
+        </label>
+        <label class="checkline">
+          <input name="ai_only" type="checkbox" value="true" {% if filters.ai_only %}checked{% endif %}>
+          AI-ranked only
         </label>
         <label>
           Sort
@@ -91,7 +104,7 @@
                   <span>{{ offer.ranked_at }}</span>
                 </div>
                 <h2>{{ offer.title }}</h2>
-                <p class="company">{{ offer.company }}{% if offer.location %} · {{ offer.location }}{% endif %}</p>
+                <p class="company">{{ offer.company }}{% if offer.location %} | {{ offer.location }}{% endif %}</p>
               </div>
               <div class="scorebox">
                 <strong>{{ offer.score }}</strong>
@@ -137,7 +150,7 @@
                   <h3>AI evaluation</h3>
                   {% if ai %}
                     <p>{{ ai.summary }}</p>
-                    <p>Fit {{ ai.fit_score }} · Technical {{ ai.technical_fit_score }} · Seniority {{ ai.seniority_fit_score }}</p>
+                    <p>Fit {{ ai.fit_score }} | Technical {{ ai.technical_fit_score }} | Seniority {{ ai.seniority_fit_score }}</p>
                     <ul>
                       {% for reason in ai.reasoning %}
                         <li>{{ reason }}</li>

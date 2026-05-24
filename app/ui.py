@@ -9,6 +9,7 @@ from fastapi.templating import Jinja2Templates
 
 from app.storage.sqlite import (
     DEFAULT_DB_PATH,
+    clear_rankings,
     get_review_filter_options,
     list_ranked_offers,
     update_offer_status,
@@ -17,6 +18,15 @@ from app.storage.sqlite import (
 
 UI_DIR = Path(__file__).parent / "ui"
 templates = Jinja2Templates(directory=str(UI_DIR / "templates"))
+DEFAULT_RECENCY_DAYS = 30
+
+
+def _positive_int(value: str | None, default: int) -> int:
+    try:
+        parsed = int(value or "")
+    except ValueError:
+        return default
+    return parsed if parsed > 0 else default
 
 
 def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
@@ -31,17 +41,20 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
         status: str | None = None,
         source: str | None = None,
         ranking_mode: str | None = None,
-        recency: int | None = None,
+        recency: str | None = None,
+        ai_only: bool = False,
         sort: str = "score_desc",
         limit: int = 100,
     ) -> HTMLResponse:
+        recency_days = _positive_int(recency, DEFAULT_RECENCY_DAYS)
         offers = list_ranked_offers(
             db_path=request.app.state.db_path,
             recommendation=recommendation or None,
             status=status or None,
             source=source or None,
             ranking_mode=ranking_mode or None,
-            only_recent_days=recency,
+            only_recent_days=recency_days,
+            ai_only=ai_only,
             sort=sort,
             limit=limit,
         )
@@ -55,7 +68,8 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                     "status": status or "",
                     "source": source or "",
                     "ranking_mode": ranking_mode or "",
-                    "recency": recency or "",
+                    "recency": recency_days,
+                    "ai_only": ai_only,
                     "sort": sort,
                     "limit": limit,
                 },
@@ -84,5 +98,10 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
             "_status_controls.html",
             {"offer": {"offer_id": offer_id, "review_status": status}},
         )
+
+    @app.post("/rankings/clear")
+    def clear_all_rankings(request: Request):
+        clear_rankings(request.app.state.db_path)
+        return RedirectResponse("/", status_code=303)
 
     return app

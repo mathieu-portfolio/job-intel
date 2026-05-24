@@ -1,0 +1,1 @@
+ALTER TABLE offers ADD COLUMN review_status TEXT NOT NULL DEFAULT 'new';

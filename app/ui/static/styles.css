@@ -9,6 +9,8 @@
   --accent-soft: #e7f0f8;
   --good: #0f766e;
   --warn: #a16207;
+  --danger: #b42318;
+  --danger-soft: #fee4e2;
 }
 
 * {
@@ -31,6 +33,7 @@ body {
   padding: 24px 32px;
   border-bottom: 1px solid var(--line);
   background: var(--panel);
+  flex-wrap: wrap;
 }
 
 h1,
@@ -56,6 +59,19 @@ h1 {
   font-weight: 700;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 14px;
+  max-width: 100%;
+}
+
+.header-actions form {
+  margin: 0;
+}
+
 main {
   max-width: 1180px;
   margin: 0 auto;
@@ -64,7 +80,7 @@ main {
 
 .filters {
   display: grid;
-  grid-template-columns: repeat(7, minmax(120px, 1fr)) auto auto;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 12px;
   align-items: end;
   margin-bottom: 20px;
@@ -108,6 +124,25 @@ button[type="submit"],
   border-color: var(--accent);
   background: var(--accent);
   color: #fff;
+}
+
+button.danger {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.checkline {
+  align-content: end;
+  grid-template-columns: auto 1fr;
+  min-height: 58px;
+  min-width: 150px;
+}
+
+.checkline input {
+  min-height: auto;
 }
 
 .list {
