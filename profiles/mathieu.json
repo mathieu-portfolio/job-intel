@@ -1,0 +1,31 @@
+{
+  "interests": [
+    "systems",
+    "simulation",
+    "infrastructure",
+    "graphics",
+    "tooling"
+  ],
+  "preferred_domains": [
+    "aerospace",
+    "defense",
+    "engineering software",
+    "infrastructure"
+  ],
+  "disliked_work": [
+    "generic CRUD",
+    "pure consulting",
+    "marketing-driven products"
+  ],
+  "strengths": [
+    "C++",
+    "architecture thinking",
+    "modular design",
+    "technical curiosity"
+  ],
+  "location_preferences": [
+    "France",
+    "remote Europe"
+  ],
+  "target_seniority": "junior"
+}

@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=70.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "job-intel"
+version = "0.1.0"
+description = "AI-assisted technical job fetching and filtering prototype."
+requires-python = ">=3.11"
+dependencies = [
+    "requests>=2.32.0",
+    "pydantic>=2.8.0",
+    "typer>=0.12.0",
+    "rich>=13.7.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.scripts]
+jobs = "app.cli:app"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
