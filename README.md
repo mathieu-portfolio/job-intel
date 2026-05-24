@@ -160,12 +160,6 @@ Fetch writes to SQLite by default:
 python -m app.cli fetch --source arbeitnow --db data/job_intel.sqlite
 ```
 
-You can also export the fetched batch to JSON:
-
-```bash
-python -m app.cli fetch --source arbeitnow --export-json
-```
-
 Preview which database offers would be ranked without requiring provider credentials:
 
 ```bash
@@ -220,7 +214,7 @@ Start the local review dashboard:
 python -m app.cli ui --db data/job_intel.sqlite --open-browser
 ```
 
-The UI lists ranked offers from SQLite, supports sorting and filters for recommendation, status, source, ranking mode, and recency, and lets you mark offers as `saved`, `skipped`, or `applied`. Fetching and ranking still run through the CLI.
+The UI lists ranked offers from SQLite, supports sorting and filters for recommendation, status, source, location, ranking mode, and recency, lets you mark offers as `saved`, `skipped`, or `applied`, and can run fetch/rank workflows directly.
 
 ## Output files
 
@@ -232,13 +226,7 @@ data/job_intel.sqlite
 
 SQLite is the source of truth. It contains `offers`, `ranking_runs`, and `rankings`.
 
-Optional JSON exports are written only when `--export-json` is used:
-
-```text
-data/ranked/ranked_YYYY-MM-DD_HH-MM-SS.json
-```
-
-The saved ranking output includes run metadata, job metadata, weighted rule scoring, raw AI evaluation when used, and the final policy-adjusted decision.
+The saved ranking rows include run metadata, job metadata, weighted rule scoring, raw AI evaluation when used, and the final policy-adjusted decision.
 
 The fetch command also prints the best rule matches in the terminal. The rank command prints an explainable shortlist sorted by final weighted score.
 

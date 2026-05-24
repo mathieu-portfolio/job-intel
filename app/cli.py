@@ -45,7 +45,6 @@ def fetch(
     country: str = typer.Option("fr", help="Adzuna country code, for example fr, gb, us."),
     where: str | None = typer.Option(None, help="Optional Adzuna location filter."),
     db: Path = typer.Option(DEFAULT_DB_PATH, "--db", help="SQLite database path."),
-    export_json: bool = typer.Option(False, "--export-json", help="Also export fetched jobs to JSON."),
     min_score: int = typer.Option(40, help="Minimum calibrated rule score to print."),
     limit: int = typer.Option(20, help="Maximum number of matches to print."),
 ) -> None:
@@ -59,7 +58,6 @@ def fetch(
             country=country,
             where=where,
             db_path=db,
-            export_json=export_json,
             min_score=min_score,
         )
     except requests.RequestException as error:
@@ -75,8 +73,6 @@ def fetch(
     console.print(f"[bold]Fetched:[/bold] {result.stats.fetched} jobs from {source}")
     console.print(f"[bold]Database:[/bold] {db}")
     console.print(f"[green]Inserted:[/green] {result.stats.inserted} | [yellow]Updated:[/yellow] {result.stats.updated}")
-    if export_json:
-        console.print("[bold]JSON export:[/bold] data/normalized/latest_jobs.json")
     console.print(f"[green]Matched:[/green] {result.matched_count} jobs with calibrated score >= {min_score}\n")
 
     for index, (job, evaluation) in enumerate(result.matches[:limit], start=1):
@@ -199,7 +195,6 @@ def rank(
     ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Print detailed evaluation progress."),
     debug_prompt: bool = typer.Option(False, "--debug-prompt", help="Write evaluation prompts into debug/."),
-    export_json: bool = typer.Option(False, "--export-json", help="Also export this ranking run to data/ranked/."),
 ) -> None:
     """Rank unranked SQLite offers against a candidate profile."""
 
@@ -215,7 +210,6 @@ def rank(
             ranking_mode=ranking_mode,
             provider=provider,
             debug_prompt=debug_prompt,
-            export_json=export_json,
             progress=console.print if verbose else None,
         )
     except FileNotFoundError as error:
@@ -266,8 +260,6 @@ def rank(
     for index, (stored_offer, rule_evaluation, ai_evaluation, final_decision) in enumerate(result.ranked, start=1):
         _print_ranked_job(index, stored_offer.job, rule_evaluation, ai_evaluation, final_decision)
     console.print(f"\n[bold]Saved ranking run:[/bold] {result.run_id} in {db}")
-    if result.exported_json_path:
-        console.print(f"[bold]JSON export:[/bold] {result.exported_json_path}")
 
 
 @app.command()

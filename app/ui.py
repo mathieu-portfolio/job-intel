@@ -125,7 +125,6 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 country=form.get("country") or "fr",
                 where=(form.get("where") or "").strip() or None,
                 db_path=request.app.state.db_path,
-                export_json=form.get("export_json") == "true",
                 min_score=_positive_int(form.get("min_score"), 40),
             )
             request.app.state.workflow_notice = _workflow_notice(
@@ -167,7 +166,6 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 ranking_mode=form.get("ranking_mode") or "hybrid",  # type: ignore[arg-type]
                 provider=((form.get("provider") or "").strip() or None),  # type: ignore[arg-type]
                 model=(form.get("model") or "").strip() or None,
-                export_json=form.get("export_json") == "true",
             )
             request.app.state.workflow_notice = _workflow_notice(
                 "success",

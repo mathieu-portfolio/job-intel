@@ -122,18 +122,6 @@ main {
   width: 100%;
 }
 
-.inline-check {
-  align-content: end;
-  grid-template-columns: auto 1fr;
-  min-height: 58px;
-  white-space: nowrap;
-}
-
-.inline-check input {
-  width: auto;
-  min-height: auto;
-}
-
 .workflow-notice {
   margin-bottom: 20px;
   border-color: var(--accent);

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import re
 import time
 from collections.abc import Callable
@@ -20,7 +19,7 @@ from app.models.evaluation import AiJobEvaluation, FinalDecision, RuleEvaluation
 from app.models.job import JobOffer
 from app.sources.adzuna import fetch_adzuna
 from app.sources.arbeitnow import fetch_arbeitnow
-from app.storage.files import load_profile, save_jobs
+from app.storage.files import load_profile
 from app.storage.sqlite import (
     DEFAULT_DB_PATH,
     StoredOffer,
@@ -45,7 +44,6 @@ class FetchWorkflowResult:
     stats: UpsertStats
     matched_count: int
     matches: list[tuple[JobOffer, RuleEvaluation]]
-    exported_json: bool
 
 
 @dataclass(frozen=True)
@@ -63,7 +61,6 @@ class RankWorkflowResult:
     run_id: int | None
     ranked: list[RankedResult]
     candidates: list[tuple[StoredOffer, RuleEvaluation]]
-    exported_json_path: Path | None = None
     messages: list[str] = field(default_factory=list)
 
 
@@ -120,52 +117,6 @@ def ranking_result_payload(
     }
 
 
-def save_ranked_results(
-    *,
-    ranked: list[RankedResult],
-    timestamp: datetime,
-    provider_name: str | None,
-    model_name: str | None,
-    ranking_mode: RankingMode,
-    profile_path: Path,
-    db_path: Path,
-    weights_path: Path | None,
-) -> Path:
-    output_dir = Path("data/ranked")
-    output_dir.mkdir(parents=True, exist_ok=True)
-    timestamp_slug = timestamp.strftime("%Y-%m-%d_%H-%M-%S")
-    output_path = output_dir / f"ranked_{timestamp_slug}.json"
-    suffix = 2
-    while output_path.exists():
-        output_path = output_dir / f"ranked_{timestamp_slug}_{suffix}.json"
-        suffix += 1
-    payload = {
-        "run_metadata": {
-            "timestamp": timestamp.isoformat(timespec="seconds"),
-            "provider": provider_name,
-            "model": model_name,
-            "ranking_mode": ranking_mode,
-            "profile_path": str(profile_path),
-            "db_path": str(db_path),
-            "weights_path": str(weights_path) if weights_path else None,
-        },
-        "results": [
-            ranking_result_payload(
-                stored_offer=stored_offer,
-                rule_evaluation=rule_evaluation,
-                ai_evaluation=ai_evaluation,
-                final_decision=final_decision,
-            )
-            for stored_offer, rule_evaluation, ai_evaluation, final_decision in ranked
-        ],
-    }
-    output_path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-    return output_path
-
-
 def fetch_offers(
     *,
     source: FetchSource = "arbeitnow",
@@ -174,7 +125,6 @@ def fetch_offers(
     country: str = "fr",
     where: str | None = None,
     db_path: Path = DEFAULT_DB_PATH,
-    export_json: bool = False,
     min_score: int = 40,
     progress: ProgressCallback | None = None,
 ) -> FetchWorkflowResult:
@@ -192,8 +142,6 @@ def fetch_offers(
 
     _emit(messages, progress, f"Fetched {len(jobs)} jobs. Updating database.")
     stats = upsert_offers(jobs, db_path=db_path)
-    if export_json:
-        save_jobs(jobs)
     matches = filter_jobs(jobs, min_score=min_score)
     _emit(
         messages,
@@ -206,7 +154,6 @@ def fetch_offers(
         stats=stats,
         matched_count=len(matches),
         matches=matches,
-        exported_json=export_json,
     )
 
 
@@ -223,7 +170,6 @@ def rank_offers(
     provider: ProviderName | None = None,
     model: str | None = None,
     debug_prompt: bool = False,
-    export_json: bool = False,
     progress: ProgressCallback | None = None,
 ) -> RankWorkflowResult:
     messages: list[str] = []
@@ -397,18 +343,6 @@ def rank_offers(
             ranked.append((stored_offer, rule_evaluation, ai_evaluation, final_decision))
 
     ranked.sort(key=lambda item: item[3].final_score, reverse=True)
-    exported_json_path = None
-    if export_json:
-        exported_json_path = save_ranked_results(
-            ranked=ranked,
-            timestamp=run_timestamp,
-            provider_name=provider_name,
-            model_name=model_name,
-            ranking_mode=ranking_mode,
-            profile_path=profile_path,
-            db_path=db_path,
-            weights_path=weights_path,
-        )
     _emit(messages, progress, f"Saved {len(ranked)} rankings.")
     return RankWorkflowResult(
         profile_path=profile_path,
@@ -424,6 +358,5 @@ def rank_offers(
         run_id=run_id,
         ranked=ranked,
         candidates=candidates,
-        exported_json_path=exported_json_path,
         messages=messages,
     )
