@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import re
 import time
+import threading
+import webbrowser
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
@@ -565,7 +567,35 @@ def rank(
             db_path=db,
             weights_path=weights_path,
         )
-        console.print(f"[bold]JSON export:[/bold] {output_path}")
+    console.print(f"[bold]JSON export:[/bold] {output_path}")
+
+
+@app.command()
+def ui(
+    db: Path = typer.Option(DEFAULT_DB_PATH, "--db", help="SQLite database path."),
+    host: str = typer.Option("127.0.0.1", help="Local server host."),
+    port: int = typer.Option(8000, min=1, max=65535, help="Local server port."),
+    open_browser: bool = typer.Option(False, "--open-browser", help="Open the dashboard in the default browser."),
+) -> None:
+    """Start the local review dashboard."""
+
+    try:
+        import uvicorn
+
+        from app.ui import create_app
+    except ImportError as error:
+        console.print(
+            "[red]UI dependencies are missing.[/red] Install with `python -m pip install -e .` "
+            "or `python -m pip install -r requirements.txt`."
+        )
+        raise typer.Exit(code=1) from error
+
+    url = f"http://{host}:{port}"
+    console.print(f"[bold]Starting review UI:[/bold] {url}")
+    console.print(f"[bold]Database:[/bold] {db}")
+    if open_browser:
+        threading.Timer(1.0, lambda: webbrowser.open(url)).start()
+    uvicorn.run(create_app(db), host=host, port=port)
 
 
 if __name__ == "__main__":

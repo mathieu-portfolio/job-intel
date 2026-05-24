@@ -133,6 +133,7 @@ Show available commands:
 jobs --help
 jobs fetch --help
 jobs rank --help
+jobs ui --help
 ```
 
 Fetch and filter jobs from Arbeitnow:
@@ -212,6 +213,14 @@ Use custom rule weights:
 ```bash
 python -m app.cli rank --weights-path config/rule_weights.example.json
 ```
+
+Start the local review dashboard:
+
+```bash
+python -m app.cli ui --db data/job_intel.sqlite --open-browser
+```
+
+The UI lists ranked offers from SQLite, supports sorting and filters for recommendation, status, source, ranking mode, and recency, and lets you mark offers as `saved`, `skipped`, or `applied`. Fetching and ranking still run through the CLI.
 
 ## Output files
 

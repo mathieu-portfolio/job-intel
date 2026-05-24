@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Job Intel Review</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='styles.css') }}">
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>Job Intel Review</h1>
+        <p>{{ db_path }}</p>
+      </div>
+      <div class="count">{{ offers|length }} ranked offers</div>
+    </header>
+
+    <main>
+      <form class="filters" method="get">
+        <label>
+          Recommendation
+          <select name="recommendation">
+            <option value="">Any</option>
+            {% for value in options.recommendations %}
+              <option value="{{ value }}" {% if filters.recommendation == value %}selected{% endif %}>{{ value }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>
+          Status
+          <select name="status">
+            <option value="">Any</option>
+            {% for value in options.statuses %}
+              <option value="{{ value }}" {% if filters.status == value %}selected{% endif %}>{{ value }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>
+          Source
+          <select name="source">
+            <option value="">Any</option>
+            {% for value in options.sources %}
+              <option value="{{ value }}" {% if filters.source == value %}selected{% endif %}>{{ value }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>
+          Ranking mode
+          <select name="ranking_mode">
+            <option value="">Any</option>
+            {% for value in options.ranking_modes %}
+              <option value="{{ value }}" {% if filters.ranking_mode == value %}selected{% endif %}>{{ value }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>
+          Recent days
+          <input name="recency" type="number" min="1" value="{{ filters.recency }}">
+        </label>
+        <label>
+          Sort
+          <select name="sort">
+            <option value="score_desc" {% if filters.sort == "score_desc" %}selected{% endif %}>Score</option>
+            <option value="ranked_newest" {% if filters.sort == "ranked_newest" %}selected{% endif %}>Ranked newest</option>
+            <option value="offer_newest" {% if filters.sort == "offer_newest" %}selected{% endif %}>Offer newest</option>
+            <option value="recommendation" {% if filters.sort == "recommendation" %}selected{% endif %}>Recommendation</option>
+            <option value="status" {% if filters.sort == "status" %}selected{% endif %}>Status</option>
+            <option value="source" {% if filters.sort == "source" %}selected{% endif %}>Source</option>
+          </select>
+        </label>
+        <label>
+          Limit
+          <input name="limit" type="number" min="1" max="500" value="{{ filters.limit }}">
+        </label>
+        <button type="submit">Apply</button>
+        <a class="clear" href="/">Clear</a>
+      </form>
+
+      <section class="list">
+        {% for offer in offers %}
+          {% set result = offer.result %}
+          {% set rule = result.get("rule_evaluation") or {} %}
+          {% set ai = result.get("raw_ai_evaluation") %}
+          {% set final = result.get("final_decision") or {} %}
+          <article class="offer">
+            <div class="offer-main">
+              <div>
+                <div class="meta">
+                  <span>{{ offer.source }}</span>
+                  <span>{{ offer.algorithm }}</span>
+                  <span>{{ offer.ranked_at }}</span>
+                </div>
+                <h2>{{ offer.title }}</h2>
+                <p class="company">{{ offer.company }}{% if offer.location %} · {{ offer.location }}{% endif %}</p>
+              </div>
+              <div class="scorebox">
+                <strong>{{ offer.score }}</strong>
+                <span>{{ offer.recommendation }}</span>
+              </div>
+            </div>
+
+            <div class="actions">
+              <a class="primary" href="{{ offer.url }}" target="_blank" rel="noreferrer">Open offer</a>
+              <div id="status-{{ offer.offer_id }}">
+                {% include "_status_controls.html" %}
+              </div>
+            </div>
+
+            <div class="summary">{{ offer.summary }}</div>
+
+            <details>
+              <summary>Review details</summary>
+              <div class="details-grid">
+                <section>
+                  <h3>Rule scoring</h3>
+                  <p>Weighted score: {{ rule.get("score") }} ({{ rule.get("normalized_score") }}/100)</p>
+                  <p>Recommendation: {{ rule.get("decision") }}</p>
+                  <h4>Positive terms</h4>
+                  <ul>
+                    {% for item in rule.get("matched_positive_terms") or [] %}
+                      <li>{{ item.term }} <span>{{ "%+d"|format(item.weight) }}</span></li>
+                    {% else %}
+                      <li>none</li>
+                    {% endfor %}
+                  </ul>
+                  <h4>Negative terms</h4>
+                  <ul>
+                    {% for item in rule.get("matched_negative_terms") or [] %}
+                      <li>{{ item.term }} <span>{{ "%+d"|format(item.weight) }}</span></li>
+                    {% else %}
+                      <li>none</li>
+                    {% endfor %}
+                  </ul>
+                </section>
+
+                <section>
+                  <h3>AI evaluation</h3>
+                  {% if ai %}
+                    <p>{{ ai.summary }}</p>
+                    <p>Fit {{ ai.fit_score }} · Technical {{ ai.technical_fit_score }} · Seniority {{ ai.seniority_fit_score }}</p>
+                    <ul>
+                      {% for reason in ai.reasoning %}
+                        <li>{{ reason }}</li>
+                      {% endfor %}
+                    </ul>
+                  {% else %}
+                    <p>No AI evaluation for this result.</p>
+                  {% endif %}
+                </section>
+
+                <section>
+                  <h3>Final decision</h3>
+                  <p>Score: {{ final.get("final_score") }}/100</p>
+                  <p>Recommendation: {{ final.get("recommendation") }}</p>
+                  <ul>
+                    {% for reason in final.get("reasoning") or [] %}
+                      <li>{{ reason }}</li>
+                    {% endfor %}
+                  </ul>
+                  {% if final.get("policy_adjustments") %}
+                    <h4>Policy adjustments</h4>
+                    <ul>
+                      {% for item in final.get("policy_adjustments") %}
+                        <li>{{ item }}</li>
+                      {% endfor %}
+                    </ul>
+                  {% endif %}
+                </section>
+              </div>
+            </details>
+          </article>
+        {% else %}
+          <p class="empty">No ranked offers match these filters.</p>
+        {% endfor %}
+      </section>
+    </main>
+  </body>
+</html>

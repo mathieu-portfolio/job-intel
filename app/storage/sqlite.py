@@ -27,6 +27,9 @@ class UpsertStats:
     updated: int
 
 
+VALID_REVIEW_STATUSES = {"new", "saved", "skipped", "applied"}
+
+
 def _now_iso() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
@@ -92,6 +95,14 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
                 ON rankings(offer_id, algorithm, COALESCE(model, ''), profile_path);
             """
         )
+        columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(offers)").fetchall()
+        }
+        if "review_status" not in columns:
+            connection.execute(
+                "ALTER TABLE offers ADD COLUMN review_status TEXT NOT NULL DEFAULT 'new'"
+            )
 
 
 def upsert_offers(
@@ -317,3 +328,125 @@ def save_ranking(
                 ranked_at,
             ),
         )
+
+
+def update_offer_status(
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+    offer_id: int,
+    status: str,
+) -> None:
+    if status not in VALID_REVIEW_STATUSES:
+        raise ValueError(f"Unsupported offer status: {status}")
+    init_db(db_path)
+    with _connect(db_path) as connection:
+        connection.execute(
+            "UPDATE offers SET review_status = ? WHERE id = ?",
+            (status, offer_id),
+        )
+
+
+def list_ranked_offers(
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+    recommendation: str | None = None,
+    status: str | None = None,
+    source: str | None = None,
+    ranking_mode: str | None = None,
+    only_recent_days: int | None = None,
+    sort: str = "score_desc",
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    init_db(db_path)
+    clauses: list[str] = []
+    params: list[Any] = []
+    if recommendation:
+        clauses.append("rankings.recommendation = ?")
+        params.append(recommendation)
+    if status:
+        clauses.append("offers.review_status = ?")
+        params.append(status)
+    if source:
+        clauses.append("offers.source = ?")
+        params.append(source)
+    if ranking_mode:
+        clauses.append("rankings.algorithm = ?")
+        params.append(ranking_mode)
+    if only_recent_days is not None:
+        cutoff = (datetime.now() - timedelta(days=only_recent_days)).isoformat(timespec="seconds")
+        clauses.append("COALESCE(offers.published_at, offers.first_seen_at) >= ?")
+        params.append(cutoff)
+
+    where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    order_by = {
+        "score_desc": "rankings.score DESC, rankings.ranked_at DESC",
+        "ranked_newest": "rankings.ranked_at DESC, rankings.score DESC",
+        "offer_newest": "COALESCE(offers.published_at, offers.first_seen_at) DESC, rankings.score DESC",
+        "recommendation": "rankings.recommendation ASC, rankings.score DESC",
+        "status": "offers.review_status ASC, rankings.score DESC",
+        "source": "offers.source ASC, rankings.score DESC",
+    }.get(sort, "rankings.score DESC, rankings.ranked_at DESC")
+
+    params.append(limit)
+    with _connect(db_path) as connection:
+        rows = connection.execute(
+            f"""
+            SELECT
+                rankings.id AS ranking_id,
+                rankings.offer_id,
+                rankings.algorithm,
+                rankings.model,
+                rankings.profile_path,
+                rankings.score,
+                rankings.recommendation,
+                rankings.summary,
+                rankings.result_json,
+                rankings.ranked_at,
+                offers.source,
+                offers.url,
+                offers.title,
+                offers.company,
+                offers.location,
+                offers.published_at,
+                offers.first_seen_at,
+                offers.review_status
+            FROM rankings
+            JOIN offers ON offers.id = rankings.offer_id
+            {where_sql}
+            ORDER BY {order_by}
+            LIMIT ?
+            """,
+            params,
+        ).fetchall()
+
+    results: list[dict[str, Any]] = []
+    for row in rows:
+        try:
+            result_json = json.loads(row["result_json"])
+        except json.JSONDecodeError:
+            result_json = {}
+        results.append({**dict(row), "result": result_json})
+    return results
+
+
+def get_review_filter_options(db_path: Path = DEFAULT_DB_PATH) -> dict[str, list[str]]:
+    init_db(db_path)
+    with _connect(db_path) as connection:
+        sources = [
+            row["source"]
+            for row in connection.execute(
+                "SELECT DISTINCT source FROM offers ORDER BY source"
+            ).fetchall()
+        ]
+        algorithms = [
+            row["algorithm"]
+            for row in connection.execute(
+                "SELECT DISTINCT algorithm FROM rankings ORDER BY algorithm"
+            ).fetchall()
+        ]
+    return {
+        "sources": sources,
+        "ranking_modes": algorithms,
+        "statuses": sorted(VALID_REVIEW_STATUSES),
+        "recommendations": ["high", "medium", "low", "skip"],
+    }

@@ -1,0 +1,12 @@
+<div class="status-controls">
+  {% for value in ["new", "saved", "skipped", "applied"] %}
+    <form method="post" action="/offers/{{ offer.offer_id }}/status/{{ value }}">
+      <button
+        type="submit"
+        class="{% if offer.review_status == value %}active{% endif %}"
+      >
+        {{ value }}
+      </button>
+    </form>
+  {% endfor %}
+</div>
