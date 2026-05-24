@@ -42,8 +42,11 @@ class RuleScoringConfig(BaseModel):
     )
     profile_positive_weight: int = 8
     profile_negative_weight: int = -10
-    neutral_score: int = 50
-    score_scale: int = 2
+    no_signal_score: int = 20
+    positive_score_scale: int = 3
+    negative_score_scale: int = 4
+    strong_negative_threshold: int = -20
+    strong_negative_score_cap: int = 10
 
 
 def load_rule_scoring_config(path: Path | None = None) -> RuleScoringConfig:
@@ -104,8 +107,21 @@ def _term_weights(
     return weights
 
 
-def _normalized_score(raw_score: int, config: RuleScoringConfig) -> int:
-    return max(0, min(100, config.neutral_score + (raw_score * config.score_scale)))
+def _normalized_score(
+    *,
+    positive_score: int,
+    negative_score: int,
+    config: RuleScoringConfig,
+) -> int:
+    raw_score = positive_score + negative_score
+    score = (
+        config.no_signal_score
+        + (positive_score * config.positive_score_scale)
+        + (negative_score * config.negative_score_scale)
+    )
+    if raw_score <= config.strong_negative_threshold:
+        score = min(score, config.strong_negative_score_cap)
+    return max(0, min(100, round(score)))
 
 
 def evaluate_job(
@@ -145,11 +161,18 @@ def evaluate_job(
         if _contains_term(text, term)
     ]
 
-    score = sum(match.weight for match in positives) + sum(match.weight for match in negatives)
-    normalized_score = _normalized_score(score, config)
+    positive_score = sum(match.weight for match in positives)
+    negative_score = sum(match.weight for match in negatives)
+    score = positive_score + negative_score
+    normalized_score = _normalized_score(
+        positive_score=positive_score,
+        negative_score=negative_score,
+        config=config,
+    )
     reasoning = [
-        f"Matched {len(positives)} positive weighted terms.",
-        f"Matched {len(negatives)} negative weighted terms.",
+        f"Matched {len(positives)} positive weighted terms for {positive_score:+d}.",
+        f"Matched {len(negatives)} negative weighted terms for {negative_score:+d}.",
+        f"Calibrated raw score {score:+d} to {normalized_score}/100.",
     ]
 
     return RuleEvaluation(
@@ -164,10 +187,14 @@ def evaluate_job(
 
 def filter_jobs(
     jobs: list[JobOffer],
-    min_score: int = 10,
+    min_score: int = 40,
     profile: CandidateProfile | None = None,
     config: RuleScoringConfig | None = None,
 ) -> list[tuple[JobOffer, RuleEvaluation]]:
     evaluated = [(job, evaluate_job(job, profile=profile, config=config)) for job in jobs]
-    matches = [(job, evaluation) for job, evaluation in evaluated if evaluation.score >= min_score]
+    matches = [
+        (job, evaluation)
+        for job, evaluation in evaluated
+        if evaluation.normalized_score >= min_score
+    ]
     return sorted(matches, key=lambda item: item[1].normalized_score, reverse=True)

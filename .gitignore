@@ -29,3 +29,4 @@ data/ranked/*.json
 .idea/
 
 *.zip
+*.sqlite

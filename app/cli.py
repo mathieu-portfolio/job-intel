@@ -154,7 +154,7 @@ def fetch(
     where: str | None = typer.Option(None, help="Optional Adzuna location filter."),
     db: Path = typer.Option(DEFAULT_DB_PATH, "--db", help="SQLite database path."),
     export_json: bool = typer.Option(False, "--export-json", help="Also export fetched jobs to JSON."),
-    min_score: int = typer.Option(10, help="Minimum rule score to print."),
+    min_score: int = typer.Option(40, help="Minimum calibrated rule score to print."),
     limit: int = typer.Option(20, help="Maximum number of matches to print."),
 ) -> None:
     """Fetch jobs from one source, upsert SQLite offers, and print a shortlist."""
@@ -183,7 +183,7 @@ def fetch(
     console.print(f"[green]Inserted:[/green] {stats.inserted} | [yellow]Updated:[/yellow] {stats.updated}")
     if export_json:
         console.print("[bold]JSON export:[/bold] data/normalized/latest_jobs.json")
-    console.print(f"[green]Matched:[/green] {len(matches)} jobs with score >= {min_score}\n")
+    console.print(f"[green]Matched:[/green] {len(matches)} jobs with calibrated score >= {min_score}\n")
 
     for index, (job, evaluation) in enumerate(matches[:limit], start=1):
         console.print(f"[bold]{index}. {job.title}[/bold]")
@@ -292,7 +292,7 @@ def rank(
     limit: int = typer.Option(10, min=1, help="Maximum number of jobs to evaluate."),
     only_recent_days: int | None = typer.Option(None, min=1, help="Only rank offers seen or published in the last N days."),
     dry_run: bool = typer.Option(False, help="Print jobs that would be evaluated without calling an LLM."),
-    min_score: int = typer.Option(10, help="Minimum cheap rule score before AI evaluation."),
+    min_score: int = typer.Option(40, help="Minimum calibrated rule score before AI evaluation."),
     weights_path: Path | None = typer.Option(None, help="Optional rule scoring weights JSON path."),
     ranking_mode: RankingMode = typer.Option(
         "hybrid",
@@ -345,29 +345,36 @@ def rank(
         only_recent_days=only_recent_days,
     )
 
-    if ranking_mode == "ai":
-        evaluated_jobs = [
-            (stored_offer, evaluate_job(stored_offer.job, profile=candidate_profile, config=rule_config))
-            for stored_offer in selected_offers
+    evaluated_jobs = [
+        (stored_offer, evaluate_job(stored_offer.job, profile=candidate_profile, config=rule_config))
+        for stored_offer in selected_offers
+    ]
+    if ranking_mode == "hybrid":
+        candidates = [
+            (stored_offer, evaluation)
+            for stored_offer, evaluation in evaluated_jobs
+            if evaluation.normalized_score >= min_score
         ]
-        candidates = evaluated_jobs
-        prefilter_description = f"No rule prefilter in ai mode; evaluating first {len(candidates)} jobs"
+        prefiltered_count = len(candidates)
+        skipped_count = len(evaluated_jobs) - prefiltered_count
+        ai_evaluation_count = prefiltered_count
     else:
-        evaluated_jobs = [
-            (stored_offer, evaluate_job(stored_offer.job, profile=candidate_profile, config=rule_config))
-            for stored_offer in selected_offers
-        ]
         candidates = evaluated_jobs
-        eligible_count = sum(1 for _, evaluation in candidates if evaluation.score >= min_score)
-        prefilter_description = (
-            f"Rule prefilter: {eligible_count}/{len(candidates)} jobs with score >= {min_score}"
-        )
+        prefiltered_count = len(candidates) if ranking_mode == "rules" else 0
+        skipped_count = 0
+        ai_evaluation_count = len(candidates) if ranking_mode == "ai" else 0
 
     console.print(f"[bold]Profile:[/bold] {profile}")
     console.print(f"[bold]Database:[/bold] {db}")
-    console.print(f"[bold]Unranked offers selected:[/bold] {len(selected_offers)}")
+    console.print(f"[bold]Selected jobs:[/bold] {len(selected_offers)} unranked offers")
     console.print(f"[bold]Ranking mode:[/bold] {ranking_mode}")
-    console.print(f"[bold]{prefilter_description}[/bold]\n")
+    console.print(f"[bold]Prefiltered jobs:[/bold] {prefiltered_count}")
+    console.print(f"[bold]AI-evaluated jobs:[/bold] {ai_evaluation_count}")
+    console.print(f"[bold]Skipped jobs:[/bold] {skipped_count}")
+    if ranking_mode == "hybrid":
+        console.print(f"[bold]Hybrid gate:[/bold] calibrated rule score >= {min_score}/100\n")
+    else:
+        console.print()
 
     if not candidates:
         console.print("[yellow]No unranked offers matched this ranking request.[/yellow]")
@@ -447,34 +454,6 @@ def rank(
 
             for index, (stored_offer, rule_evaluation) in enumerate(candidates, start=1):
                 job = stored_offer.job
-                if ranking_mode == "hybrid" and rule_evaluation.score < min_score:
-                    final_decision = make_final_decision(rule_evaluation=rule_evaluation)
-                    result_payload = _ranking_result_payload(
-                        stored_offer=stored_offer,
-                        rule_evaluation=rule_evaluation,
-                        ai_evaluation=None,
-                        final_decision=final_decision,
-                    )
-                    save_ranking(
-                        db_path=db,
-                        run_id=run_id,
-                        offer_id=stored_offer.id,
-                        algorithm=algorithm,
-                        model=model_name,
-                        profile_path=str(profile),
-                        score=final_decision.final_score,
-                        recommendation=final_decision.recommendation,
-                        summary="Skipped by hybrid rule prefilter.",
-                        result=result_payload,
-                    )
-                    ranked.append((stored_offer, rule_evaluation, None, final_decision))
-                    if verbose:
-                        console.print(
-                            f"[dim]Skipping AI for {job.title}: rule score "
-                            f"{rule_evaluation.score} < {min_score}.[/dim]"
-                        )
-                    continue
-
                 console.print(f"[bold]Evaluation {index}/{len(candidates)}[/bold]")
                 console.print(f"[dim]Job:[/dim] {job.title}")
                 console.print("[dim]Step:[/dim] preparing prompt")
@@ -567,7 +546,7 @@ def rank(
             db_path=db,
             weights_path=weights_path,
         )
-    console.print(f"[bold]JSON export:[/bold] {output_path}")
+        console.print(f"[bold]JSON export:[/bold] {output_path}")
 
 
 @app.command()
