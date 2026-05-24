@@ -12,13 +12,15 @@ from app.storage.sqlite import (
     save_ranking,
     upsert_offers,
 )
+from app.workflows import rank_offers
 
 
-def _job(url: str, title: str) -> JobOffer:
+def _job(url: str, title: str, location: str | None = None) -> JobOffer:
     return JobOffer(
         source="test",
         title=title,
         company="Example",
+        location=location,
         url=url,
         description="systems engineering",
         raw_json={},
@@ -95,6 +97,47 @@ class SqliteReviewTests(unittest.TestCase):
             offers = list_ranked_offers(db_path=db_path, ai_only=True)
             self.assertEqual({offer["title"] for offer in offers}, {"AI", "Hybrid AI"})
 
+    def test_location_filter_matches_partial_location_and_ignores_invalid_input(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "jobs.sqlite"
+            upsert_offers(
+                [
+                    _job("https://example.com/berlin", "Berlin", "Berlin, Germany"),
+                    _job("https://example.com/paris", "Paris", "Paris, France"),
+                ],
+                db_path=db_path,
+            )
+            run_id = create_ranking_run(
+                db_path=db_path,
+                started_at="2026-05-24T12:00:00",
+                algorithm="rules",
+                model=None,
+                profile_path="profiles/default.json",
+                config={},
+            )
+            for offer_id in [1, 2]:
+                save_ranking(
+                    db_path=db_path,
+                    run_id=run_id,
+                    offer_id=offer_id,
+                    algorithm="rules",
+                    model=None,
+                    profile_path="profiles/default.json",
+                    score=50,
+                    recommendation="low",
+                    summary="summary",
+                    result=_result(None),
+                )
+
+            self.assertEqual(
+                [offer["title"] for offer in list_ranked_offers(db_path=db_path, location="ber")],
+                ["Berlin"],
+            )
+            self.assertEqual(
+                {offer["title"] for offer in list_ranked_offers(db_path=db_path, location="%%%")},
+                {"Berlin", "Paris"},
+            )
+
     def test_clear_rankings_keeps_offers(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "jobs.sqlite"
@@ -123,6 +166,41 @@ class SqliteReviewTests(unittest.TestCase):
             self.assertEqual(len(list_ranked_offers(db_path=db_path)), 1)
             clear_rankings(db_path)
             self.assertEqual(list_ranked_offers(db_path=db_path), [])
+
+    def test_rank_workflow_rules_mode_saves_summary_counts(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "jobs.sqlite"
+            profile_path = Path(temp_dir) / "profile.json"
+            profile_path.write_text(
+                """
+{
+  "interests": ["C++", "simulation", "systems"],
+  "preferred_domains": ["simulation"],
+  "strengths": ["C++"],
+  "location_preferences": ["Berlin"],
+  "target_seniority": "mid"
+}
+""".strip(),
+                encoding="utf-8",
+            )
+            upsert_offers(
+                [_job("https://example.com/rules", "C++ Simulation Engineer", "Berlin")],
+                db_path=db_path,
+            )
+
+            result = rank_offers(
+                profile_path=profile_path,
+                db_path=db_path,
+                ranking_mode="rules",
+                limit=1,
+            )
+
+            self.assertEqual(result.selected_count, 1)
+            self.assertEqual(result.prefiltered_count, 1)
+            self.assertEqual(result.ai_evaluation_count, 0)
+            self.assertEqual(result.skipped_count, 0)
+            self.assertEqual(result.saved_count, 1)
+            self.assertEqual(len(list_ranked_offers(db_path=db_path)), 1)
 
 
 if __name__ == "__main__":

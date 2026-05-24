@@ -24,10 +24,10 @@ def configured_provider_name(provider: ProviderName | None = None) -> ProviderNa
     return selected  # type: ignore[return-value]
 
 
-def create_llm_provider(provider: ProviderName | None = None) -> LlmProvider:
+def create_llm_provider(provider: ProviderName | None = None, *, model: str | None = None) -> LlmProvider:
     selected = configured_provider_name(provider)
     if selected == "openai":
-        return OpenAiLlmProvider.from_env()
+        return OpenAiLlmProvider.from_env(model=model)
     if selected == "ollama":
-        return OllamaLlmProvider.from_env()
+        return OllamaLlmProvider.from_env(model=model)
     return MockLlmProvider()

@@ -258,12 +258,25 @@ def clear_rankings(db_path: Path = DEFAULT_DB_PATH) -> None:
         connection.execute(load_sql("rankings/delete_all.sql"))
 
 
+def _like_pattern(value: str | None) -> str | None:
+    cleaned = (value or "").strip().lower()
+    if not cleaned or not any(character.isalnum() for character in cleaned):
+        return None
+    escaped = (
+        cleaned.replace("\\", "\\\\")
+        .replace("%", "\\%")
+        .replace("_", "\\_")
+    )
+    return f"%{escaped}%"
+
+
 def list_ranked_offers(
     *,
     db_path: Path = DEFAULT_DB_PATH,
     recommendation: str | None = None,
     status: str | None = None,
     source: str | None = None,
+    location: str | None = None,
     ranking_mode: str | None = None,
     only_recent_days: int | None = None,
     ai_only: bool = False,
@@ -282,6 +295,10 @@ def list_ranked_offers(
     if source:
         clauses.append("offers.source = ?")
         params.append(source)
+    location_pattern = _like_pattern(location)
+    if location_pattern:
+        clauses.append("LOWER(COALESCE(offers.location, '')) LIKE ? ESCAPE '\\'")
+        params.append(location_pattern)
     if ranking_mode:
         clauses.append("rankings.algorithm = ?")
         params.append(ranking_mode)

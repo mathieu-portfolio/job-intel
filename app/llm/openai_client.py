@@ -22,7 +22,7 @@ class OpenAiLlmProvider:
         return self._model
 
     @classmethod
-    def from_env(cls) -> "OpenAiLlmProvider":
+    def from_env(cls, *, model: str | None = None) -> "OpenAiLlmProvider":
         load_dotenv()
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
@@ -31,7 +31,7 @@ class OpenAiLlmProvider:
                 "use `--provider mock`, or run `python -m app.cli rank --dry-run` to preview jobs "
                 "without using an LLM."
             )
-        return cls(api_key=api_key, model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"))
+        return cls(api_key=api_key, model=model or os.getenv("OPENAI_MODEL", "gpt-4o-mini"))
 
     def generate_structured(
         self,

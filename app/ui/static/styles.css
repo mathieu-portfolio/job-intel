@@ -78,9 +78,99 @@ main {
   padding: 24px;
 }
 
-.filters {
+.workflow-panel {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.workflow-card,
+.workflow-notice {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.workflow-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.workflow-head h2,
+.workflow-notice h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.workflow-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.workflow-grid label {
+  flex: none;
+}
+
+.workflow-grid select,
+.workflow-grid input {
+  width: 100%;
+}
+
+.inline-check {
+  align-content: end;
+  grid-template-columns: auto 1fr;
+  min-height: 58px;
+  white-space: nowrap;
+}
+
+.inline-check input {
+  width: auto;
+  min-height: auto;
+}
+
+.workflow-notice {
+  margin-bottom: 20px;
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.workflow-notice.error {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.workflow-notice dl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 12px 0 0;
+}
+
+.workflow-notice dl div {
+  min-width: 120px;
+}
+
+.workflow-notice dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.workflow-notice dd {
+  margin: 0;
+  font-weight: 700;
+}
+
+.filters {
+  display: flex;
+  flex-wrap: nowrap;
+  width: max-content;
+  min-width: 100%;
   gap: 12px;
   align-items: end;
   margin-bottom: 20px;
@@ -95,6 +185,28 @@ label {
   gap: 6px;
   color: var(--muted);
   font-size: 13px;
+  flex: 0 0 132px;
+  min-width: 0;
+}
+
+.filters label:nth-of-type(6),
+.filters label:nth-of-type(8) {
+  flex-basis: 96px;
+}
+
+.filters label:nth-of-type(7) {
+  flex-basis: 150px;
+}
+
+.filters button,
+.filters .clear {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.filters select,
+.filters input {
+  width: 100%;
 }
 
 select,
@@ -119,6 +231,11 @@ button,
   text-align: center;
 }
 
+button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
 button[type="submit"],
 .primary {
   border-color: var(--accent);
@@ -132,17 +249,6 @@ button.danger {
   color: var(--danger);
   font-weight: 700;
   white-space: nowrap;
-}
-
-.checkline {
-  align-content: end;
-  grid-template-columns: auto 1fr;
-  min-height: 58px;
-  min-width: 150px;
-}
-
-.checkline input {
-  min-height: auto;
 }
 
 .list {
@@ -278,11 +384,16 @@ li span {
 @media (max-width: 900px) {
   .topbar,
   .offer-main,
-  .actions {
+  .actions,
+  .workflow-panel {
     display: grid;
+    grid-template-columns: 1fr;
   }
 
-  .filters,
+  .workflow-grid {
+    grid-template-columns: 1fr;
+  }
+
   .details-grid {
     grid-template-columns: 1fr;
   }
