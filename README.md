@@ -2,7 +2,7 @@
 
 AI-assisted technical job fetching and filtering prototype.
 
-The current version is intentionally small: it fetches job offers from public APIs, normalizes them into a common schema, applies a cheap rule-based filter, and can use OpenAI to rank the surviving jobs against a candidate profile.
+The current version is intentionally small: it fetches job offers from public APIs, normalizes them into a common schema, applies a cheap rule-based filter, and can use an LLM provider to rank the surviving jobs against a candidate profile.
 
 ## Requirements
 
@@ -80,16 +80,49 @@ ADZUNA_APP_ID=your_app_id
 ADZUNA_APP_KEY=your_app_key
 ```
 
-For AI ranking, set:
+For AI ranking, choose a provider:
+
+```env
+JOB_INTEL_LLM_PROVIDER=openai
+```
+
+For OpenAI ranking, set:
 
 ```env
 OPENAI_API_KEY=your_openai_api_key
 OPENAI_MODEL=gpt-4o-mini
 ```
 
+For Ollama ranking, set:
+
+```env
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=qwen3
+```
+
 Adzuna requires an `app_id` and `app_key`. Leave these empty if you only use Arbeitnow.
 
-AI ranking calls the OpenAI API and uses paid API credits.
+OpenAI ranking calls the OpenAI API and uses paid API credits. Mock mode avoids API costs.
+
+## Ollama
+
+Install Ollama from the official installer for your platform, then pull a local model:
+
+```bash
+ollama pull qwen3
+```
+
+Start the local Ollama server:
+
+```bash
+ollama serve
+```
+
+Then run ranking with:
+
+```bash
+python -m app.cli rank --provider ollama
+```
 
 ## Commands
 
@@ -119,16 +152,24 @@ You can also run the fetch command as a Python module:
 python -m app.cli fetch --source arbeitnow --page 1 --min-score 10
 ```
 
-Preview which jobs would be sent to OpenAI without requiring an API key:
+Preview which jobs would be sent to an LLM without requiring provider credentials:
 
 ```bash
 python -m app.cli rank --dry-run
 ```
 
-Rank the filtered jobs with OpenAI:
+Rank the filtered jobs with the configured provider:
 
 ```bash
 python -m app.cli rank
+```
+
+Switch providers explicitly:
+
+```bash
+python -m app.cli rank --provider openai
+python -m app.cli rank --provider ollama
+python -m app.cli rank --provider mock
 ```
 
 Use a custom profile or jobs file:
@@ -145,7 +186,7 @@ Fetched jobs are saved to:
 data/normalized/latest_jobs.json
 ```
 
-The fetch command also prints the best rule matches in the terminal. The rank command prints an explainable AI shortlist sorted by fit score.
+The fetch command also prints the best rule matches in the terminal. The rank command prints an explainable LLM shortlist sorted by fit score.
 
 ## Current filtering logic
 
@@ -175,7 +216,7 @@ Negative signals include:
 - lead
 - principal
 
-This is only a cheap prefilter. The AI rank command receives only the surviving jobs and ranks them more deeply against a profile.
+This is only a cheap prefilter. The rank command receives only the surviving jobs and ranks them more deeply against a profile.
 
 ## Project structure
 
@@ -186,6 +227,12 @@ app/
     evaluator.py
     extract.py
     rank.py
+  llm/
+    base.py
+    factory.py
+    mock_client.py
+    ollama_client.py
+    openai_client.py
   filtering/
     rules.py
   models/

@@ -11,6 +11,7 @@ from rich.table import Table
 
 from app.ai.evaluator import evaluate_job_with_ai
 from app.filtering.rules import filter_jobs
+from app.llm.factory import ProviderName, create_llm_provider
 from app.models.evaluation import AiJobEvaluation, RuleEvaluation
 from app.models.job import JobOffer
 from app.sources.adzuna import fetch_adzuna
@@ -129,10 +130,14 @@ def rank(
     profile: Path = typer.Option(Path("profiles/default.json"), help="Candidate profile JSON path."),
     jobs_path: Path = typer.Option(LATEST_NORMALIZED_PATH, help="Normalized jobs JSON path."),
     limit: int = typer.Option(10, min=1, help="Maximum number of jobs to evaluate."),
-    dry_run: bool = typer.Option(False, help="Print jobs that would be evaluated without calling OpenAI."),
+    dry_run: bool = typer.Option(False, help="Print jobs that would be evaluated without calling an LLM."),
     min_score: int = typer.Option(10, help="Minimum cheap rule score before AI evaluation."),
+    provider: ProviderName | None = typer.Option(
+        None,
+        help="LLM provider. Defaults to JOB_INTEL_LLM_PROVIDER or openai.",
+    ),
 ) -> None:
-    """Rank normalized jobs against a candidate profile using OpenAI."""
+    """Rank normalized jobs against a candidate profile using an LLM provider."""
 
     try:
         candidate_profile = load_profile(profile)
@@ -165,9 +170,11 @@ def rank(
 
     ranked: list[tuple[JobOffer, RuleEvaluation, AiJobEvaluation]] = []
     try:
+        llm_provider = create_llm_provider(provider)
+        console.print(f"[bold]LLM provider:[/bold] {llm_provider.name}\n")
         for index, (job, rule_evaluation) in enumerate(candidates, start=1):
             console.print(f"[dim]Evaluating {index}/{len(candidates)}:[/dim] {job.title}")
-            ai_evaluation = evaluate_job_with_ai(job, candidate_profile)
+            ai_evaluation = evaluate_job_with_ai(job, candidate_profile, llm_provider)
             ranked.append((job, rule_evaluation, ai_evaluation))
     except RuntimeError as error:
         console.print(f"[red]AI ranking error:[/red] {error}")
