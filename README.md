@@ -97,7 +97,7 @@ For Ollama ranking, set:
 
 ```env
 OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=qwen3
+OLLAMA_MODEL=llama3.2:3b
 OLLAMA_TIMEOUT=120
 ```
 
@@ -110,7 +110,7 @@ OpenAI ranking calls the OpenAI API and uses paid API credits. Mock mode avoids 
 Install Ollama from the official installer for your platform, then pull a local model:
 
 ```bash
-ollama pull qwen3
+ollama pull llama3.2:3b
 ```
 
 Start the local Ollama server:

@@ -8,6 +8,16 @@ from pydantic import BaseModel, Field
 Recommendation = Literal["high", "medium", "low", "skip"]
 
 
+def recommendation_from_score(score: int) -> Recommendation:
+    if score >= 75:
+        return "high"
+    if score >= 60:
+        return "medium"
+    if score >= 40:
+        return "low"
+    return "skip"
+
+
 class WeightedTermMatch(BaseModel):
     term: str
     weight: int

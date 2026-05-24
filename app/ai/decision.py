@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.models.evaluation import AiJobEvaluation, FinalDecision, Recommendation, RuleEvaluation
+from app.models.evaluation import (
+    AiJobEvaluation,
+    FinalDecision,
+    Recommendation,
+    RuleEvaluation,
+    recommendation_from_score,
+)
 
 
 @dataclass(frozen=True)
@@ -11,16 +17,6 @@ class DecisionWeights:
     ai: float = 0.65
     wording_risk: float = 0.20
     seniority_mismatch: float = 0.35
-
-
-def recommendation_from_score(score: int) -> Recommendation:
-    if score >= 75:
-        return "high"
-    if score >= 60:
-        return "medium"
-    if score >= 40:
-        return "low"
-    return "skip"
 
 
 def _clamp_score(score: float) -> int:

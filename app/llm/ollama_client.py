@@ -33,7 +33,7 @@ class OllamaLlmProvider:
         load_dotenv()
         return cls(
             base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
-            model=os.getenv("OLLAMA_MODEL", "qwen3"),
+            model=os.getenv("OLLAMA_MODEL", "llama3.2:3b"),
             timeout_seconds=_ollama_timeout_from_env(),
         )
 

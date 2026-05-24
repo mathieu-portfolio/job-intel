@@ -6,8 +6,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field, ValidationError
 
-from app.ai.decision import recommendation_from_score
-from app.models.evaluation import RuleEvaluation, WeightedTermMatch
+from app.models.evaluation import RuleEvaluation, WeightedTermMatch, recommendation_from_score
 from app.models.job import JobOffer
 from app.models.profile import CandidateProfile
 
@@ -69,7 +68,7 @@ def _contains_term(text: str, term: str) -> bool:
 
 def _profile_positive_terms(profile: CandidateProfile | None) -> list[str]:
     if profile is None:
-        return POSITIVE_TERMS
+        return []
 
     terms = [
         *profile.interests,
@@ -82,7 +81,7 @@ def _profile_positive_terms(profile: CandidateProfile | None) -> list[str]:
 
 def _profile_negative_terms(profile: CandidateProfile | None) -> list[str]:
     if profile is None:
-        return NEGATIVE_TERMS
+        return []
 
     terms = [
         *profile.disliked_work,
