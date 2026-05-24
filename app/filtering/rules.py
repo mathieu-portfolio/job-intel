@@ -4,6 +4,7 @@ import re
 
 from app.models.evaluation import RuleEvaluation
 from app.models.job import JobOffer
+from app.models.profile import CandidateProfile
 
 
 POSITIVE_TERMS = [
@@ -37,7 +38,33 @@ def _contains_term(text: str, term: str) -> bool:
     return re.search(rf"(?<!\w){escaped}(?!\w)", text) is not None
 
 
-def evaluate_job(job: JobOffer) -> RuleEvaluation:
+def _profile_positive_terms(profile: CandidateProfile | None) -> list[str]:
+    if profile is None:
+        return POSITIVE_TERMS
+
+    terms = [
+        *profile.interests,
+        *profile.preferred_domains,
+        *profile.strengths,
+        *profile.portfolio_projects,
+    ]
+    return [term.lower() for term in terms if term.strip()]
+
+
+def _profile_negative_terms(profile: CandidateProfile | None) -> list[str]:
+    if profile is None:
+        return NEGATIVE_TERMS
+
+    terms = [
+        *profile.disliked_work,
+    ]
+    if profile.target_seniority and profile.target_seniority.lower() in {"junior", "entry", "entry-level"}:
+        terms.extend(["senior", "lead", "principal", "staff"])
+
+    return [term.lower() for term in terms if term.strip()]
+
+
+def evaluate_job(job: JobOffer, profile: CandidateProfile | None = None) -> RuleEvaluation:
     text = " ".join(
         [
             job.title,
@@ -48,8 +75,8 @@ def evaluate_job(job: JobOffer) -> RuleEvaluation:
         ]
     ).lower()
 
-    positives = [term for term in POSITIVE_TERMS if _contains_term(text, term)]
-    negatives = [term for term in NEGATIVE_TERMS if _contains_term(text, term)]
+    positives = [term for term in _profile_positive_terms(profile) if _contains_term(text, term)]
+    negatives = [term for term in _profile_negative_terms(profile) if _contains_term(text, term)]
 
     score = len(positives) * 10 - len(negatives) * 8
 
@@ -71,7 +98,8 @@ def evaluate_job(job: JobOffer) -> RuleEvaluation:
 def filter_jobs(
     jobs: list[JobOffer],
     min_score: int = 10,
+    profile: CandidateProfile | None = None,
 ) -> list[tuple[JobOffer, RuleEvaluation]]:
-    evaluated = [(job, evaluate_job(job)) for job in jobs]
+    evaluated = [(job, evaluate_job(job, profile=profile)) for job in jobs]
     matches = [(job, evaluation) for job, evaluation in evaluated if evaluation.score >= min_score]
     return sorted(matches, key=lambda item: item[1].score, reverse=True)

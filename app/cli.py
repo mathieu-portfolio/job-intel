@@ -144,7 +144,7 @@ def rank(
         console.print(f"[red]Invalid input:[/red] {error}")
         raise typer.Exit(code=1) from error
 
-    candidates = filter_jobs(jobs, min_score=min_score)[:limit]
+    candidates = filter_jobs(jobs, min_score=min_score, profile=candidate_profile)[:limit]
 
     console.print(f"[bold]Profile:[/bold] {profile}")
     console.print(f"[bold]Jobs loaded:[/bold] {len(jobs)}")
