@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Fetched Offers - Job Intel Review</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='styles.css') }}">
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>Job Intel Review</h1>
+        <p>{{ db_path }}</p>
+        <nav class="nav-links">
+          <a class="{% if active_page == 'ranked' %}active{% endif %}" href="/">Ranked offers</a>
+          <a class="{% if active_page == 'offers' %}active{% endif %}" href="/offers">Fetched offers</a>
+        </nav>
+      </div>
+      <div class="header-actions">
+        <div class="count">{{ offers|length }} fetched offers</div>
+      </div>
+    </header>
+
+    <main>
+      <form class="filters offers-filters" method="get" action="/offers">
+        <label class="wide-filter">
+          Search
+          <input name="q" type="search" value="{{ filters.q }}" placeholder="Title, company, description">
+        </label>
+        <label>
+          Source
+          <select name="source">
+            <option value="">Any</option>
+            {% for value in options.sources %}
+              <option value="{{ value }}" {% if filters.source == value %}selected{% endif %}>{{ value }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>
+          Limit
+          <input name="limit" type="number" min="1" max="500" value="{{ filters.limit }}">
+        </label>
+        <button type="submit">Apply</button>
+        <a class="clear" href="/offers">Clear</a>
+      </form>
+
+      <section class="list">
+        {% for offer in offers %}
+          <article class="offer raw-offer">
+            <div class="offer-main">
+              <div>
+                <div class="meta">
+                  <span>{{ offer.source }}</span>
+                  <span>Fetched {{ offer.last_fetched_at }}</span>
+                  {% if offer.published_at %}<span>Published {{ offer.published_at }}</span>{% endif %}
+                </div>
+                <h2>{{ offer.title }}</h2>
+                <p class="company">{{ offer.company }}{% if offer.location %} | {{ offer.location }}{% endif %}</p>
+              </div>
+            </div>
+
+            <div class="actions">
+              {% if offer.url %}
+                <a class="primary" href="{{ offer.url }}" target="_blank" rel="noreferrer">Open offer</a>
+              {% endif %}
+            </div>
+
+            <p class="summary description-preview">{{ offer.description }}</p>
+          </article>
+        {% else %}
+          <p class="empty">No fetched offers match these filters.</p>
+        {% endfor %}
+      </section>
+    </main>
+  </body>
+</html>

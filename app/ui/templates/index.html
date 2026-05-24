@@ -11,6 +11,10 @@
       <div>
         <h1>Job Intel Review</h1>
         <p>{{ db_path }}</p>
+        <nav class="nav-links">
+          <a class="{% if active_page == 'ranked' %}active{% endif %}" href="/">Ranked offers</a>
+          <a class="{% if active_page == 'offers' %}active{% endif %}" href="/offers">Fetched offers</a>
+        </nav>
       </div>
       <div class="header-actions">
         <div class="count">{{ offers|length }} ranked offers</div>

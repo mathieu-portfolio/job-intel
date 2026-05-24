@@ -72,6 +72,29 @@ h1 {
   margin: 0;
 }
 
+.nav-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.nav-links a {
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 10px;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.nav-links a.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 700;
+}
+
 main {
   max-width: 1180px;
   margin: 0 auto;
@@ -197,6 +220,10 @@ label {
   width: 100%;
 }
 
+.offers-filters .wide-filter {
+  flex-basis: 280px;
+}
+
 select,
 input,
 button,
@@ -317,6 +344,13 @@ h2 {
 
 .summary {
   margin: 14px 0;
+}
+
+.description-preview {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
 }
 
 details {

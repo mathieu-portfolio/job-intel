@@ -344,6 +344,42 @@ def list_ranked_offers(
     return results
 
 
+def list_unranked_review_offers(
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+    search: str | None = None,
+    source: str | None = None,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    init_db(db_path)
+    clauses: list[str] = []
+    params: list[Any] = []
+    search_pattern = _like_pattern(search)
+    if search_pattern:
+        clauses.append(
+            "("
+            "LOWER(offers.title) LIKE ? ESCAPE '\\' "
+            "OR LOWER(offers.company) LIKE ? ESCAPE '\\' "
+            "OR LOWER(offers.description) LIKE ? ESCAPE '\\'"
+            ")"
+        )
+        params.extend([search_pattern, search_pattern, search_pattern])
+    if source:
+        clauses.append("offers.source = ?")
+        params.append(source)
+
+    filter_sql = f"AND {' AND '.join(clauses)}" if clauses else ""
+    params.append(limit)
+    with _connect(db_path) as connection:
+        sql = load_sql("offers/select_unranked_review.sql").replace(
+            "/*FILTER_CLAUSE*/",
+            filter_sql,
+        )
+        rows = connection.execute(sql, params).fetchall()
+
+    return [dict(row) for row in rows]
+
+
 def get_review_filter_options(db_path: Path = DEFAULT_DB_PATH) -> dict[str, list[str]]:
     init_db(db_path)
     with _connect(db_path) as connection:

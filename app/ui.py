@@ -13,6 +13,7 @@ from app.storage.sqlite import (
     clear_rankings,
     get_review_filter_options,
     list_ranked_offers,
+    list_unranked_review_offers,
     update_offer_status,
 )
 from app.workflows import fetch_offers, rank_offers
@@ -110,6 +111,36 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 "options": get_review_filter_options(request.app.state.db_path),
                 "db_path": request.app.state.db_path,
                 "workflow_notice": request.app.state.workflow_notice,
+                "active_page": "ranked",
+            },
+        )
+
+    @app.get("/offers", response_class=HTMLResponse)
+    def fetched_offers(
+        request: Request,
+        q: str | None = None,
+        source: str | None = None,
+        limit: int = 100,
+    ) -> HTMLResponse:
+        offers = list_unranked_review_offers(
+            db_path=request.app.state.db_path,
+            search=q or None,
+            source=source or None,
+            limit=limit,
+        )
+        return templates.TemplateResponse(
+            request,
+            "offers.html",
+            {
+                "offers": offers,
+                "filters": {
+                    "q": q or "",
+                    "source": source or "",
+                    "limit": limit,
+                },
+                "options": get_review_filter_options(request.app.state.db_path),
+                "db_path": request.app.state.db_path,
+                "active_page": "offers",
             },
         )
 

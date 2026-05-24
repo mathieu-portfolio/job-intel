@@ -9,6 +9,7 @@ from app.storage.sqlite import (
     clear_rankings,
     create_ranking_run,
     list_ranked_offers,
+    list_unranked_review_offers,
     save_ranking,
     upsert_offers,
 )
@@ -166,6 +167,44 @@ class SqliteReviewTests(unittest.TestCase):
             self.assertEqual(len(list_ranked_offers(db_path=db_path)), 1)
             clear_rankings(db_path)
             self.assertEqual(list_ranked_offers(db_path=db_path), [])
+
+    def test_unranked_review_offers_excludes_any_ranked_offer_and_filters_search(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "jobs.sqlite"
+            upsert_offers(
+                [
+                    _job("https://example.com/ranked", "Ranked C++", "Berlin"),
+                    _job("https://example.com/unranked", "Unranked Simulation", "Paris"),
+                    _job("https://example.com/other", "Frontend", "Remote"),
+                ],
+                db_path=db_path,
+            )
+            run_id = create_ranking_run(
+                db_path=db_path,
+                started_at="2026-05-24T12:00:00",
+                algorithm="rules",
+                model=None,
+                profile_path="profiles/default.json",
+                config={},
+            )
+            save_ranking(
+                db_path=db_path,
+                run_id=run_id,
+                offer_id=1,
+                algorithm="rules",
+                model=None,
+                profile_path="profiles/default.json",
+                score=50,
+                recommendation="low",
+                summary="summary",
+                result=_result(None),
+            )
+
+            offers = list_unranked_review_offers(db_path=db_path)
+            self.assertEqual({offer["title"] for offer in offers}, {"Unranked Simulation", "Frontend"})
+
+            filtered = list_unranked_review_offers(db_path=db_path, search="simulation")
+            self.assertEqual([offer["title"] for offer in filtered], ["Unranked Simulation"])
 
     def test_rank_workflow_rules_mode_saves_summary_counts(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
