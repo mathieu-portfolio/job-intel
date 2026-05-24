@@ -77,13 +77,34 @@ def make_final_decision(
     if seniority_penalty:
         reasoning.append(f"Applied seniority-mismatch penalty of {seniority_penalty}.")
 
+    policy_adjustments: list[str] = []
     ai_cap = _recommendation_score_cap(ai_evaluation.recommendation)
     if final_score > ai_cap:
         final_score = ai_cap
-        reasoning.append(f"Capped final score to match AI recommendation `{ai_evaluation.recommendation}`.")
-    if ai_evaluation.seniority_fit_score < 35 and final_score > 39:
-        final_score = 39
-        reasoning.append("Capped final score because seniority fit is a clear mismatch.")
+        policy_adjustments.append(
+            f"Capped final score to match AI recommendation `{ai_evaluation.recommendation}`."
+        )
+
+    if (
+        ai_evaluation.seniority_fit_score < 35
+        and ai_evaluation.recommendation in {"high", "medium"}
+    ):
+        cap = 39 if ai_evaluation.seniority_fit_score < 25 else 59
+        target = "skip" if cap == 39 else "low"
+        if final_score > cap:
+            final_score = cap
+        policy_adjustments.append(
+            "Downgraded final recommendation because AI reported high/medium "
+            f"despite seniority_fit_score {ai_evaluation.seniority_fit_score}; "
+            f"capped final score for `{target}`."
+        )
+    elif ai_evaluation.seniority_fit_score < 35 and final_score > 59:
+        final_score = 59
+        policy_adjustments.append(
+            "Capped final score at low because seniority fit is a clear mismatch."
+        )
+
+    reasoning.extend(policy_adjustments)
 
     return FinalDecision(
         final_score=final_score,
@@ -92,5 +113,6 @@ def make_final_decision(
         ai_component=ai_component,
         penalty_component=penalty_component,
         seniority_mismatch_penalty=seniority_penalty,
+        policy_adjustments=policy_adjustments,
         reasoning=reasoning,
     )

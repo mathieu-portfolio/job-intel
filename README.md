@@ -203,6 +203,14 @@ Fetched jobs are saved to:
 data/normalized/latest_jobs.json
 ```
 
+Every ranking run is saved to a timestamped JSON file:
+
+```text
+data/ranked/ranked_YYYY-MM-DD_HH-MM-SS.json
+```
+
+The saved ranking output includes run metadata, job metadata, weighted rule scoring, raw AI evaluation when used, and the final policy-adjusted decision.
+
 The fetch command also prints the best rule matches in the terminal. The rank command prints an explainable shortlist sorted by final weighted score.
 
 ## Current filtering logic

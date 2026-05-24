@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 
 Recommendation = Literal["high", "medium", "low", "skip"]
@@ -35,18 +35,6 @@ class AiJobEvaluation(BaseModel):
     risks: list[str] = Field(default_factory=list)
     suggested_positioning: list[str] | None = None
 
-    @model_validator(mode="after")
-    def recommendation_must_match_scores(self) -> "AiJobEvaluation":
-        if self.recommendation == "high" and self.fit_score < 70:
-            raise ValueError("high recommendation requires fit_score >= 70")
-        if self.recommendation == "medium" and self.fit_score < 50:
-            raise ValueError("medium recommendation requires fit_score >= 50")
-        if self.recommendation == "skip" and self.fit_score > 55:
-            raise ValueError("skip recommendation requires fit_score <= 55")
-        if self.seniority_fit_score < 35 and self.recommendation in {"high", "medium"}:
-            raise ValueError("seniority mismatch cannot have high or medium recommendation")
-        return self
-
 
 class FinalDecision(BaseModel):
     final_score: int = Field(ge=0, le=100)
@@ -55,4 +43,5 @@ class FinalDecision(BaseModel):
     ai_component: int | None = Field(default=None, ge=0, le=100)
     penalty_component: int = Field(ge=0, le=100)
     seniority_mismatch_penalty: int = Field(ge=0, le=100)
+    policy_adjustments: list[str] = Field(default_factory=list)
     reasoning: list[str] = Field(default_factory=list)
