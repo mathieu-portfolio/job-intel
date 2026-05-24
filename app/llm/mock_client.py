@@ -7,6 +7,8 @@ from app.llm.base import StructuredModel
 
 class MockLlmProvider:
     name = "mock"
+    model_name = "deterministic-local"
+    timeout_seconds = None
 
     def generate_structured(
         self,

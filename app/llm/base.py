@@ -10,6 +10,8 @@ StructuredModel = TypeVar("StructuredModel", bound=BaseModel)
 
 class LlmProvider(Protocol):
     name: str
+    model_name: str
+    timeout_seconds: float | None
 
     def generate_structured(
         self,

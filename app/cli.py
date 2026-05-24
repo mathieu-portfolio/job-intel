@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+import time
 from pathlib import Path
 from typing import Literal
 
@@ -9,9 +11,10 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from app.ai.evaluator import evaluate_job_with_ai
+from app.ai.evaluator import build_job_evaluation_prompts, evaluate_job_with_ai
 from app.filtering.rules import filter_jobs
 from app.llm.factory import ProviderName, create_llm_provider
+from app.llm.ollama_client import OllamaLlmProvider
 from app.models.evaluation import AiJobEvaluation, RuleEvaluation
 from app.models.job import JobOffer
 from app.sources.adzuna import fetch_adzuna
@@ -21,6 +24,35 @@ from app.storage.files import LATEST_NORMALIZED_PATH, load_jobs, load_profile, s
 
 app = typer.Typer(help="Fetch and filter technical job offers.", no_args_is_help=True)
 console = Console()
+
+
+def _format_timeout(timeout_seconds: float | None) -> str:
+    if timeout_seconds is None:
+        return "provider default"
+    return f"{timeout_seconds:g}s"
+
+
+def _prompt_size(system_prompt: str, user_prompt: str) -> int:
+    return len(system_prompt.encode("utf-8")) + len(user_prompt.encode("utf-8"))
+
+
+def _safe_debug_name(index: int, title: str) -> str:
+    cleaned = re.sub(r"[^a-zA-Z0-9._-]+", "-", title.lower()).strip("-")
+    return f"{index:03d}-{cleaned[:60] or 'job'}"
+
+
+def _dump_debug_prompts(
+    *,
+    index: int,
+    job: JobOffer,
+    system_prompt: str,
+    user_prompt: str,
+) -> None:
+    debug_dir = Path("debug")
+    debug_dir.mkdir(exist_ok=True)
+    base_name = _safe_debug_name(index, job.title)
+    (debug_dir / f"{base_name}.system.txt").write_text(system_prompt, encoding="utf-8")
+    (debug_dir / f"{base_name}.user.json").write_text(user_prompt, encoding="utf-8")
 
 
 @app.callback()
@@ -136,6 +168,8 @@ def rank(
         None,
         help="LLM provider. Defaults to JOB_INTEL_LLM_PROVIDER or openai.",
     ),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Print detailed evaluation progress."),
+    debug_prompt: bool = typer.Option(False, "--debug-prompt", help="Write evaluation prompts into debug/."),
 ) -> None:
     """Rank normalized jobs against a candidate profile using an LLM provider."""
 
@@ -171,10 +205,65 @@ def rank(
     ranked: list[tuple[JobOffer, RuleEvaluation, AiJobEvaluation]] = []
     try:
         llm_provider = create_llm_provider(provider)
-        console.print(f"[bold]LLM provider:[/bold] {llm_provider.name}\n")
+        console.print(f"[bold]LLM provider:[/bold] {llm_provider.name}")
+        console.print(f"[bold]Model:[/bold] {llm_provider.model_name}")
+        console.print(f"[bold]Timeout:[/bold] {_format_timeout(llm_provider.timeout_seconds)}")
+        if isinstance(llm_provider, OllamaLlmProvider):
+            console.print(f"[bold]Ollama URL:[/bold] {llm_provider.base_url}")
+            with console.status("[bold]Checking Ollama health and model...[/bold]", spinner="dots"):
+                llm_provider.check_ready()
+            console.print("[green]Ollama ready.[/green]")
+        if debug_prompt:
+            console.print("[bold]Debug prompts:[/bold] debug/")
+        console.print()
+
         for index, (job, rule_evaluation) in enumerate(candidates, start=1):
-            console.print(f"[dim]Evaluating {index}/{len(candidates)}:[/dim] {job.title}")
-            ai_evaluation = evaluate_job_with_ai(job, candidate_profile, llm_provider)
+            console.print(f"[bold]Evaluation {index}/{len(candidates)}[/bold]")
+            console.print(f"[dim]Job:[/dim] {job.title}")
+            console.print("[dim]Step:[/dim] preparing prompt")
+            system_prompt, user_prompt = build_job_evaluation_prompts(job, candidate_profile)
+            prompt_size = _prompt_size(system_prompt, user_prompt)
+            if debug_prompt:
+                _dump_debug_prompts(
+                    index=index,
+                    job=job,
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                )
+                console.print("[dim]Step:[/dim] prompt dumped to debug/")
+
+            console.print(f"[dim]Provider/model:[/dim] {llm_provider.name} / {llm_provider.model_name}")
+            console.print(f"[dim]Timeout:[/dim] {_format_timeout(llm_provider.timeout_seconds)}")
+            if verbose:
+                console.print(f"[dim]Rule score:[/dim] {rule_evaluation.score} ({rule_evaluation.decision})")
+                console.print(f"[dim]Prompt size:[/dim] {prompt_size} bytes")
+
+            started_at = time.perf_counter()
+            try:
+                console.print("[dim]Step:[/dim] waiting for model response")
+                with console.status(
+                    f"[bold]Waiting for {llm_provider.name} ({llm_provider.model_name})...[/bold]",
+                    spinner="dots",
+                ):
+                    ai_evaluation = evaluate_job_with_ai(
+                        job,
+                        candidate_profile,
+                        llm_provider,
+                        system_prompt=system_prompt,
+                        user_prompt=user_prompt,
+                    )
+                console.print("[dim]Step:[/dim] response parsed and validated")
+            except TimeoutError as error:
+                console.print("[red]AI ranking timeout[/red]")
+                console.print(f"[bold]Provider:[/bold] {llm_provider.name}")
+                console.print(f"[bold]Model:[/bold] {llm_provider.model_name}")
+                console.print(f"[bold]Timeout:[/bold] {_format_timeout(llm_provider.timeout_seconds)}")
+                console.print(f"[bold]Prompt size:[/bold] {prompt_size} bytes")
+                console.print(f"[bold]Job title:[/bold] {job.title}")
+                raise typer.Exit(code=1) from error
+
+            elapsed = time.perf_counter() - started_at
+            console.print(f"[green]Done in {elapsed:.1f}s.[/green]\n")
             ranked.append((job, rule_evaluation, ai_evaluation))
     except RuntimeError as error:
         console.print(f"[red]AI ranking error:[/red] {error}")

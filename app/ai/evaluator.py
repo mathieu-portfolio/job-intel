@@ -33,11 +33,10 @@ def _profile_payload(profile: CandidateProfile) -> dict[str, object]:
     return profile.model_dump(mode="json")
 
 
-def evaluate_job_with_ai(
+def build_job_evaluation_prompts(
     job: JobOffer,
     profile: CandidateProfile,
-    llm_provider: LlmProvider,
-) -> AiJobEvaluation:
+) -> tuple[str, str]:
     user_prompt = json.dumps(
         {
             "candidate_profile": _profile_payload(profile),
@@ -57,9 +56,22 @@ def evaluate_job_with_ai(
         },
         ensure_ascii=False,
     )
+    return SYSTEM_PROMPT, user_prompt
+
+
+def evaluate_job_with_ai(
+    job: JobOffer,
+    profile: CandidateProfile,
+    llm_provider: LlmProvider,
+    *,
+    system_prompt: str | None = None,
+    user_prompt: str | None = None,
+) -> AiJobEvaluation:
+    if system_prompt is None or user_prompt is None:
+        system_prompt, user_prompt = build_job_evaluation_prompts(job, profile)
 
     return llm_provider.generate_structured(
-        system_prompt=SYSTEM_PROMPT,
+        system_prompt=system_prompt,
         user_prompt=user_prompt,
         response_model=AiJobEvaluation,
     )

@@ -11,10 +11,15 @@ from app.llm.base import StructuredModel
 
 class OpenAiLlmProvider:
     name = "openai"
+    timeout_seconds = None
 
     def __init__(self, *, api_key: str, model: str) -> None:
         self._client = OpenAI(api_key=api_key)
         self._model = model
+
+    @property
+    def model_name(self) -> str:
+        return self._model
 
     @classmethod
     def from_env(cls) -> "OpenAiLlmProvider":
