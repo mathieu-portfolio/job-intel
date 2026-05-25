@@ -43,6 +43,15 @@ CREATE TABLE IF NOT EXISTS ranking_runs (
     config_json TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS scoring_presets (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT,
+    weights_json TEXT NOT NULL,
+    is_builtin INTEGER NOT NULL DEFAULT 0,
+    enabled INTEGER NOT NULL DEFAULT 1
+);
+
 CREATE TABLE IF NOT EXISTS rankings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id INTEGER NOT NULL,
@@ -73,6 +82,17 @@ CREATE TABLE IF NOT EXISTS screening_results (
     FOREIGN KEY(offer_id) REFERENCES offers(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS offer_scores (
+    offer_id INTEGER NOT NULL,
+    preset_id TEXT NOT NULL,
+    score INTEGER NOT NULL,
+    signals_json TEXT,
+    scored_at TEXT NOT NULL,
+    PRIMARY KEY (offer_id, preset_id),
+    FOREIGN KEY(offer_id) REFERENCES offers(id) ON DELETE CASCADE,
+    FOREIGN KEY(preset_id) REFERENCES scoring_presets(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS ai_reviews (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     screening_result_id INTEGER,
@@ -80,13 +100,15 @@ CREATE TABLE IF NOT EXISTS ai_reviews (
     provider TEXT,
     model TEXT,
     profile_path TEXT NOT NULL,
+    preset_id TEXT NOT NULL DEFAULT 'balanced',
     score INTEGER NOT NULL,
     recommendation TEXT NOT NULL,
     summary TEXT NOT NULL,
     review_json TEXT NOT NULL,
     reviewed_at TEXT NOT NULL,
     FOREIGN KEY(screening_result_id) REFERENCES screening_results(id) ON DELETE SET NULL,
-    FOREIGN KEY(offer_id) REFERENCES offers(id) ON DELETE CASCADE
+    FOREIGN KEY(offer_id) REFERENCES offers(id) ON DELETE CASCADE,
+    FOREIGN KEY(preset_id) REFERENCES scoring_presets(id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_offers_newest
@@ -110,7 +132,9 @@ CREATE INDEX IF NOT EXISTS idx_screening_results_lookup
     ON screening_results(profile_path, passed, score DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_screening_results_unique_offer_profile
     ON screening_results(offer_id, profile_path);
+CREATE INDEX IF NOT EXISTS idx_offer_scores_preset_score
+    ON offer_scores(preset_id, score DESC);
 CREATE INDEX IF NOT EXISTS idx_ai_reviews_lookup
     ON ai_reviews(profile_path, provider, model, score DESC);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_reviews_unique_offer_provider_model_profile
-    ON ai_reviews(offer_id, COALESCE(provider, ''), COALESCE(model, ''), profile_path);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_reviews_unique_offer_provider_model_profile_preset
+    ON ai_reviews(offer_id, COALESCE(provider, ''), COALESCE(model, ''), profile_path, preset_id);

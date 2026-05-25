@@ -62,6 +62,15 @@
             </label>
 
             <label>
+              Preset
+              <select name="preset">
+                {% for preset in scoring_presets %}
+                  <option value="{{ preset.id }}" {% if preset.id == "balanced" %}selected{% endif %}>{{ preset.name }}</option>
+                {% endfor %}
+              </select>
+            </label>
+
+            <label>
               Screened offers to review
               <input name="limit" type="number" min="1" value="10">
             </label>

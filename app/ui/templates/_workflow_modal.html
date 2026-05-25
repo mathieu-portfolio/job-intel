@@ -70,6 +70,31 @@
     let modalActive = false;
     let timerId = null;
     let stageId = null;
+    const dismissalKey = "jobIntel.workflowNoticeDismissed";
+
+    const isCompletionDismissed = () => {
+      try {
+        return window.sessionStorage.getItem(dismissalKey) === "true";
+      } catch (_) {
+        return false;
+      }
+    };
+
+    const dismissCompletion = () => {
+      try {
+        window.sessionStorage.setItem(dismissalKey, "true");
+      } catch (_) {
+        // Ignore storage failures; closing still hides the modal for this page.
+      }
+    };
+
+    const clearCompletionDismissal = () => {
+      try {
+        window.sessionStorage.removeItem(dismissalKey);
+      } catch (_) {
+        // Ignore storage failures.
+      }
+    };
 
     const workflowStages = {
       fetch: [
@@ -93,6 +118,7 @@
     };
 
     const openRunningModal = (form) => {
+      clearCompletionDismissal();
       const stages = workflowStages[form.dataset.workflowKind] || ["Working"];
       const startedAt = Date.now();
       let stageIndex = 0;
@@ -125,6 +151,9 @@
     const closeModal = () => {
       stopTimers();
       modalActive = false;
+      if (modal.dataset.complete === "true") {
+        dismissCompletion();
+      }
       modal.hidden = true;
       delete modal.dataset.complete;
       if (result) {
@@ -138,8 +167,12 @@
     if (closeButton) closeButton.addEventListener("click", closeModal);
 
     if (modal.dataset.complete === "true") {
-      modal.hidden = false;
-      if (closeButton) closeButton.hidden = false;
+      if (isCompletionDismissed()) {
+        modal.hidden = true;
+      } else {
+        modal.hidden = false;
+        if (closeButton) closeButton.hidden = false;
+      }
     }
 
     for (const form of document.querySelectorAll("form[data-running-label]")) {

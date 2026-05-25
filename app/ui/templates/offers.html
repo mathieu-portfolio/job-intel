@@ -144,6 +144,33 @@
             {% endfor %}
           </select>
         </label>
+        {% if show_screened_filters %}
+          <label>
+            Preset
+            <select name="preset">
+              {% for preset in scoring_presets %}
+                <option value="{{ preset.id }}" {% if filters.preset == preset.id %}selected{% endif %}>{{ preset.name }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>
+            Min score
+            <input name="threshold" type="number" min="0" max="100" value="{{ filters.threshold }}">
+          </label>
+          <label>
+            Sort
+            <select name="sort">
+              <option value="score_desc" {% if filters.sort == "score_desc" %}selected{% endif %}>Score</option>
+              <option value="offer_newest" {% if filters.sort == "offer_newest" %}selected{% endif %}>Offer newest</option>
+              <option value="status" {% if filters.sort == "status" %}selected{% endif %}>Status</option>
+              <option value="source" {% if filters.sort == "source" %}selected{% endif %}>Source</option>
+            </select>
+          </label>
+          <label class="checkbox-filter">
+            <input name="show_all_presets" type="checkbox" value="true" {% if filters.show_all_presets %}checked{% endif %}>
+            Show all matching presets
+          </label>
+        {% endif %}
         <label>
           Limit
           <input name="limit" type="number" min="1" max="500" value="{{ filters.limit }}">
@@ -159,6 +186,9 @@
       </datalist>
 
       <section class="list">
+        {% if show_screened_filters and filters.show_all_presets %}
+          <p class="mode-note">Showing one row per offer and matching preset; the same offer can appear more than once.</p>
+        {% endif %}
         {% for offer in offers %}
           <article class="offer raw-offer">
             <div class="offer-main">
@@ -171,13 +201,36 @@
                 <h2>{{ offer.title }}</h2>
                 <p class="company">{{ offer.company }}{% if offer.location %} | {{ offer.location }}{% endif %}</p>
               </div>
+              {% if show_screened_filters %}
+                <div class="scorebox">
+                  <strong>{{ offer.fast_score }}</strong>
+                  <span>{{ offer.preset_name }}</span>
+                </div>
+              {% endif %}
             </div>
 
             <div class="actions">
               {% if offer.url %}
                 <a class="primary" href="{{ offer.url }}" target="_blank" rel="noreferrer">Open offer</a>
               {% endif %}
+              {% if show_screened_filters %}
+                <div id="status-{{ offer.offer_id }}">
+                  {% include "_status_controls.html" %}
+                </div>
+              {% endif %}
             </div>
+
+            {% if show_screened_filters %}
+              <div class="meta score-meta">
+                <span>{{ offer.preset_name }} {{ offer.fast_score }}</span>
+                {% for signal in offer.main_signals %}
+                  <span>{{ signal }}</span>
+                {% endfor %}
+                {% if offer.ai_score is not none %}
+                  <span>AI {{ offer.ai_score }} {{ offer.ai_verdict }}</span>
+                {% endif %}
+              </div>
+            {% endif %}
 
             <p class="summary description-preview">{{ offer.description }}</p>
           </article>

@@ -12,6 +12,7 @@ from typing import Any, Literal
 from app.models.evaluation import Recommendation
 from app.models.evaluation import RuleEvaluation
 from app.models.job import JobOffer
+from app.filtering.presets import BUILTIN_SCORING_PRESETS, ScoringPreset
 from app.sql import load_sql
 
 
@@ -78,6 +79,7 @@ class ClearPlan:
 
 
 VALID_REVIEW_STATUSES = {"new", "saved", "skipped", "applied"}
+DEFAULT_SCORING_PRESET_ID = "balanced"
 
 
 def _now_iso() -> str:
@@ -103,6 +105,7 @@ def _connect(db_path: Path) -> Iterator[sqlite3.Connection]:
 def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
     with _connect(db_path) as connection:
         connection.executescript(load_sql("schema/init.sql"))
+        _migrate_scoring_presets(connection)
         offer_columns = {
             row["name"]
             for row in connection.execute(load_sql("schema/offers_columns.sql")).fetchall()
@@ -115,6 +118,103 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
         }
         if "keep_flag" not in explored_columns:
             connection.execute(load_sql("schema/add_explored_keep_flag.sql"))
+        _seed_builtin_scoring_presets(connection)
+        _backfill_balanced_scores(connection)
+
+
+def _migrate_scoring_presets(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS scoring_presets (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT,
+            weights_json TEXT NOT NULL,
+            is_builtin INTEGER NOT NULL DEFAULT 0,
+            enabled INTEGER NOT NULL DEFAULT 1
+        );
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS offer_scores (
+            offer_id INTEGER NOT NULL,
+            preset_id TEXT NOT NULL,
+            score INTEGER NOT NULL,
+            signals_json TEXT,
+            scored_at TEXT NOT NULL,
+            PRIMARY KEY (offer_id, preset_id),
+            FOREIGN KEY(offer_id) REFERENCES offers(id) ON DELETE CASCADE,
+            FOREIGN KEY(preset_id) REFERENCES scoring_presets(id) ON DELETE CASCADE
+        );
+        """
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_offer_scores_preset_score ON offer_scores(preset_id, score DESC);"
+    )
+    ai_columns = {
+        row["name"]
+        for row in connection.execute("PRAGMA table_info(ai_reviews);").fetchall()
+    }
+    if "preset_id" not in ai_columns:
+        connection.execute(
+            "ALTER TABLE ai_reviews ADD COLUMN preset_id TEXT NOT NULL DEFAULT 'balanced';"
+        )
+    connection.execute("DROP INDEX IF EXISTS idx_ai_reviews_unique_offer_provider_model_profile;")
+    connection.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_reviews_unique_offer_provider_model_profile_preset
+        ON ai_reviews(offer_id, COALESCE(provider, ''), COALESCE(model, ''), profile_path, preset_id);
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_ai_reviews_preset_lookup
+        ON ai_reviews(profile_path, preset_id, provider, model, score DESC);
+        """
+    )
+
+
+def _seed_builtin_scoring_presets(connection: sqlite3.Connection) -> None:
+    for preset in BUILTIN_SCORING_PRESETS:
+        connection.execute(
+            """
+            INSERT INTO scoring_presets (
+                id, name, description, weights_json, is_builtin, enabled
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                name = excluded.name,
+                description = excluded.description,
+                weights_json = excluded.weights_json,
+                is_builtin = excluded.is_builtin;
+            """,
+            (
+                preset.id,
+                preset.name,
+                preset.description,
+                json.dumps(preset.weights.model_dump(mode="json"), ensure_ascii=False),
+                1 if preset.is_builtin else 0,
+                1 if preset.enabled else 0,
+            ),
+        )
+
+
+def _backfill_balanced_scores(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        INSERT OR IGNORE INTO offer_scores (
+            offer_id, preset_id, score, signals_json, scored_at
+        )
+        SELECT
+            offer_id,
+            'balanced',
+            score,
+            matched_signals_json,
+            screened_at
+        FROM screening_results;
+        """
+    )
 
 
 def upsert_offers(
@@ -692,6 +792,141 @@ def save_screening_result(
     return int(row["id"])
 
 
+def _signals_from_evaluation(evaluation: RuleEvaluation) -> dict[str, Any]:
+    return {
+        "positive": [match.model_dump(mode="json") for match in evaluation.matched_positive_terms],
+        "negative": [match.model_dump(mode="json") for match in evaluation.matched_negative_terms],
+        "reasoning": evaluation.reasoning,
+    }
+
+
+def save_offer_score(
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+    offer_id: int,
+    preset_id: str,
+    evaluation: RuleEvaluation,
+    scored_at: str | None = None,
+) -> None:
+    init_db(db_path)
+    scored_at = scored_at or _now_iso()
+    with _connect(db_path) as connection:
+        connection.execute(
+            """
+            INSERT INTO offer_scores (
+                offer_id, preset_id, score, signals_json, scored_at
+            )
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(offer_id, preset_id) DO UPDATE SET
+                score = excluded.score,
+                signals_json = excluded.signals_json,
+                scored_at = excluded.scored_at;
+            """,
+            (
+                offer_id,
+                preset_id,
+                evaluation.normalized_score,
+                json.dumps(_signals_from_evaluation(evaluation), ensure_ascii=False),
+                scored_at,
+            ),
+        )
+
+
+def save_offer_scores(
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+    offer_id: int,
+    evaluations: dict[str, RuleEvaluation],
+    scored_at: str | None = None,
+) -> None:
+    init_db(db_path)
+    scored_at = scored_at or _now_iso()
+    with _connect(db_path) as connection:
+        for preset_id, evaluation in evaluations.items():
+            connection.execute(
+                """
+                INSERT INTO offer_scores (
+                    offer_id, preset_id, score, signals_json, scored_at
+                )
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(offer_id, preset_id) DO UPDATE SET
+                    score = excluded.score,
+                    signals_json = excluded.signals_json,
+                    scored_at = excluded.scored_at;
+                """,
+                (
+                    offer_id,
+                    preset_id,
+                    evaluation.normalized_score,
+                    json.dumps(_signals_from_evaluation(evaluation), ensure_ascii=False),
+                    scored_at,
+                ),
+            )
+
+
+def list_scoring_presets(
+    db_path: Path = DEFAULT_DB_PATH,
+    *,
+    enabled_only: bool = False,
+) -> list[ScoringPreset]:
+    init_db(db_path)
+    where_sql = "WHERE enabled = 1" if enabled_only else ""
+    with _connect(db_path) as connection:
+        rows = connection.execute(
+            f"""
+            SELECT id, name, description, weights_json, is_builtin, enabled
+            FROM scoring_presets
+            {where_sql}
+            ORDER BY
+                CASE id
+                    WHEN 'balanced' THEN 0
+                    WHEN 'safe_match' THEN 1
+                    WHEN 'high_potential' THEN 2
+                    WHEN 'remote_first' THEN 3
+                    WHEN 'compensation_focused' THEN 4
+                    WHEN 'engineering_quality' THEN 5
+                    WHEN 'fast_apply' THEN 6
+                    ELSE 99
+                END,
+                name ASC;
+            """
+        ).fetchall()
+    from app.filtering.rules import RuleScoringConfig
+
+    presets: list[ScoringPreset] = []
+    for row in rows:
+        try:
+            weights = RuleScoringConfig.model_validate(json.loads(row["weights_json"]))
+        except (json.JSONDecodeError, ValueError):
+            weights = RuleScoringConfig()
+        presets.append(
+            ScoringPreset(
+                id=row["id"],
+                name=row["name"],
+                description=row["description"] or "",
+                weights=weights,
+                is_builtin=bool(row["is_builtin"]),
+                enabled=bool(row["enabled"]),
+            )
+        )
+    return presets
+
+
+def get_scoring_preset(
+    preset_id: str,
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> ScoringPreset:
+    presets = list_scoring_presets(db_path, enabled_only=False)
+    for preset in presets:
+        if preset.id == preset_id:
+            return preset
+    for preset in presets:
+        if preset.id == DEFAULT_SCORING_PRESET_ID:
+            return preset
+    raise ValueError("No scoring presets are configured.")
+
+
 def find_screening_result_id(
     *,
     db_path: Path = DEFAULT_DB_PATH,
@@ -713,11 +948,13 @@ def select_screened_offers(
     provider: str | None,
     model: str | None,
     profile_path: str,
+    preset_id: str = DEFAULT_SCORING_PRESET_ID,
+    min_score: int = 40,
     limit: int,
     only_recent_days: int | None = None,
 ) -> list[StoredOffer]:
     init_db(db_path)
-    params: list[Any] = [profile_path, provider, model, profile_path]
+    params: list[Any] = [preset_id, min_score, provider, model, profile_path, preset_id]
     recent_clause = ""
     if only_recent_days is not None:
         cutoff = (datetime.now() - timedelta(days=only_recent_days)).isoformat(timespec="seconds")
@@ -726,13 +963,131 @@ def select_screened_offers(
     params.append(limit)
 
     with _connect(db_path) as connection:
-        sql = load_sql("screening_results/select_screened_offers.sql").replace(
-            "/*RECENT_FILTER*/",
-            recent_clause,
-        )
+        sql = f"""
+            SELECT offers.*
+            FROM offers
+            JOIN offer_scores ON offer_scores.offer_id = offers.id
+            WHERE offer_scores.preset_id = ?
+              AND offer_scores.score >= ?
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM ai_reviews
+                  WHERE ai_reviews.offer_id = offers.id
+                    AND ai_reviews.provider IS ?
+                    AND ai_reviews.model IS ?
+                    AND ai_reviews.profile_path = ?
+                    AND ai_reviews.preset_id = ?
+              )
+              {recent_clause}
+            ORDER BY
+                offer_scores.score DESC,
+                CASE WHEN offers.published_at IS NULL THEN 1 ELSE 0 END,
+                offers.published_at DESC,
+                offers.first_seen_at DESC
+            LIMIT ?;
+        """
         rows = connection.execute(sql, params).fetchall()
 
     return [StoredOffer(id=row["id"], job=_job_from_offer_row(row)) for row in rows]
+
+
+def _main_signal_terms(signals_json: str | None, *, limit: int = 4) -> list[str]:
+    if not signals_json:
+        return []
+    try:
+        signals = json.loads(signals_json)
+    except json.JSONDecodeError:
+        return []
+    terms: list[str] = []
+    for key in ("positive", "negative"):
+        for signal in signals.get(key, []):
+            term = signal.get("term") if isinstance(signal, dict) else None
+            if term and term not in terms:
+                terms.append(str(term))
+            if len(terms) >= limit:
+                return terms
+    return terms
+
+
+def list_screened_offers(
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+    preset_id: str = DEFAULT_SCORING_PRESET_ID,
+    threshold: int = 40,
+    show_all_matching_presets: bool = False,
+    search: str | None = None,
+    source: str | None = None,
+    sort: str = "score_desc",
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    init_db(db_path)
+    clauses: list[str] = ["offer_scores.score >= ?"]
+    where_params: list[Any] = [threshold]
+    if not show_all_matching_presets:
+        clauses.insert(0, "offer_scores.preset_id = ?")
+        where_params.insert(0, preset_id)
+    search_pattern = _like_pattern(search)
+    if search_pattern:
+        clauses.append(
+            "("
+            "LOWER(offers.title) LIKE ? ESCAPE '\\' "
+            "OR LOWER(offers.company) LIKE ? ESCAPE '\\' "
+            "OR LOWER(offers.description) LIKE ? ESCAPE '\\'"
+            ")"
+        )
+        where_params.extend([search_pattern, search_pattern, search_pattern])
+    if source:
+        clauses.append("offers.source = ?")
+        where_params.append(source)
+    where_sql = " AND ".join(clauses)
+    order_by = {
+        "score_desc": "offer_scores.score DESC, offers.last_fetched_at DESC",
+        "offer_newest": "COALESCE(offers.published_at, offers.first_seen_at) DESC, offer_scores.score DESC",
+        "source": "offers.source ASC, offer_scores.score DESC",
+        "status": "offers.review_status ASC, offer_scores.score DESC",
+    }.get(sort, "offer_scores.score DESC, offers.last_fetched_at DESC")
+    params = [preset_id, *where_params, limit]
+    with _connect(db_path) as connection:
+        rows = connection.execute(
+            f"""
+            SELECT
+                offers.id AS offer_id,
+                offers.source,
+                offers.url,
+                offers.title,
+                offers.company,
+                offers.location,
+                offers.description,
+                offers.published_at,
+                offers.first_seen_at,
+                offers.last_seen_at,
+                offers.last_fetched_at,
+                offers.review_status,
+                offer_scores.preset_id,
+                scoring_presets.name AS preset_name,
+                offer_scores.score AS fast_score,
+                offer_scores.signals_json,
+                ai_reviews.score AS ai_score,
+                ai_reviews.recommendation AS ai_verdict,
+                ai_reviews.reviewed_at AS ai_reviewed_at
+            FROM offers
+            JOIN offer_scores ON offer_scores.offer_id = offers.id
+            JOIN scoring_presets ON scoring_presets.id = offer_scores.preset_id
+            LEFT JOIN ai_reviews
+              ON ai_reviews.offer_id = offers.id
+             AND ai_reviews.preset_id = ?
+            WHERE {where_sql}
+            ORDER BY {order_by}
+            LIMIT ?;
+            """,
+            params,
+        ).fetchall()
+    results: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        item["main_signals"] = _main_signal_terms(row["signals_json"])
+        results.append(item)
+    return results
 
 
 def save_ai_review(
@@ -747,6 +1102,7 @@ def save_ai_review(
     recommendation: Recommendation,
     summary: str,
     result: dict[str, Any],
+    preset_id: str = DEFAULT_SCORING_PRESET_ID,
     reviewed_at: str | None = None,
 ) -> None:
     init_db(db_path)
@@ -754,7 +1110,7 @@ def save_ai_review(
     with _connect(db_path) as connection:
         connection.execute(
             load_sql("ai_reviews/delete_existing.sql"),
-            (offer_id, provider, model, profile_path),
+            (offer_id, provider, model, profile_path, preset_id),
         )
         connection.execute(
             load_sql("ai_reviews/insert.sql"),
@@ -764,6 +1120,7 @@ def save_ai_review(
                 provider,
                 model,
                 profile_path,
+                preset_id,
                 score,
                 recommendation,
                 summary,

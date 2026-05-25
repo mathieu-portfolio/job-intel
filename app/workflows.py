@@ -32,10 +32,13 @@ from app.storage.sqlite import (
     find_existing_offer_id,
     find_existing_offer_id_by_url,
     find_screening_result_id,
+    get_scoring_preset,
     has_explored_offer,
+    list_scoring_presets,
     prune_storage,
     record_explored_job,
     save_ai_review,
+    save_offer_scores,
     save_ranking,
     save_screening_result,
     select_screened_offers,
@@ -186,7 +189,9 @@ def fetch_offers(
     matches: list[tuple[JobOffer, RuleEvaluation]] = []
     candidate_profile = load_profile(profile_path)
     screening_threshold = min_score if min_score is not None else candidate_profile.screening_threshold
-    rule_config = load_rule_scoring_config()
+    enabled_presets = list_scoring_presets(db_path, enabled_only=True)
+    if not enabled_presets:
+        raise RuntimeError("No enabled scoring presets are configured.")
 
     for offset in range(page_limit):
         current_page = page + offset
@@ -240,7 +245,16 @@ def fetch_offers(
 
                 existing_offer_id = find_existing_offer_id(job, db_path=db_path)
                 if existing_offer_id is not None:
-                    evaluation = evaluate_job(job, profile=candidate_profile, config=rule_config)
+                    preset_evaluations = {
+                        preset.id: evaluate_job(job, profile=candidate_profile, config=preset.weights)
+                        for preset in enabled_presets
+                    }
+                    evaluation = preset_evaluations.get("balanced") or next(iter(preset_evaluations.values()))
+                    save_offer_scores(
+                        db_path=db_path,
+                        offer_id=existing_offer_id,
+                        evaluations=preset_evaluations,
+                    )
                     save_screening_result(
                         db_path=db_path,
                         offer_id=existing_offer_id,
@@ -262,8 +276,13 @@ def fetch_offers(
                         break
                     continue
 
-                evaluation = evaluate_job(job, profile=candidate_profile, config=rule_config)
-                if evaluation.normalized_score < screening_threshold:
+                preset_evaluations = {
+                    preset.id: evaluate_job(job, profile=candidate_profile, config=preset.weights)
+                    for preset in enabled_presets
+                }
+                evaluation = preset_evaluations.get("balanced") or next(iter(preset_evaluations.values()))
+                best_score = max(score.normalized_score for score in preset_evaluations.values())
+                if best_score < screening_threshold:
                     filtered_out += 1
                     record_explored_job(
                         job,
@@ -280,6 +299,11 @@ def fetch_offers(
                 updated += upsert_stats.updated
                 offer_id = find_existing_offer_id(job, db_path=db_path)
                 if offer_id is not None:
+                    save_offer_scores(
+                        db_path=db_path,
+                        offer_id=offer_id,
+                        evaluations=preset_evaluations,
+                    )
                     save_screening_result(
                         db_path=db_path,
                         offer_id=offer_id,
@@ -391,13 +415,15 @@ def rank_offers(
     ranking_mode: RankingMode = "hybrid",
     provider: ProviderName | None = None,
     model: str | None = None,
+    preset_id: str = "balanced",
     debug_prompt: bool = False,
     progress: ProgressCallback | None = None,
 ) -> RankWorkflowResult:
     messages: list[str] = []
     _emit(messages, progress, f"Loading profile {profile_path}.")
     candidate_profile = load_profile(profile_path)
-    rule_config = load_rule_scoring_config(weights_path)
+    scoring_preset = get_scoring_preset(preset_id, db_path=db_path)
+    rule_config = load_rule_scoring_config(weights_path) if weights_path else scoring_preset.weights
 
     provider_name: str | None = None
     model_name: str | None = None
@@ -412,6 +438,8 @@ def rank_offers(
         provider=provider_name,
         model=model_name,
         profile_path=str(profile_path),
+        preset_id=scoring_preset.id,
+        min_score=min_score,
         limit=limit,
         only_recent_days=only_recent_days,
     )
@@ -481,6 +509,8 @@ def rank_offers(
         "only_recent_days": only_recent_days,
         "weights_path": str(weights_path) if weights_path else None,
         "rule_config": rule_config.model_dump(mode="json"),
+        "preset_id": scoring_preset.id,
+        "preset_name": scoring_preset.name,
     }
     run_id = create_ranking_run(
         db_path=db_path,

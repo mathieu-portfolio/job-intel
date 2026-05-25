@@ -13,9 +13,11 @@ from app.storage.sqlite import (
     list_ranked_offers,
     list_unranked_review_offers,
     record_explored_job,
+    save_offer_score,
     save_ranking,
     upsert_offers,
 )
+from app.filtering.rules import evaluate_job
 from app.ui import create_app
 
 
@@ -317,10 +319,45 @@ class UiWorkflowTests(unittest.TestCase):
             )
 
             client = TestClient(create_app(db_path))
-            response = client.get("/screened", params={"q": "simulation"})
+            response = client.get("/explore", params={"q": "simulation"})
 
             self.assertEqual(response.status_code, 200)
-            self.assertIn("Screened", response.text)
+            self.assertIn("Explore", response.text)
+            self.assertIn("Simulation Engineer", response.text)
+            self.assertNotIn("Web Engineer", response.text)
+
+    def test_screened_offers_page_filters_by_selected_preset_score(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "jobs.sqlite"
+            jobs = [
+                _job("https://example.com/sim", "Simulation Engineer", "Berlin"),
+                _job(
+                    "https://example.com/web",
+                    "Web Engineer",
+                    "Remote",
+                    "frontend product engineering",
+                ),
+            ]
+            upsert_offers(jobs, db_path=db_path)
+            save_offer_score(
+                db_path=db_path,
+                offer_id=1,
+                preset_id="balanced",
+                evaluation=evaluate_job(jobs[0]),
+            )
+            save_offer_score(
+                db_path=db_path,
+                offer_id=2,
+                preset_id="balanced",
+                evaluation=evaluate_job(jobs[1]),
+            )
+
+            client = TestClient(create_app(db_path))
+            response = client.get("/screened", params={"q": "simulation", "threshold": "0"})
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("Preset", response.text)
+            self.assertIn("Balanced", response.text)
             self.assertIn("Simulation Engineer", response.text)
             self.assertNotIn("Web Engineer", response.text)
 

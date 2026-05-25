@@ -16,6 +16,8 @@ from app.storage.sqlite import (
     clear_data,
     get_storage_counts,
     get_review_filter_options,
+    list_scoring_presets,
+    list_screened_offers,
     list_offer_locations,
     list_ranked_offers,
     list_unranked_review_offers,
@@ -126,6 +128,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                     "limit": limit,
                 },
                 "options": get_review_filter_options(request.app.state.db_path),
+                "scoring_presets": list_scoring_presets(request.app.state.db_path, enabled_only=True),
                 "profiles": discover_profiles(),
                 "weight_files": discover_weight_files(),
                 "location_suggestions": list_offer_locations(request.app.state.db_path),
@@ -183,14 +186,23 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
         request: Request,
         q: str | None = None,
         source: str | None = None,
+        preset: str = "balanced",
+        threshold: int = 40,
+        show_all_presets: bool = False,
+        sort: str = "score_desc",
         limit: int = 100,
     ) -> HTMLResponse:
-        offers = list_unranked_review_offers(
+        offers = list_screened_offers(
             db_path=request.app.state.db_path,
+            preset_id=preset,
+            threshold=threshold,
+            show_all_matching_presets=show_all_presets,
             search=q or None,
             source=source or None,
+            sort=sort,
             limit=limit,
         )
+        scoring_presets = list_scoring_presets(request.app.state.db_path, enabled_only=True)
         return templates.TemplateResponse(
             request,
             "offers.html",
@@ -199,9 +211,14 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 "filters": {
                     "q": q or "",
                     "source": source or "",
+                    "preset": preset,
+                    "threshold": threshold,
+                    "show_all_presets": show_all_presets,
+                    "sort": sort,
                     "limit": limit,
                 },
                 "options": get_review_filter_options(request.app.state.db_path),
+                "scoring_presets": scoring_presets,
                 "location_suggestions": list_offer_locations(request.app.state.db_path),
                 "adzuna_markets": ADZUNA_MARKETS,
                 "profiles": discover_profiles(),
@@ -213,6 +230,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                     "ranked": DEFAULT_RANKED_CAPACITY,
                 },
                 "show_fetch_workflow": False,
+                "show_screened_filters": True,
                 "page_title": "Screened",
                 "empty_message": "No screened offers match these filters.",
                 "listing_path": "/screened",
@@ -307,6 +325,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 ranking_mode="ai",
                 provider=((form.get("provider") or "").strip() or None),  # type: ignore[arg-type]
                 model=(form.get("model") or "").strip() or None,
+                preset_id=(form.get("preset") or "balanced").strip() or "balanced",
             )
             request.app.state.workflow_notice = _workflow_notice(
                 "success",

@@ -245,6 +245,7 @@ def rank(
         None,
         help="LLM provider. Defaults to JOB_INTEL_LLM_PROVIDER or openai.",
     ),
+    preset: str = typer.Option("balanced", help="Scoring preset for selecting and reviewing screened offers."),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Print detailed evaluation progress."),
     debug_prompt: bool = typer.Option(False, "--debug-prompt", help="Write evaluation prompts into debug/."),
 ) -> None:
@@ -261,6 +262,7 @@ def rank(
             weights_path=weights_path,
             ranking_mode=ranking_mode,
             provider=provider,
+            preset_id=preset,
             debug_prompt=debug_prompt,
             progress=console.print if verbose else None,
         )

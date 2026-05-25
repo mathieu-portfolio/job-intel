@@ -366,6 +366,27 @@ label {
   flex-basis: 280px;
 }
 
+.checkbox-filter {
+  align-items: center;
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  padding-bottom: 8px;
+}
+
+.checkbox-filter input {
+  width: auto;
+}
+
+.mode-note {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.score-meta {
+  margin-top: 12px;
+}
+
 select,
 input,
 button,
