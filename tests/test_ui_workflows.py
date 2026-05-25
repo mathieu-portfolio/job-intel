@@ -47,12 +47,18 @@ class UiWorkflowTests(unittest.TestCase):
     def test_ranked_page_renders_rank_workflow_without_fetch_controls(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "jobs.sqlite"
+            upsert_offers([_job("https://example.com/berlin", "Berlin Job", "Berlin")], db_path=db_path)
             client = TestClient(create_app(db_path))
 
             response = client.get("/")
 
             self.assertEqual(response.status_code, 200)
             self.assertIn("Rank offers", response.text)
+            self.assertIn("Default", response.text)
+            self.assertIn("Mathieu", response.text)
+            self.assertIn("Default weights", response.text)
+            self.assertIn("Rule Weights Example", response.text)
+            self.assertIn('value="Berlin"', response.text)
             self.assertIn("Clear rankings", response.text)
             self.assertIn("Maintenance", response.text)
             self.assertIn("Danger zone", response.text)
@@ -99,16 +105,23 @@ class UiWorkflowTests(unittest.TestCase):
     def test_fetched_page_renders_fetch_workflow_and_clear_fetched_action(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "jobs.sqlite"
-            upsert_offers([_job("https://example.com/fetched", "Fetched")], db_path=db_path)
+            upsert_offers([_job("https://example.com/fetched", "Fetched", "Paris")], db_path=db_path)
             client = TestClient(create_app(db_path))
 
             response = client.get("/offers")
 
             self.assertEqual(response.status_code, 200)
             self.assertIn("Fetch offers", response.text)
+            self.assertIn('name="location"', response.text)
+            self.assertIn('value="Paris"', response.text)
+            self.assertIn('placeholder="Provider default"', response.text)
+            self.assertIn('placeholder="Required for Adzuna"', response.text)
+            self.assertIn('value="50"', response.text)
             self.assertIn("Clear fetched offers", response.text)
             self.assertIn("Danger zone", response.text)
             self.assertNotIn("Rank offers</button>", response.text)
+            self.assertNotIn('value="c++ simulation"', response.text)
+            self.assertNotIn('value="fr"', response.text)
             self.assert_confirm_happens_before_loading_state(response.text)
 
     def test_clear_fetched_action_clears_offers_and_redirects_to_fetched_page(self) -> None:

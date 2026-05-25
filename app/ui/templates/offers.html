@@ -40,17 +40,6 @@
             </label>
 
             <label>
-              Profile
-              <select name="profile">
-                {% for profile in profiles %}
-                  <option value="{{ profile.value }}" {% if profile.value == "profiles/default.json" %}selected{% endif %}>
-                    {{ profile.label }}
-                  </option>
-                {% endfor %}
-              </select>
-            </label>
-
-            <label>
               Target new offers
               <input name="new_offers" type="number" min="1" value="100">
             </label>
@@ -75,18 +64,18 @@
 
             <div class="workflow-grid advanced-grid">
               <label>
+                Location
+                <input name="location" type="text" placeholder="Any" list="location-suggestions">
+              </label>
+
+              <label>
                 Query
-                <input name="query" type="text" value="c++ simulation">
+                <input name="query" type="text" placeholder="Provider default">
               </label>
 
               <label>
                 Country
-                <input name="country" type="text" value="fr">
-              </label>
-
-              <label>
-                Where
-                <input name="where" type="text" placeholder="Any">
+                <input name="country" type="text" placeholder="Required for Adzuna">
               </label>
 
               <label>
@@ -101,7 +90,7 @@
 
               <label>
                 Stop after seen pages
-                <input name="max_seen_pages" type="number" min="1" value="5">
+                <input name="max_seen_pages" type="number" min="1" value="50">
               </label>
             </div>
           </details>
@@ -150,6 +139,12 @@
         <button type="submit">Apply</button>
         <a class="clear" href="/offers">Clear</a>
       </form>
+
+      <datalist id="location-suggestions">
+        {% for location in location_suggestions %}
+          <option value="{{ location }}"></option>
+        {% endfor %}
+      </datalist>
 
       <section class="list">
         {% for offer in offers %}

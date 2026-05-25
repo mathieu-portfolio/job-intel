@@ -16,11 +16,13 @@ from app.storage.sqlite import (
     clear_data,
     get_storage_counts,
     get_review_filter_options,
+    list_offer_locations,
     list_ranked_offers,
     list_unranked_review_offers,
     prune_storage,
     update_offer_status,
 )
+from app.ui_options import discover_profiles, discover_weight_files
 from app.workflows import fetch_offers, rank_offers
 
 
@@ -33,27 +35,6 @@ CLEAR_SUMMARIES = {
     "explored": "Deletes provider exploration history. Existing offers and rankings remain.",
     "all": "Deletes explored tracking, fetched offers, rankings, and ranking run metadata.",
 }
-
-
-
-
-def _available_profiles() -> list[dict[str, str]]:
-    profiles_dir = Path("profiles")
-    if not profiles_dir.exists():
-        return [{"label": "Default", "value": "profiles/default.json"}]
-
-    profiles: list[dict[str, str]] = []
-    for profile in sorted(profiles_dir.glob("*.json")):
-        label = profile.stem.replace("_", " ").replace("-", " ").title()
-        profiles.append(
-            {
-                "label": label,
-                "value": str(profile).replace("\\", "/"),
-            }
-        )
-
-    return profiles or [{"label": "Default", "value": "profiles/default.json"}]
-
 def _positive_int(value: str | None, default: int) -> int:
     try:
         parsed = int(value or "")
@@ -139,6 +120,9 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                     "limit": limit,
                 },
                 "options": get_review_filter_options(request.app.state.db_path),
+                "profiles": discover_profiles(),
+                "weight_files": discover_weight_files(),
+                "location_suggestions": list_offer_locations(request.app.state.db_path),
                 "db_path": request.app.state.db_path,
                 "workflow_notice": request.app.state.workflow_notice,
                 "active_page": "ranked",
@@ -169,10 +153,9 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                     "limit": limit,
                 },
                 "options": get_review_filter_options(request.app.state.db_path),
+                "location_suggestions": list_offer_locations(request.app.state.db_path),
                 "db_path": request.app.state.db_path,
                 "workflow_notice": request.app.state.workflow_notice,
-                "profiles": _available_profiles(),
-                "profiles": _available_profiles(),
                 "storage_capacities": {
                     "explored": DEFAULT_EXPLORED_CAPACITY,
                     "unranked": DEFAULT_UNRANKED_CAPACITY,
@@ -206,10 +189,10 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 page=_positive_int(form.get("page"), 1),
                 new_offers=_positive_int(form.get("new_offers"), 20),
                 max_pages=_positive_int(form.get("max_pages"), 10),
-                max_seen_pages=_positive_int(form.get("max_seen_pages"), 5),
-                query=form.get("query") or "c++ simulation",
-                country=form.get("country") or "fr",
-                where=(form.get("where") or "").strip() or None,
+                max_seen_pages=_positive_int(form.get("max_seen_pages"), 50),
+                query=(form.get("query") or "").strip(),
+                country=(form.get("country") or "").strip() or "fr",
+                where=(form.get("location") or "").strip() or None,
                 db_path=request.app.state.db_path,
                 min_score=_positive_int(form.get("min_score"), 40),
                 explored_capacity=_positive_int(form.get("explored_capacity"), DEFAULT_EXPLORED_CAPACITY),

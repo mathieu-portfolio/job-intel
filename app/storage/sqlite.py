@@ -796,3 +796,18 @@ def get_review_filter_options(db_path: Path = DEFAULT_DB_PATH) -> dict[str, list
         "statuses": sorted(VALID_REVIEW_STATUSES),
         "recommendations": ["high", "medium", "low", "skip"],
     }
+
+
+def list_offer_locations(db_path: Path = DEFAULT_DB_PATH) -> list[str]:
+    init_db(db_path)
+    with _connect(db_path) as connection:
+        rows = connection.execute(
+            """
+            SELECT DISTINCT location
+            FROM offers
+            WHERE location IS NOT NULL
+              AND TRIM(location) != ''
+            ORDER BY location
+            """
+        ).fetchall()
+    return [str(row["location"]) for row in rows]

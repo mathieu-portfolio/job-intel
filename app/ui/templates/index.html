@@ -54,9 +54,7 @@
               Profile
               <select name="profile">
                 {% for profile in profiles %}
-                  <option value="{{ profile.value }}" {% if profile.value == "profiles/default.json" %}selected{% endif %}>
-                    {{ profile.label }}
-                  </option>
+                  <option value="{{ profile.value }}" {% if loop.first %}selected{% endif %}>{{ profile.label }}</option>
                 {% endfor %}
               </select>
             </label>
@@ -88,7 +86,11 @@
 
               <label>
                 Weights file
-                <input name="weights_path" type="text" placeholder="Default">
+                <select name="weights_path">
+                  {% for weights in weight_files %}
+                    <option value="{{ weights.value }}">{{ weights.label }}</option>
+                  {% endfor %}
+                </select>
               </label>
             </div>
           </details>
@@ -146,7 +148,7 @@
         </label>
         <label>
           Location
-          <input name="location" type="text" value="{{ filters.location }}" placeholder="Any">
+          <input name="location" type="text" value="{{ filters.location }}" placeholder="Any" list="location-suggestions">
         </label>
         <label>
           Ranking mode
@@ -179,6 +181,12 @@
         <button type="submit">Apply</button>
         <a class="clear" href="/">Clear</a>
       </form>
+
+      <datalist id="location-suggestions">
+        {% for location in location_suggestions %}
+          <option value="{{ location }}"></option>
+        {% endfor %}
+      </datalist>
 
       <section class="list">
         {% for offer in offers %}
