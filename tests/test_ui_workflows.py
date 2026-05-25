@@ -54,6 +54,11 @@ class UiWorkflowTests(unittest.TestCase):
 
             self.assertEqual(response.status_code, 200)
             self.assertIn("Review with AI", response.text)
+            self.assertIn("workflow-modal", response.text)
+            self.assertIn("Reviewing offers with AI", response.text)
+            self.assertIn("Loading screened offers", response.text)
+            self.assertIn("Calling AI provider", response.text)
+            self.assertIn("Saving reviews", response.text)
             self.assertIn("Default", response.text)
             self.assertIn("Mathieu", response.text)
             self.assertIn("Default weights", response.text)
@@ -117,6 +122,11 @@ class UiWorkflowTests(unittest.TestCase):
 
             self.assertEqual(response.status_code, 200)
             self.assertIn("Fetch offers", response.text)
+            self.assertIn("workflow-modal", response.text)
+            self.assertIn("Fetching offers", response.text)
+            self.assertIn("Scanning provider pages", response.text)
+            self.assertIn("Applying profile screening", response.text)
+            self.assertIn("Saving screened offers", response.text)
             self.assertIn('name="location"', response.text)
             self.assertIn('value="Paris"', response.text)
             self.assertIn("Market", response.text)

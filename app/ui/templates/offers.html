@@ -26,7 +26,16 @@
     <main>
       {% if show_fetch_workflow %}
       <section class="workflow-panel single-workflow">
-        <form class="workflow-card" method="post" action="/workflows/fetch" data-running-label="Fetching...">
+        <form
+          class="workflow-card"
+          method="post"
+          action="/workflows/fetch"
+          data-running-label="Fetching..."
+          data-progress-modal="true"
+          data-workflow-kind="fetch"
+          data-modal-title="Fetching offers"
+          data-modal-status="Scanning provider pages and applying profile screening."
+        >
           <div class="workflow-head">
             <h2>Fetch offers</h2>
             <button type="submit">Fetch offers</button>
@@ -208,20 +217,8 @@
         </form>
       </section>
     </main>
+    {% include "_workflow_modal.html" %}
     <script>
-      for (const form of document.querySelectorAll("form[data-running-label]")) {
-        form.addEventListener("submit", (event) => {
-          const message = form.dataset.confirmMessage;
-          if (message && !confirm(message)) {
-            event.preventDefault();
-            return;
-          }
-          const button = form.querySelector("button[type='submit']");
-          if (!button) return;
-          button.disabled = true;
-          button.textContent = form.dataset.runningLabel || "Running...";
-        });
-      }
       const sourceSelect = document.getElementById("fetch-source");
       const marketField = document.querySelector('[data-provider="adzuna"]');
       const marketSelect = document.getElementById("adzuna-market");

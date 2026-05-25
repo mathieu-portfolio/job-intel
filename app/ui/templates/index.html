@@ -25,7 +25,16 @@
 
     <main>
       <section class="workflow-panel single-workflow">
-        <form class="workflow-card" method="post" action="/workflows/rank" data-running-label="Reviewing...">
+        <form
+          class="workflow-card"
+          method="post"
+          action="/workflows/rank"
+          data-running-label="Reviewing..."
+          data-progress-modal="true"
+          data-workflow-kind="ai"
+          data-modal-title="Reviewing offers with AI"
+          data-modal-status="Evaluating screened offers and saving AI reviews."
+        >
           <div class="workflow-head">
             <h2>Review with AI</h2>
             <button type="submit">Review with AI</button>
@@ -286,20 +295,6 @@
         </form>
       </section>
     </main>
-    <script>
-      for (const form of document.querySelectorAll("form[data-running-label]")) {
-        form.addEventListener("submit", (event) => {
-          const message = form.dataset.confirmMessage;
-          if (message && !confirm(message)) {
-            event.preventDefault();
-            return;
-          }
-          const button = form.querySelector("button[type='submit']");
-          if (!button) return;
-          button.disabled = true;
-          button.textContent = form.dataset.runningLabel || "Running...";
-        });
-      }
-    </script>
+    {% include "_workflow_modal.html" %}
   </body>
 </html>

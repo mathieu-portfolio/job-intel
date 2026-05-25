@@ -1,0 +1,151 @@
+<div
+  class="workflow-modal"
+  id="workflow-modal"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="workflow-modal-title"
+  hidden
+  {% if workflow_notice %}data-complete="true"{% endif %}
+>
+  <div class="workflow-modal-backdrop"></div>
+  <section class="workflow-modal-panel">
+    <div class="workflow-modal-head">
+      <div>
+        <h2 id="workflow-modal-title">
+          {% if workflow_notice %}{{ workflow_notice.title }}{% else %}Working{% endif %}
+        </h2>
+        <p id="workflow-modal-status">
+          {% if workflow_notice %}
+            {% if workflow_notice.kind == "error" %}The workflow failed.{% else %}The workflow completed.{% endif %}
+          {% else %}
+            Starting...
+          {% endif %}
+        </p>
+      </div>
+      <button class="modal-close" id="workflow-modal-close" type="button" {% if not workflow_notice %}hidden{% endif %}>Close</button>
+    </div>
+
+    <div class="workflow-progress" id="workflow-modal-progress" {% if workflow_notice %}hidden{% endif %}>
+      <div class="spinner" aria-hidden="true"></div>
+      <div>
+        <strong id="workflow-modal-stage">Preparing workflow</strong>
+        <span id="workflow-modal-elapsed">Elapsed 0s</span>
+      </div>
+    </div>
+
+    <div class="workflow-modal-result {{ workflow_notice.kind if workflow_notice else '' }}" id="workflow-modal-result" {% if not workflow_notice %}hidden{% endif %}>
+      {% if workflow_notice %}
+        <dl>
+          {% for key, value in workflow_notice.summary.items() %}
+            <div>
+              <dt>{{ key }}</dt>
+              <dd>{{ value }}</dd>
+            </div>
+          {% endfor %}
+        </dl>
+        {% if workflow_notice.messages %}
+          <ul>
+            {% for message in workflow_notice.messages[:8] %}
+              <li>{{ message }}</li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+      {% endif %}
+    </div>
+  </section>
+</div>
+
+<script>
+  (() => {
+    const modal = document.getElementById("workflow-modal");
+    if (!modal) return;
+
+    const title = document.getElementById("workflow-modal-title");
+    const status = document.getElementById("workflow-modal-status");
+    const stage = document.getElementById("workflow-modal-stage");
+    const elapsed = document.getElementById("workflow-modal-elapsed");
+    const closeButton = document.getElementById("workflow-modal-close");
+    let modalActive = false;
+    let timerId = null;
+    let stageId = null;
+
+    const workflowStages = {
+      fetch: [
+        "Scanning provider pages",
+        "Skipping already-seen offers",
+        "Applying profile screening",
+        "Saving screened offers",
+      ],
+      ai: [
+        "Loading screened offers",
+        "Calling AI provider",
+        "Saving reviews",
+      ],
+    };
+
+    const stopTimers = () => {
+      if (timerId) window.clearInterval(timerId);
+      if (stageId) window.clearInterval(stageId);
+      timerId = null;
+      stageId = null;
+    };
+
+    const openRunningModal = (form) => {
+      const stages = workflowStages[form.dataset.workflowKind] || ["Working"];
+      const startedAt = Date.now();
+      let stageIndex = 0;
+      modalActive = true;
+      modal.hidden = false;
+      if (title) title.textContent = form.dataset.modalTitle || "Working";
+      if (status) status.textContent = form.dataset.modalStatus || "Please wait while the workflow runs.";
+      if (stage) stage.textContent = stages[stageIndex];
+      if (elapsed) elapsed.textContent = "Elapsed 0s";
+      if (closeButton) closeButton.hidden = true;
+
+      stopTimers();
+      timerId = window.setInterval(() => {
+        if (!elapsed) return;
+        elapsed.textContent = `Elapsed ${Math.floor((Date.now() - startedAt) / 1000)}s`;
+      }, 1000);
+      stageId = window.setInterval(() => {
+        stageIndex = Math.min(stageIndex + 1, stages.length - 1);
+        if (stage) stage.textContent = stages[stageIndex];
+      }, 3500);
+    };
+
+    const closeModal = () => {
+      stopTimers();
+      modalActive = false;
+      modal.hidden = true;
+    };
+
+    if (closeButton) closeButton.addEventListener("click", closeModal);
+
+    if (modal.dataset.complete === "true") {
+      modal.hidden = false;
+      if (closeButton) closeButton.hidden = false;
+    }
+
+    for (const form of document.querySelectorAll("form[data-running-label]")) {
+      form.addEventListener("submit", (event) => {
+        if (modalActive) {
+          event.preventDefault();
+          return;
+        }
+        const message = form.dataset.confirmMessage;
+        if (message && !confirm(message)) {
+          event.preventDefault();
+          return;
+        }
+        const button = form.querySelector("button[type='submit']");
+        if (form.dataset.progressModal === "true") {
+          openRunningModal(form);
+        }
+        if (!button) return;
+        button.disabled = true;
+        button.dataset.idleLabel = button.textContent || "";
+        button.textContent = form.dataset.runningLabel || "Running...";
+      });
+    }
+  })();
+</script>

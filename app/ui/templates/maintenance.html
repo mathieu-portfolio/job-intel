@@ -91,21 +91,6 @@
         </div>
       </section>
     </main>
-
-    <script>
-      for (const form of document.querySelectorAll("form[data-running-label]")) {
-        form.addEventListener("submit", (event) => {
-          const message = form.dataset.confirmMessage;
-          if (message && !confirm(message)) {
-            event.preventDefault();
-            return;
-          }
-          const button = form.querySelector("button[type='submit']");
-          if (!button) return;
-          button.disabled = true;
-          button.textContent = form.dataset.runningLabel || "Running...";
-        });
-      }
-    </script>
+    {% include "_workflow_modal.html" %}
   </body>
 </html>

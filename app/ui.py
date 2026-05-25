@@ -261,7 +261,8 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                     "Provider rows fetched": result.stats.fetched,
                     "Newly explored": result.stats.newly_explored,
                     "Already seen": result.stats.already_seen,
-                    "Filtered out": result.stats.filtered_out,
+                    "Screened": result.stats.inserted + result.stats.updated,
+                    "Screened out": result.stats.filtered_out,
                     "Inserted": result.stats.inserted,
                     "Updated": result.stats.updated,
                     "Errors": result.stats.errors,
@@ -306,7 +307,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 "Rank complete",
                 {
                     "Selected jobs": result.selected_count,
-                    "Prefiltered jobs": result.prefiltered_count,
+                    "Reviewed": result.saved_count,
                     "AI-evaluated jobs": result.ai_evaluation_count,
                     "Skipped jobs": result.skipped_count,
                     "Saved AI reviews": result.saved_count,
