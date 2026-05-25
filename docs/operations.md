@@ -6,7 +6,7 @@ This page covers storage-oriented commands and behavior that are too detailed fo
 
 Fetch supports two modes:
 
-- Target mode: `--new-offers N` scans provider pages until N new relevant offers are inserted.
+- Target mode: `--new-offers N` scans provider pages until N newly explored provider offers are processed.
 - Page scan mode: omit `--new-offers` and use `--pages` to scan a fixed number of pages for debugging.
 
 Example:
@@ -17,12 +17,12 @@ python -m app.cli fetch --source arbeitnow --new-offers 20 --max-pages 10
 
 Stop conditions:
 
-- the target number of new inserted offers is collected
+- the target number of newly explored offers is processed
 - `--max-pages` is reached
 - the provider returns no results
-- `--consecutive-seen-limit` already-explored offers are encountered in a row
+- `--max-seen-pages` consecutive pages contain only already-explored offers
 
-Fetch only inserts offers that pass the rule filter. Already-explored items are skipped quickly by provider identity or canonical URL.
+Fetch only inserts offers that pass the rule filter. Already-explored items are skipped quickly by provider identity or canonical URL. Filtered-out offers still count as newly explored and are recorded in explored tracking.
 
 ## Explored Offers
 

@@ -36,6 +36,7 @@ class UpsertStats:
     skipped_existing: int = 0
     pages_scanned: int = 0
     explored: int = 0
+    newly_explored: int = 0
     already_seen: int = 0
     filtered_out: int = 0
     errors: int = 0

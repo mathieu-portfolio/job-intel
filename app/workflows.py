@@ -134,7 +134,7 @@ def fetch_offers(
     pages: int = 1,
     new_offers: int | None = None,
     max_pages: int | None = None,
-    consecutive_seen_limit: int = 100,
+    max_seen_pages: int = 5,
     query: str = "c++ simulation",
     country: str = "fr",
     where: str | None = None,
@@ -152,8 +152,8 @@ def fetch_offers(
         raise ValueError("new_offers must be at least 1.")
     if max_pages is not None and max_pages < 1:
         raise ValueError("max_pages must be at least 1.")
-    if consecutive_seen_limit < 1:
-        raise ValueError("consecutive_seen_limit must be at least 1.")
+    if max_seen_pages < 1:
+        raise ValueError("max_seen_pages must be at least 1.")
 
     target_new_offers = new_offers
     page_limit = max_pages if target_new_offers is not None else pages
@@ -165,7 +165,7 @@ def fetch_offers(
         progress,
         (
             f"Fetching jobs from {source}; "
-            f"target {target_new_offers or 'page scan'} new offers; max pages {page_limit}."
+            f"target {target_new_offers or 'page scan'} newly explored offers; max pages {page_limit}."
         ),
     )
 
@@ -173,10 +173,11 @@ def fetch_offers(
     inserted = 0
     updated = 0
     already_seen = 0
+    newly_explored = 0
     filtered_out = 0
     errors = 0
     pages_scanned = 0
-    consecutive_seen = 0
+    consecutive_seen_pages = 0
     matches: list[tuple[JobOffer, RuleEvaluation]] = []
     rule_config = load_rule_scoring_config()
 
@@ -199,8 +200,11 @@ def fetch_offers(
             _emit(messages, progress, "Provider returned no more offers.")
             break
 
+        page_already_seen = 0
+        page_newly_explored = 0
         for job in jobs:
             canonical_url = str(job.url)
+            counted_as_new = False
             try:
                 if has_explored_offer(
                     provider=job.source,
@@ -209,23 +213,12 @@ def fetch_offers(
                     db_path=db_path,
                 ):
                     already_seen += 1
-                    consecutive_seen += 1
-                    record_explored_job(
-                        job,
-                        status="duplicate",
-                        reason="already_seen",
-                        db_path=db_path,
-                    )
-                    if consecutive_seen >= consecutive_seen_limit:
-                        _emit(
-                            messages,
-                            progress,
-                            f"Stopped after {consecutive_seen} consecutive already-explored offers.",
-                        )
-                        break
+                    page_already_seen += 1
                     continue
 
-                consecutive_seen = 0
+                newly_explored += 1
+                page_newly_explored += 1
+                counted_as_new = True
                 if not job.description.strip():
                     filtered_out += 1
                     record_explored_job(
@@ -234,6 +227,8 @@ def fetch_offers(
                         reason="missing_description",
                         db_path=db_path,
                     )
+                    if target_new_offers is not None and newly_explored >= target_new_offers:
+                        break
                     continue
 
                 existing_offer_id = find_existing_offer_id(job, db_path=db_path)
@@ -248,6 +243,8 @@ def fetch_offers(
                         reason="already_in_offers",
                         db_path=db_path,
                     )
+                    if target_new_offers is not None and newly_explored >= target_new_offers:
+                        break
                     continue
 
                 evaluation = evaluate_job(job, config=rule_config)
@@ -259,6 +256,8 @@ def fetch_offers(
                         reason="rule_filter_failed",
                         db_path=db_path,
                     )
+                    if target_new_offers is not None and newly_explored >= target_new_offers:
+                        break
                     continue
 
                 upsert_stats = upsert_offers([job], db_path=db_path)
@@ -271,21 +270,35 @@ def fetch_offers(
                     db_path=db_path,
                 )
                 matches.append((job, evaluation))
-                if target_new_offers is not None and inserted >= target_new_offers:
+                if target_new_offers is not None and newly_explored >= target_new_offers:
                     break
             except Exception as error:
                 errors += 1
+                if not counted_as_new:
+                    newly_explored += 1
+                    page_newly_explored += 1
                 record_explored_job(
                     job,
                     status="error",
                     reason=str(error),
                     db_path=db_path,
                 )
+                if target_new_offers is not None and newly_explored >= target_new_offers:
+                    break
 
-        if consecutive_seen >= consecutive_seen_limit:
-            break
-        if target_new_offers is not None and inserted >= target_new_offers:
-            _emit(messages, progress, f"Collected {inserted} new offers.")
+        if page_already_seen == len(jobs) and page_newly_explored == 0:
+            consecutive_seen_pages += 1
+            if consecutive_seen_pages >= max_seen_pages:
+                _emit(
+                    messages,
+                    progress,
+                    f"Stopped after {consecutive_seen_pages} consecutive pages with only already-seen offers.",
+                )
+                break
+        else:
+            consecutive_seen_pages = 0
+        if target_new_offers is not None and newly_explored >= target_new_offers:
+            _emit(messages, progress, f"Processed {newly_explored} newly explored offers.")
             break
 
     stats = UpsertStats(
@@ -294,7 +307,8 @@ def fetch_offers(
         updated=updated,
         skipped_existing=already_seen,
         pages_scanned=pages_scanned,
-        explored=fetched,
+        explored=newly_explored,
+        newly_explored=newly_explored,
         already_seen=already_seen,
         filtered_out=filtered_out,
         errors=errors,
@@ -303,7 +317,8 @@ def fetch_offers(
         messages,
         progress,
         (
-            f"Pages {stats.pages_scanned}; explored {stats.explored}; "
+            f"Pages {stats.pages_scanned}; provider rows {stats.fetched}; "
+            f"newly explored {stats.newly_explored}; "
             f"already seen {stats.already_seen}; filtered out {stats.filtered_out}; "
             f"inserted {stats.inserted}; updated {stats.updated}; errors {stats.errors}."
         ),

@@ -61,12 +61,12 @@ def fetch(
     source: FetchSource = "arbeitnow",
     page: int = typer.Option(1, help="Starting result page to fetch."),
     pages: int = typer.Option(1, "--pages", help="Debug page scan count when --new-offers is not set."),
-    new_offers: int | None = typer.Option(None, "--new-offers", help="Target number of new relevant offers to insert."),
+    new_offers: int | None = typer.Option(None, "--new-offers", help="Target number of newly explored provider offers to process."),
     max_pages: int = typer.Option(10, "--max-pages", help="Maximum provider pages to scan."),
-    consecutive_seen_limit: int = typer.Option(
-        100,
-        "--consecutive-seen-limit",
-        help="Stop after this many consecutive already-explored offers.",
+    max_seen_pages: int = typer.Option(
+        5,
+        "--max-seen-pages",
+        help="Stop after this many consecutive pages contain only already-seen offers.",
     ),
     query: str = typer.Option("c++ simulation", help="Search query for sources that support it."),
     country: str = typer.Option("fr", help="Adzuna country code, for example fr, gb, us."),
@@ -78,7 +78,7 @@ def fetch(
     unranked_capacity: int = typer.Option(DEFAULT_UNRANKED_CAPACITY, help="Maximum unranked offer rows to keep."),
     ranked_capacity: int = typer.Option(DEFAULT_RANKED_CAPACITY, help="Maximum ranked offer rows to keep."),
 ) -> None:
-    """Fetch jobs from one source, insert new relevant offers, and print a shortlist."""
+    """Fetch jobs from one source, track newly explored offers, and print a shortlist."""
 
     try:
         result = fetch_offers(
@@ -87,7 +87,7 @@ def fetch(
             pages=pages,
             new_offers=new_offers,
             max_pages=max_pages,
-            consecutive_seen_limit=consecutive_seen_limit,
+            max_seen_pages=max_seen_pages,
             query=query,
             country=country,
             where=where,
@@ -107,8 +107,9 @@ def fetch(
         console.print(f"[red]Configuration error:[/red] {error}")
         raise typer.Exit(code=1) from error
 
-    console.print(f"[bold]Fetched:[/bold] {result.stats.fetched} jobs from {source}")
+    console.print(f"[bold]Provider rows fetched:[/bold] {result.stats.fetched} jobs from {source}")
     console.print(f"[bold]Pages scanned:[/bold] {result.stats.pages_scanned}")
+    console.print(f"[bold]Newly explored:[/bold] {result.stats.newly_explored}")
     console.print(f"[bold]Database:[/bold] {db}")
     console.print(
         f"[green]Inserted:[/green] {result.stats.inserted} | "

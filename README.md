@@ -161,7 +161,7 @@ Fetch writes to SQLite by default:
 python -m app.cli fetch --source arbeitnow --db data/job_intel.sqlite
 ```
 
-Fetch collection is target-based when `--new-offers` is provided. The app scans provider pages until the target number of new relevant offers is inserted, `--max-pages` is reached, the provider has no more results, or too many already-explored offers are seen in a row.
+Fetch collection is target-based when `--new-offers` is provided. The app scans provider pages until the target number of newly explored provider offers is processed, `--max-pages` is reached, the provider has no more results, or `--max-seen-pages` consecutive pages contain only already-explored offers.
 
 During fetch, the app also tracks explored provider items, including duplicates and filtered-out offers, so future runs can skip already-inspected results. Fetch automatically prunes explored, unranked, and ranked data using capacity limits.
 

@@ -400,6 +400,53 @@ class SqliteReviewTests(unittest.TestCase):
             self.assertEqual(result.stats.already_seen, 1)
             self.assertEqual([job.title for job, _ in result.matches], ["C++ Simulation"])
 
+    def test_fetch_workflow_skips_seen_page_and_continues_to_next_page(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "jobs.sqlite"
+            seen_jobs = [
+                _source_job(f"seen-{index}", f"https://example.com/seen-{index}", f"Seen {index}")
+                for index in range(3)
+            ]
+            new = _source_job("source-new", "https://example.com/new", "C++ Simulation")
+            for job in seen_jobs:
+                record_explored_job(job, status="inserted", db_path=db_path)
+
+            with patch("app.workflows.fetch_arbeitnow", side_effect=[seen_jobs, [new]]) as fetch_mock:
+                result = fetch_offers(
+                    source="arbeitnow",
+                    db_path=db_path,
+                    min_score=0,
+                    new_offers=1,
+                    max_pages=2,
+                )
+
+            self.assertEqual([call.kwargs["page"] for call in fetch_mock.call_args_list], [1, 2])
+            self.assertEqual(result.stats.pages_scanned, 2)
+            self.assertEqual(result.stats.already_seen, 3)
+            self.assertEqual(result.stats.newly_explored, 1)
+            self.assertEqual(result.stats.inserted, 1)
+
+    def test_fetch_workflow_already_seen_does_not_count_toward_new_offers(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "jobs.sqlite"
+            seen = _source_job("seen", "https://example.com/seen", "Seen")
+            new = _source_job("new", "https://example.com/new", "C++ Simulation")
+            record_explored_job(seen, status="filtered_out", db_path=db_path)
+
+            with patch("app.workflows.fetch_arbeitnow", side_effect=[[seen], [new]]):
+                result = fetch_offers(
+                    source="arbeitnow",
+                    db_path=db_path,
+                    min_score=0,
+                    new_offers=1,
+                    max_pages=2,
+                )
+
+            self.assertEqual(result.stats.pages_scanned, 2)
+            self.assertEqual(result.stats.already_seen, 1)
+            self.assertEqual(result.stats.newly_explored, 1)
+            self.assertEqual(result.stats.inserted, 1)
+
     def test_fetch_workflow_collects_target_new_offers_across_pages(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "jobs.sqlite"
@@ -419,6 +466,29 @@ class SqliteReviewTests(unittest.TestCase):
             self.assertEqual(result.stats.inserted, 2)
             self.assertEqual(result.matched_count, 2)
 
+    def test_fetch_workflow_stops_at_new_offers_after_newly_explored_processed(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "jobs.sqlite"
+            filtered = _source_job("filtered", "https://example.com/filtered", "No Description")
+            filtered.description = ""
+            inserted = _source_job("inserted", "https://example.com/inserted", "C++ Simulation")
+            extra = _source_job("extra", "https://example.com/extra", "C++ Simulation Extra")
+
+            with patch("app.workflows.fetch_arbeitnow", side_effect=[[filtered, inserted], [extra]]) as fetch_mock:
+                result = fetch_offers(
+                    source="arbeitnow",
+                    db_path=db_path,
+                    min_score=0,
+                    new_offers=2,
+                    max_pages=5,
+                )
+
+            self.assertEqual(fetch_mock.call_count, 1)
+            self.assertEqual(result.stats.pages_scanned, 1)
+            self.assertEqual(result.stats.newly_explored, 2)
+            self.assertEqual(result.stats.filtered_out, 1)
+            self.assertEqual(result.stats.inserted, 1)
+
     def test_fetch_workflow_stops_at_max_pages(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "jobs.sqlite"
@@ -436,7 +506,32 @@ class SqliteReviewTests(unittest.TestCase):
 
             self.assertEqual(result.stats.pages_scanned, 1)
             self.assertEqual(result.stats.inserted, 1)
+            self.assertEqual(result.stats.newly_explored, 1)
             self.assertEqual(result.matched_count, 1)
+
+    def test_fetch_workflow_stops_after_max_seen_pages(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "jobs.sqlite"
+            seen_one = _source_job("seen-1", "https://example.com/seen-1", "Seen One")
+            seen_two = _source_job("seen-2", "https://example.com/seen-2", "Seen Two")
+            new = _source_job("new", "https://example.com/new", "C++ Simulation")
+            for job in [seen_one, seen_two]:
+                record_explored_job(job, status="inserted", db_path=db_path)
+
+            with patch("app.workflows.fetch_arbeitnow", side_effect=[[seen_one], [seen_two], [new]]):
+                result = fetch_offers(
+                    source="arbeitnow",
+                    db_path=db_path,
+                    min_score=0,
+                    new_offers=1,
+                    max_pages=5,
+                    max_seen_pages=2,
+                )
+
+            self.assertEqual(result.stats.pages_scanned, 2)
+            self.assertEqual(result.stats.already_seen, 2)
+            self.assertEqual(result.stats.newly_explored, 0)
+            self.assertEqual(result.stats.inserted, 0)
 
     def test_fetch_workflow_tracks_filtered_offers(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -449,9 +544,12 @@ class SqliteReviewTests(unittest.TestCase):
                     source="arbeitnow",
                     db_path=db_path,
                     min_score=0,
+                    new_offers=1,
+                    max_pages=5,
                 )
 
             records = list_explored_offers(db_path)
+            self.assertEqual(result.stats.newly_explored, 1)
             self.assertEqual(result.stats.filtered_out, 1)
             self.assertEqual(result.stats.inserted, 0)
             self.assertEqual(records[0]["status"], "filtered_out")
