@@ -133,6 +133,7 @@ Show available commands:
 jobs --help
 jobs fetch --help
 jobs rank --help
+jobs clear --help
 jobs ui --help
 ```
 
@@ -159,6 +160,10 @@ Fetch writes to SQLite by default:
 ```bash
 python -m app.cli fetch --source arbeitnow --db data/job_intel.sqlite
 ```
+
+Fetch collection is target-based when `--new-offers` is provided. The app scans provider pages until the target number of new relevant offers is inserted, `--max-pages` is reached, the provider has no more results, or too many already-explored offers are seen in a row.
+
+During fetch, the app also tracks explored provider items, including duplicates and filtered-out offers, so future runs can skip already-inspected results. Fetch automatically prunes explored, unranked, and ranked data using capacity limits.
 
 Preview which database offers would be ranked without requiring provider credentials:
 
@@ -216,6 +221,16 @@ python -m app.cli ui --db data/job_intel.sqlite --open-browser
 
 The UI lists ranked offers from SQLite, supports sorting and filters for recommendation, status, source, location, ranking mode, and recency, lets you mark offers as `saved`, `skipped`, or `applied`, and can run fetch/rank workflows directly.
 
+Clear specific stored data:
+
+```bash
+python -m app.cli clear --scope rankings --db data/job_intel.sqlite --yes
+```
+
+Supported clear scopes are `rankings`, `offers`, `explored`, and `all`. Without `--yes`, the command prints exactly what will be cleared and asks for confirmation.
+
+More details on fetch collection, explored-offer tracking, pruning capacities, and clear scopes are in [docs/operations.md](docs/operations.md).
+
 ## Output files
 
 Fetched jobs are saved to:
@@ -224,7 +239,7 @@ Fetched jobs are saved to:
 data/job_intel.sqlite
 ```
 
-SQLite is the source of truth. It contains `offers`, `ranking_runs`, and `rankings`.
+SQLite is the source of truth. It contains `explored_offers`, `offers`, `ranking_runs`, and `rankings`.
 
 The saved ranking rows include run metadata, job metadata, weighted rule scoring, raw AI evaluation when used, and the final policy-adjusted decision.
 
