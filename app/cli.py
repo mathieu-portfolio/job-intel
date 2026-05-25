@@ -40,7 +40,15 @@ def main() -> None:
 @app.command()
 def fetch(
     source: FetchSource = "arbeitnow",
-    page: int = typer.Option(1, help="Result page to fetch."),
+    page: int = typer.Option(1, help="Starting result page to fetch."),
+    pages: int = typer.Option(1, "--pages", help="Debug page scan count when --new-offers is not set."),
+    new_offers: int | None = typer.Option(None, "--new-offers", help="Target number of new relevant offers to insert."),
+    max_pages: int = typer.Option(10, "--max-pages", help="Maximum provider pages to scan."),
+    consecutive_seen_limit: int = typer.Option(
+        100,
+        "--consecutive-seen-limit",
+        help="Stop after this many consecutive already-explored offers.",
+    ),
     query: str = typer.Option("c++ simulation", help="Search query for sources that support it."),
     country: str = typer.Option("fr", help="Adzuna country code, for example fr, gb, us."),
     where: str | None = typer.Option(None, help="Optional Adzuna location filter."),
@@ -48,12 +56,16 @@ def fetch(
     min_score: int = typer.Option(40, help="Minimum calibrated rule score to print."),
     limit: int = typer.Option(20, help="Maximum number of matches to print."),
 ) -> None:
-    """Fetch jobs from one source, upsert SQLite offers, and print a shortlist."""
+    """Fetch jobs from one source, insert new relevant offers, and print a shortlist."""
 
     try:
         result = fetch_offers(
             source=source,
             page=page,
+            pages=pages,
+            new_offers=new_offers,
+            max_pages=max_pages,
+            consecutive_seen_limit=consecutive_seen_limit,
             query=query,
             country=country,
             where=where,
@@ -71,10 +83,14 @@ def fetch(
         raise typer.Exit(code=1) from error
 
     console.print(f"[bold]Fetched:[/bold] {result.stats.fetched} jobs from {source}")
+    console.print(f"[bold]Pages scanned:[/bold] {result.stats.pages_scanned}")
     console.print(f"[bold]Database:[/bold] {db}")
     console.print(
         f"[green]Inserted:[/green] {result.stats.inserted} | "
-        f"[yellow]Skipped existing:[/yellow] {result.stats.skipped_existing}"
+        f"[cyan]Updated:[/cyan] {result.stats.updated} | "
+        f"[yellow]Already seen:[/yellow] {result.stats.already_seen} | "
+        f"[magenta]Filtered out:[/magenta] {result.stats.filtered_out} | "
+        f"[red]Errors:[/red] {result.stats.errors}"
     )
     console.print(f"[green]Matched:[/green] {result.matched_count} jobs with calibrated score >= {min_score}\n")
 

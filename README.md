@@ -139,19 +139,19 @@ jobs ui --help
 Fetch and filter jobs from Arbeitnow:
 
 ```bash
-jobs fetch --source arbeitnow --page 1 --min-score 10
+jobs fetch --source arbeitnow --new-offers 20 --max-pages 10 --min-score 10
 ```
 
 Fetch and filter jobs from Adzuna:
 
 ```bash
-jobs fetch --source adzuna --query "c++ simulation" --country fr --where France --min-score 10
+jobs fetch --source adzuna --new-offers 20 --max-pages 10 --query "c++ simulation" --country fr --where France --min-score 10
 ```
 
 You can also run the fetch command as a Python module:
 
 ```bash
-python -m app.cli fetch --source arbeitnow --page 1 --min-score 10
+python -m app.cli fetch --source arbeitnow --new-offers 20 --max-pages 10 --min-score 10
 ```
 
 Fetch writes to SQLite by default:

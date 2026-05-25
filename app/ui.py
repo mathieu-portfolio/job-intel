@@ -152,6 +152,9 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
             result = fetch_offers(
                 source=form.get("source") or "arbeitnow",  # type: ignore[arg-type]
                 page=_positive_int(form.get("page"), 1),
+                new_offers=_positive_int(form.get("new_offers"), 20),
+                max_pages=_positive_int(form.get("max_pages"), 10),
+                consecutive_seen_limit=_positive_int(form.get("consecutive_seen_limit"), 100),
                 query=form.get("query") or "c++ simulation",
                 country=form.get("country") or "fr",
                 where=(form.get("where") or "").strip() or None,
@@ -162,9 +165,14 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 "success",
                 "Fetch complete",
                 {
+                    "Pages scanned": result.stats.pages_scanned,
                     "Fetched": result.stats.fetched,
+                    "Explored": result.stats.explored,
+                    "Already seen": result.stats.already_seen,
+                    "Filtered out": result.stats.filtered_out,
                     "Inserted": result.stats.inserted,
-                    "Skipped existing": result.stats.skipped_existing,
+                    "Updated": result.stats.updated,
+                    "Errors": result.stats.errors,
                     "Matched": result.matched_count,
                     "Source": result.source,
                     "Preview limit": preview_limit,

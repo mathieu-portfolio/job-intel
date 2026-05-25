@@ -12,7 +12,7 @@ import requests
 
 from app.ai.decision import make_final_decision
 from app.ai.evaluator import build_job_evaluation_prompts, evaluate_job_with_ai
-from app.filtering.rules import evaluate_job, filter_jobs, load_rule_scoring_config
+from app.filtering.rules import evaluate_job, load_rule_scoring_config
 from app.llm.factory import ProviderName, create_llm_provider
 from app.llm.ollama_client import OllamaLlmProvider
 from app.models.evaluation import AiJobEvaluation, FinalDecision, RuleEvaluation
@@ -25,7 +25,10 @@ from app.storage.sqlite import (
     StoredOffer,
     UpsertStats,
     create_ranking_run,
-    exclude_existing_offers,
+    find_existing_offer_id,
+    find_existing_offer_id_by_url,
+    has_explored_offer,
+    record_explored_job,
     save_ranking,
     select_unranked_offers,
     upsert_offers,
@@ -122,6 +125,10 @@ def fetch_offers(
     *,
     source: FetchSource = "arbeitnow",
     page: int = 1,
+    pages: int = 1,
+    new_offers: int | None = None,
+    max_pages: int | None = None,
+    consecutive_seen_limit: int = 100,
     query: str = "c++ simulation",
     country: str = "fr",
     where: str | None = None,
@@ -130,37 +137,167 @@ def fetch_offers(
     progress: ProgressCallback | None = None,
 ) -> FetchWorkflowResult:
     messages: list[str] = []
-    _emit(messages, progress, f"Fetching jobs from {source}.")
-    try:
-        if source == "arbeitnow":
-            jobs = fetch_arbeitnow(page=page)
-        elif source == "adzuna":
-            jobs = fetch_adzuna(query=query, country=country, where=where, page=page)
-        else:
-            raise ValueError(f"Unsupported source: {source}")
-    except requests.RequestException as error:
-        raise RuntimeError(f"Network/API error: {error}") from error
+    if pages < 1:
+        raise ValueError("pages must be at least 1.")
+    if new_offers is not None and new_offers < 1:
+        raise ValueError("new_offers must be at least 1.")
+    if max_pages is not None and max_pages < 1:
+        raise ValueError("max_pages must be at least 1.")
+    if consecutive_seen_limit < 1:
+        raise ValueError("consecutive_seen_limit must be at least 1.")
 
-    _emit(messages, progress, f"Fetched {len(jobs)} jobs. Excluding known offers.")
-    new_jobs = exclude_existing_offers(jobs, db_path=db_path)
-    skipped_existing = len(jobs) - len(new_jobs)
+    target_new_offers = new_offers
+    page_limit = max_pages if target_new_offers is not None else pages
+    if page_limit is None:
+        page_limit = pages
+
     _emit(
         messages,
         progress,
-        f"{len(new_jobs)} new jobs, {skipped_existing} already in the database.",
+        (
+            f"Fetching jobs from {source}; "
+            f"target {target_new_offers or 'page scan'} new offers; max pages {page_limit}."
+        ),
     )
-    stats = upsert_offers(new_jobs, db_path=db_path)
+
+    fetched = 0
+    inserted = 0
+    updated = 0
+    already_seen = 0
+    filtered_out = 0
+    errors = 0
+    pages_scanned = 0
+    consecutive_seen = 0
+    matches: list[tuple[JobOffer, RuleEvaluation]] = []
+    rule_config = load_rule_scoring_config()
+
+    for offset in range(page_limit):
+        current_page = page + offset
+        try:
+            if source == "arbeitnow":
+                jobs = fetch_arbeitnow(page=current_page)
+            elif source == "adzuna":
+                jobs = fetch_adzuna(query=query, country=country, where=where, page=current_page)
+            else:
+                raise ValueError(f"Unsupported source: {source}")
+        except requests.RequestException as error:
+            raise RuntimeError(f"Network/API error: {error}") from error
+
+        pages_scanned += 1
+        fetched += len(jobs)
+        _emit(messages, progress, f"Scanned page {current_page}: {len(jobs)} offers.")
+        if not jobs:
+            _emit(messages, progress, "Provider returned no more offers.")
+            break
+
+        for job in jobs:
+            canonical_url = str(job.url)
+            try:
+                if has_explored_offer(
+                    provider=job.source,
+                    external_id=job.source_id,
+                    canonical_url=canonical_url,
+                    db_path=db_path,
+                ):
+                    already_seen += 1
+                    consecutive_seen += 1
+                    record_explored_job(
+                        job,
+                        status="duplicate",
+                        reason="already_seen",
+                        db_path=db_path,
+                    )
+                    if consecutive_seen >= consecutive_seen_limit:
+                        _emit(
+                            messages,
+                            progress,
+                            f"Stopped after {consecutive_seen} consecutive already-explored offers.",
+                        )
+                        break
+                    continue
+
+                consecutive_seen = 0
+                if not job.description.strip():
+                    filtered_out += 1
+                    record_explored_job(
+                        job,
+                        status="filtered_out",
+                        reason="missing_description",
+                        db_path=db_path,
+                    )
+                    continue
+
+                existing_offer_id = find_existing_offer_id(job, db_path=db_path)
+                if existing_offer_id is not None:
+                    upsert_stats = UpsertStats(fetched=1, inserted=0, updated=0)
+                    if find_existing_offer_id_by_url(canonical_url, db_path=db_path) is not None:
+                        upsert_stats = upsert_offers([job], db_path=db_path)
+                    updated += upsert_stats.updated
+                    record_explored_job(
+                        job,
+                        status="updated" if upsert_stats.updated else "duplicate",
+                        reason="already_in_offers",
+                        db_path=db_path,
+                    )
+                    continue
+
+                evaluation = evaluate_job(job, config=rule_config)
+                if evaluation.normalized_score < min_score:
+                    filtered_out += 1
+                    record_explored_job(
+                        job,
+                        status="filtered_out",
+                        reason="rule_filter_failed",
+                        db_path=db_path,
+                    )
+                    continue
+
+                upsert_stats = upsert_offers([job], db_path=db_path)
+                inserted += upsert_stats.inserted
+                updated += upsert_stats.updated
+                record_explored_job(
+                    job,
+                    status="inserted" if upsert_stats.inserted else "updated",
+                    reason=None,
+                    db_path=db_path,
+                )
+                matches.append((job, evaluation))
+                if target_new_offers is not None and inserted >= target_new_offers:
+                    break
+            except Exception as error:
+                errors += 1
+                record_explored_job(
+                    job,
+                    status="error",
+                    reason=str(error),
+                    db_path=db_path,
+                )
+
+        if consecutive_seen >= consecutive_seen_limit:
+            break
+        if target_new_offers is not None and inserted >= target_new_offers:
+            _emit(messages, progress, f"Collected {inserted} new offers.")
+            break
+
     stats = UpsertStats(
-        fetched=len(jobs),
-        inserted=stats.inserted,
-        updated=stats.updated,
-        skipped_existing=skipped_existing,
+        fetched=fetched,
+        inserted=inserted,
+        updated=updated,
+        skipped_existing=already_seen,
+        pages_scanned=pages_scanned,
+        explored=fetched,
+        already_seen=already_seen,
+        filtered_out=filtered_out,
+        errors=errors,
     )
-    matches = filter_jobs(new_jobs, min_score=min_score)
     _emit(
         messages,
         progress,
-        f"Inserted {stats.inserted}, skipped {stats.skipped_existing}, matched {len(matches)}.",
+        (
+            f"Pages {stats.pages_scanned}; explored {stats.explored}; "
+            f"already seen {stats.already_seen}; filtered out {stats.filtered_out}; "
+            f"inserted {stats.inserted}; updated {stats.updated}; errors {stats.errors}."
+        ),
     )
     return FetchWorkflowResult(
         source=source,

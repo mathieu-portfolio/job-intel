@@ -29,6 +29,20 @@ class UpsertStats:
     inserted: int
     updated: int
     skipped_existing: int = 0
+    pages_scanned: int = 0
+    explored: int = 0
+    already_seen: int = 0
+    filtered_out: int = 0
+    errors: int = 0
+
+
+@dataclass(frozen=True)
+class ExploredOfferRecord:
+    provider: str
+    external_id: str | None
+    canonical_url: str | None
+    status: str
+    reason: str | None = None
 
 
 VALID_REVIEW_STATUSES = {"new", "saved", "skipped", "applied"}
@@ -126,6 +140,110 @@ def upsert_offers(
                 )
 
     return UpsertStats(fetched=len(jobs), inserted=inserted, updated=updated)
+
+
+def _canonical_url(job: JobOffer) -> str:
+    return str(job.url)
+
+
+def has_explored_offer(
+    *,
+    provider: str,
+    external_id: str | None,
+    canonical_url: str | None,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> bool:
+    init_db(db_path)
+    with _connect(db_path) as connection:
+        row = connection.execute(
+            load_sql("explored_offers/select_by_identity.sql"),
+            (provider, external_id, canonical_url, external_id),
+        ).fetchone()
+    return row is not None
+
+
+def record_explored_offer(
+    *,
+    provider: str,
+    external_id: str | None,
+    canonical_url: str | None,
+    status: str,
+    reason: str | None = None,
+    db_path: Path = DEFAULT_DB_PATH,
+    seen_at: str | None = None,
+) -> None:
+    init_db(db_path)
+    seen_at = seen_at or _now_iso()
+    with _connect(db_path) as connection:
+        row = connection.execute(
+            load_sql("explored_offers/select_by_identity.sql"),
+            (provider, external_id, canonical_url, external_id),
+        ).fetchone()
+        if row is None:
+            connection.execute(
+                load_sql("explored_offers/insert.sql"),
+                (provider, external_id, canonical_url, seen_at, seen_at, status, reason),
+            )
+        else:
+            connection.execute(
+                load_sql("explored_offers/update.sql"),
+                (external_id, canonical_url, seen_at, status, reason, row["id"]),
+            )
+
+
+def record_explored_job(
+    job: JobOffer,
+    *,
+    status: str,
+    reason: str | None = None,
+    db_path: Path = DEFAULT_DB_PATH,
+    seen_at: str | None = None,
+) -> None:
+    record_explored_offer(
+        provider=job.source,
+        external_id=job.source_id,
+        canonical_url=_canonical_url(job),
+        status=status,
+        reason=reason,
+        db_path=db_path,
+        seen_at=seen_at,
+    )
+
+
+def find_existing_offer_id(
+    job: JobOffer,
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> int | None:
+    init_db(db_path)
+    url = _canonical_url(job)
+    with _connect(db_path) as connection:
+        row = connection.execute(
+            load_sql("offers/select_existing_identity.sql"),
+            (job.source, job.source_id, url, job.source, job.source_id),
+        ).fetchone()
+    return int(row["id"]) if row is not None else None
+
+
+def find_existing_offer_id_by_url(
+    canonical_url: str,
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> int | None:
+    init_db(db_path)
+    with _connect(db_path) as connection:
+        row = connection.execute(
+            load_sql("offers/select_by_identity_url.sql"),
+            (canonical_url,),
+        ).fetchone()
+    return int(row["id"]) if row is not None else None
+
+
+def list_explored_offers(db_path: Path = DEFAULT_DB_PATH) -> list[dict[str, Any]]:
+    init_db(db_path)
+    with _connect(db_path) as connection:
+        rows = connection.execute(load_sql("explored_offers/select_all.sql")).fetchall()
+    return [dict(row) for row in rows]
 
 
 def exclude_existing_offers(

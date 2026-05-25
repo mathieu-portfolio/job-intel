@@ -44,11 +44,19 @@
               </select>
             </label>
             <label>
-              Page
+              New offers
+              <input name="new_offers" type="number" min="1" value="20">
+            </label>
+            <label>
+              Max pages
+              <input name="max_pages" type="number" min="1" value="10">
+            </label>
+            <label>
+              Start page
               <input name="page" type="number" min="1" value="1">
             </label>
             <label>
-              Limit
+              Preview
               <input name="limit" type="number" min="1" value="20">
             </label>
             <label>
@@ -66,6 +74,10 @@
             <label>
               Min score
               <input name="min_score" type="number" min="0" max="100" value="40">
+            </label>
+            <label>
+              Seen stop
+              <input name="consecutive_seen_limit" type="number" min="1" value="100">
             </label>
           </div>
         </form>
