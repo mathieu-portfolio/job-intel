@@ -132,19 +132,6 @@
         <a class="clear" href="/offers">Clear</a>
       </form>
 
-      <section class="discreet-actions">
-        <form
-          method="post"
-          action="/storage/clear"
-          data-running-label="Clearing..."
-          data-confirm-message="Delete fetched offers? Dependent ranking rows will also be removed. Explored tracking will remain."
-        >
-          <input type="hidden" name="scope" value="offers">
-          <input type="hidden" name="redirect_to" value="/offers">
-          <button class="danger subtle" type="submit">Clear fetched offers</button>
-        </form>
-      </section>
-
       <section class="list">
         {% for offer in offers %}
           <article class="offer raw-offer">
@@ -172,21 +159,36 @@
           <p class="empty">No fetched offers match these filters.</p>
         {% endfor %}
       </section>
+
+      <section class="danger-zone">
+        <div>
+          <h2>Danger zone</h2>
+          <p>Deletes fetched offers. Dependent ranking rows are removed; explored tracking remains.</p>
+        </div>
+        <form
+          method="post"
+          action="/storage/clear"
+          data-running-label="Clearing..."
+          data-confirm-message="Delete fetched offers? Dependent ranking rows will also be removed. Explored tracking will remain."
+        >
+          <input type="hidden" name="scope" value="offers">
+          <input type="hidden" name="redirect_to" value="/offers">
+          <button class="danger subtle" type="submit">Clear fetched offers</button>
+        </form>
+      </section>
     </main>
     <script>
       for (const form of document.querySelectorAll("form[data-running-label]")) {
-        form.addEventListener("submit", () => {
+        form.addEventListener("submit", (event) => {
+          const message = form.dataset.confirmMessage;
+          if (message && !confirm(message)) {
+            event.preventDefault();
+            return;
+          }
           const button = form.querySelector("button[type='submit']");
           if (!button) return;
           button.disabled = true;
           button.textContent = form.dataset.runningLabel || "Running...";
-        });
-      }
-      for (const form of document.querySelectorAll("form[data-confirm-message]")) {
-        form.addEventListener("submit", (event) => {
-          if (!confirm(form.dataset.confirmMessage || "Continue?")) {
-            event.preventDefault();
-          }
         });
       }
     </script>

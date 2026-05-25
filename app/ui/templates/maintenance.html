@@ -52,7 +52,7 @@
         </article>
       </section>
 
-      <section class="workflow-card maintenance-actions">
+      <section class="workflow-card maintenance-actions danger-zone-panel">
         <div class="workflow-head">
           <h2>Data cleanup</h2>
         </div>
@@ -93,18 +93,16 @@
 
     <script>
       for (const form of document.querySelectorAll("form[data-running-label]")) {
-        form.addEventListener("submit", () => {
+        form.addEventListener("submit", (event) => {
+          const message = form.dataset.confirmMessage;
+          if (message && !confirm(message)) {
+            event.preventDefault();
+            return;
+          }
           const button = form.querySelector("button[type='submit']");
           if (!button) return;
           button.disabled = true;
           button.textContent = form.dataset.runningLabel || "Running...";
-        });
-      }
-      for (const form of document.querySelectorAll("form[data-confirm-message]")) {
-        form.addEventListener("submit", (event) => {
-          if (!confirm(form.dataset.confirmMessage || "Continue?")) {
-            event.preventDefault();
-          }
         });
       }
     </script>

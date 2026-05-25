@@ -37,6 +37,13 @@ def _job(
 
 
 class UiWorkflowTests(unittest.TestCase):
+    def assert_confirm_happens_before_loading_state(self, html: str) -> None:
+        confirm_index = html.find("confirm(message)")
+        disabled_index = html.find("button.disabled = true")
+        self.assertNotEqual(confirm_index, -1)
+        self.assertNotEqual(disabled_index, -1)
+        self.assertLess(confirm_index, disabled_index)
+
     def test_ranked_page_renders_rank_workflow_without_fetch_controls(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "jobs.sqlite"
@@ -48,7 +55,9 @@ class UiWorkflowTests(unittest.TestCase):
             self.assertIn("Rank offers", response.text)
             self.assertIn("Clear rankings", response.text)
             self.assertIn("Maintenance", response.text)
+            self.assertIn("Danger zone", response.text)
             self.assertNotIn("Fetch offers</button>", response.text)
+            self.assert_confirm_happens_before_loading_state(response.text)
 
     def test_clear_rankings_action_uses_scope_service_and_reports_counts(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -98,7 +107,9 @@ class UiWorkflowTests(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             self.assertIn("Fetch offers", response.text)
             self.assertIn("Clear fetched offers", response.text)
+            self.assertIn("Danger zone", response.text)
             self.assertNotIn("Rank offers</button>", response.text)
+            self.assert_confirm_happens_before_loading_state(response.text)
 
     def test_clear_fetched_action_clears_offers_and_redirects_to_fetched_page(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -157,6 +168,7 @@ class UiWorkflowTests(unittest.TestCase):
             self.assertIn("Ranked offers", response.text)
             self.assertIn("Clear explored tracking", response.text)
             self.assertIn("Clear all data", response.text)
+            self.assert_confirm_happens_before_loading_state(response.text)
 
     def test_maintenance_clear_all_clears_all_counts(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

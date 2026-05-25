@@ -109,7 +109,13 @@ main {
 }
 
 .workflow-panel.single-workflow {
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.workflow-panel.single-workflow .workflow-card {
+  width: 100%;
+  max-width: none;
+  justify-self: stretch;
 }
 
 .workflow-card,
@@ -117,7 +123,7 @@ main {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 16px;
+  padding: 20px;
 }
 
 .workflow-head {
@@ -136,12 +142,14 @@ main {
 
 .workflow-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px;
+  width: 100%;
 }
 
 .workflow-grid label {
-  flex: none;
+  flex: initial;
+  width: 100%;
 }
 
 .workflow-grid select,
@@ -296,16 +304,6 @@ button.subtle {
   font-weight: 600;
 }
 
-.discreet-actions {
-  display: flex;
-  justify-content: flex-end;
-  margin: -6px 0 20px;
-}
-
-.discreet-actions form {
-  margin: 0;
-}
-
 .maintenance-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -336,17 +334,50 @@ button.subtle {
   margin-bottom: 20px;
 }
 
+.danger-zone,
+.danger-zone-panel {
+  margin-top: 24px;
+  border-color: #f1b8b4;
+}
+
+.danger-zone {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: center;
+  padding: 16px 18px;
+  background: var(--panel);
+  border: 1px solid #f1b8b4;
+  border-radius: 8px;
+}
+
+.danger-zone h2 {
+  margin: 0;
+  font-size: 16px;
+  color: var(--danger);
+}
+
+.danger-zone p {
+  margin-top: 4px;
+  color: var(--muted);
+}
+
+.danger-zone form {
+  margin: 0;
+  flex: 0 0 auto;
+}
+
 .destructive-list {
   display: grid;
-  gap: 14px;
+  gap: 18px;
 }
 
 .destructive-list form {
   display: flex;
   justify-content: space-between;
-  gap: 18px;
+  gap: 24px;
   align-items: center;
-  padding-top: 14px;
+  padding-top: 18px;
   border-top: 1px solid var(--line);
 }
 
@@ -523,6 +554,11 @@ li span {
   }
 
   .destructive-list form {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .danger-zone {
     display: grid;
     grid-template-columns: 1fr;
   }
