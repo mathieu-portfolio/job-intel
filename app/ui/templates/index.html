@@ -18,13 +18,6 @@
       </div>
       <div class="header-actions">
         <div class="count">{{ offers|length }} ranked offers</div>
-        <form
-          method="post"
-          action="/rankings/clear"
-          onsubmit="return confirm('Clear all ranking rows? Offers and statuses will be kept.');"
-        >
-          <button class="danger" type="submit">Clear rankings</button>
-        </form>
       </div>
     </header>
 
@@ -174,6 +167,39 @@
               <span>{{ storage_counts.ranked }} rows</span>
             </label>
           </div>
+        </form>
+      </section>
+
+      <section class="workflow-panel destructive-panel">
+        <form class="workflow-card destructive-card" method="post" action="/storage/clear" data-running-label="Clearing...">
+          <div class="workflow-head">
+            <h2>Clear data</h2>
+            <button class="danger" type="submit">Clear selected data</button>
+          </div>
+          <div class="workflow-grid clear-grid">
+            <label>
+              Scope
+              <select name="scope" id="clear-scope">
+                {% for option in clear_options %}
+                  <option
+                    value="{{ option.scope }}"
+                    data-description="{{ option.description }}"
+                    {% if option.scope == "all" %}data-strong="true"{% endif %}
+                  >
+                    {{ option.label }}
+                  </option>
+                {% endfor %}
+              </select>
+            </label>
+            <label>
+              Confirm scope
+              <input id="clear-confirm" name="confirm_scope" type="text" placeholder="Type rankings" autocomplete="off">
+            </label>
+          </div>
+          <p id="clear-description" class="danger-copy"></p>
+          <p class="danger-copy strong-warning" id="clear-strong-warning" hidden>
+            This removes every application data group and cannot be undone from the UI.
+          </p>
         </form>
       </section>
 
@@ -368,6 +394,22 @@
           button.disabled = true;
           button.textContent = form.dataset.runningLabel || "Running...";
         });
+      }
+      const clearScope = document.getElementById("clear-scope");
+      const clearConfirm = document.getElementById("clear-confirm");
+      const clearDescription = document.getElementById("clear-description");
+      const clearStrongWarning = document.getElementById("clear-strong-warning");
+      const updateClearDescription = () => {
+        if (!clearScope || !clearConfirm || !clearDescription || !clearStrongWarning) return;
+        const option = clearScope.selectedOptions[0];
+        const scope = option.value;
+        clearDescription.textContent = option.dataset.description || "";
+        clearConfirm.placeholder = `Type ${scope}`;
+        clearStrongWarning.hidden = option.dataset.strong !== "true";
+      };
+      if (clearScope) {
+        clearScope.addEventListener("change", updateClearDescription);
+        updateClearDescription();
       }
     </script>
   </body>

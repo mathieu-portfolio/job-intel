@@ -156,6 +156,27 @@ main {
   background: var(--danger-soft);
 }
 
+.destructive-panel {
+  grid-template-columns: 1fr;
+}
+
+.destructive-card {
+  border-color: var(--danger);
+}
+
+.clear-grid {
+  grid-template-columns: minmax(180px, 260px) minmax(180px, 260px);
+}
+
+.danger-copy {
+  margin-top: 12px;
+  color: var(--danger);
+}
+
+.strong-warning {
+  font-weight: 700;
+}
+
 .workflow-notice dl {
   display: flex;
   flex-wrap: wrap;

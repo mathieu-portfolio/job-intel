@@ -13,7 +13,7 @@ from app.storage.sqlite import (
     DEFAULT_EXPLORED_CAPACITY,
     DEFAULT_RANKED_CAPACITY,
     DEFAULT_UNRANKED_CAPACITY,
-    clear_rankings,
+    clear_data,
     get_storage_counts,
     get_review_filter_options,
     list_ranked_offers,
@@ -27,6 +27,28 @@ from app.workflows import fetch_offers, rank_offers
 UI_DIR = Path(__file__).parent / "ui"
 templates = Jinja2Templates(directory=str(UI_DIR / "templates"))
 DEFAULT_RECENCY_DAYS = 30
+CLEAR_OPTIONS = [
+    {
+        "scope": "rankings",
+        "label": "Rankings only",
+        "description": "Deletes ranking rows and keeps offers, statuses, and explored tracking.",
+    },
+    {
+        "scope": "offers",
+        "label": "Offers + dependent rankings",
+        "description": "Deletes fetched offers. Dependent ranking rows are removed by SQLite foreign keys.",
+    },
+    {
+        "scope": "explored",
+        "label": "Explored tracking only",
+        "description": "Deletes provider exploration history. Existing offers and rankings remain.",
+    },
+    {
+        "scope": "all",
+        "label": "All app data",
+        "description": "Deletes explored tracking, offers, rankings, and ranking run metadata. This is the strongest reset.",
+    },
+]
 
 
 def _positive_int(value: str | None, default: int) -> int:
@@ -122,6 +144,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                     "unranked": DEFAULT_UNRANKED_CAPACITY,
                     "ranked": DEFAULT_RANKED_CAPACITY,
                 },
+                "clear_options": CLEAR_OPTIONS,
                 "active_page": "ranked",
             },
         )
@@ -267,7 +290,35 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
 
     @app.post("/rankings/clear")
     def clear_all_rankings(request: Request):
-        clear_rankings(request.app.state.db_path)
+        clear_data(db_path=request.app.state.db_path, scope="rankings")
+        return RedirectResponse("/", status_code=303)
+
+    @app.post("/storage/clear")
+    async def clear_storage_action(request: Request):
+        form = await _form_data(request)
+        scope = (form.get("scope") or "").strip()
+        confirmation = (form.get("confirm_scope") or "").strip()
+        try:
+            if confirmation != scope:
+                raise ValueError(f"Type '{scope}' to confirm clearing this scope.")
+            result = clear_data(db_path=request.app.state.db_path, scope=scope)
+            request.app.state.workflow_notice = _workflow_notice(
+                "success",
+                "Clear complete",
+                {
+                    "Scope": result.scope,
+                    "Deleted explored": result.explored,
+                    "Deleted offers": result.offers,
+                    "Deleted rankings": result.rankings,
+                    "Deleted ranking runs": result.ranking_runs,
+                },
+            )
+        except Exception as error:
+            request.app.state.workflow_notice = _workflow_notice(
+                "error",
+                "Clear failed",
+                {"Error": str(error)},
+            )
         return RedirectResponse("/", status_code=303)
 
     @app.post("/storage/prune")
