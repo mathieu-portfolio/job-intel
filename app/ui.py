@@ -22,7 +22,7 @@ from app.storage.sqlite import (
     prune_storage,
     update_offer_status,
 )
-from app.ui_options import discover_profiles, discover_weight_files
+from app.ui_options import ADZUNA_MARKETS, discover_profiles, discover_weight_files
 from app.workflows import fetch_offers, rank_offers
 
 
@@ -154,6 +154,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 },
                 "options": get_review_filter_options(request.app.state.db_path),
                 "location_suggestions": list_offer_locations(request.app.state.db_path),
+                "adzuna_markets": ADZUNA_MARKETS,
                 "db_path": request.app.state.db_path,
                 "workflow_notice": request.app.state.workflow_notice,
                 "storage_capacities": {
@@ -184,14 +185,18 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
         form = await _form_data(request)
         try:
             preview_limit = _positive_int(form.get("limit"), 20)
+            source = form.get("source") or "arbeitnow"
+            country = (form.get("country") or "").strip()
+            if source == "adzuna" and not country:
+                raise ValueError("Market is required when fetching from Adzuna.")
             result = fetch_offers(
-                source=form.get("source") or "arbeitnow",  # type: ignore[arg-type]
+                source=source,  # type: ignore[arg-type]
                 page=_positive_int(form.get("page"), 1),
                 new_offers=_positive_int(form.get("new_offers"), 20),
                 max_pages=_positive_int(form.get("max_pages"), 10),
                 max_seen_pages=_positive_int(form.get("max_seen_pages"), 50),
                 query=(form.get("query") or "").strip(),
-                country=(form.get("country") or "").strip() or "fr",
+                country=country or "fr",
                 where=(form.get("location") or "").strip() or None,
                 db_path=request.app.state.db_path,
                 min_score=_positive_int(form.get("min_score"), 40),

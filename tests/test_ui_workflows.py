@@ -114,15 +114,35 @@ class UiWorkflowTests(unittest.TestCase):
             self.assertIn("Fetch offers", response.text)
             self.assertIn('name="location"', response.text)
             self.assertIn('value="Paris"', response.text)
+            self.assertIn("Market", response.text)
+            self.assertIn("France", response.text)
+            self.assertIn("Germany", response.text)
+            self.assertIn("United Kingdom", response.text)
+            self.assertIn("United States", response.text)
+            self.assertIn('data-provider="adzuna" hidden', response.text)
+            self.assertIn("marketSelect.required = isAdzuna", response.text)
             self.assertIn('placeholder="Provider default"', response.text)
-            self.assertIn('placeholder="Required for Adzuna"', response.text)
             self.assertIn('value="50"', response.text)
             self.assertIn("Clear fetched offers", response.text)
             self.assertIn("Danger zone", response.text)
             self.assertNotIn("Rank offers</button>", response.text)
             self.assertNotIn('value="c++ simulation"', response.text)
-            self.assertNotIn('value="fr"', response.text)
             self.assert_confirm_happens_before_loading_state(response.text)
+
+    def test_adzuna_fetch_requires_market(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "jobs.sqlite"
+            client = TestClient(create_app(db_path))
+
+            response = client.post(
+                "/workflows/fetch",
+                data={"source": "adzuna", "new_offers": "1", "max_pages": "1"},
+                follow_redirects=True,
+            )
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("Fetch failed", response.text)
+            self.assertIn("Market is required when fetching from Adzuna.", response.text)
 
     def test_clear_fetched_action_clears_offers_and_redirects_to_fetched_page(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

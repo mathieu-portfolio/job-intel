@@ -3,6 +3,27 @@ from __future__ import annotations
 from pathlib import Path
 
 
+ADZUNA_MARKETS: list[dict[str, str]] = [
+    {"label": "France", "value": "fr"},
+    {"label": "Germany", "value": "de"},
+    {"label": "United Kingdom", "value": "gb"},
+    {"label": "United States", "value": "us"},
+    {"label": "Australia", "value": "au"},
+    {"label": "Austria", "value": "at"},
+    {"label": "Belgium", "value": "be"},
+    {"label": "Brazil", "value": "br"},
+    {"label": "Canada", "value": "ca"},
+    {"label": "India", "value": "in"},
+    {"label": "Italy", "value": "it"},
+    {"label": "Netherlands", "value": "nl"},
+    {"label": "New Zealand", "value": "nz"},
+    {"label": "Poland", "value": "pl"},
+    {"label": "Singapore", "value": "sg"},
+    {"label": "South Africa", "value": "za"},
+    {"label": "Spain", "value": "es"},
+]
+
+
 def _readable_label(path: Path) -> str:
     label = path.stem.replace("_", " ").replace("-", " ").replace(".", " ").strip()
     return label.title() if label else path.name

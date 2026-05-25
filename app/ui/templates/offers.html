@@ -33,9 +33,19 @@
           <div class="workflow-grid">
             <label>
               Source
-              <select name="source">
+              <select name="source" id="fetch-source">
                 <option value="arbeitnow">arbeitnow</option>
                 <option value="adzuna">adzuna</option>
+              </select>
+            </label>
+
+            <label class="provider-field" data-provider="adzuna" hidden>
+              Market
+              <select name="country" id="adzuna-market" disabled>
+                <option value="">Choose market</option>
+                {% for market in adzuna_markets %}
+                  <option value="{{ market.value }}">{{ market.label }}</option>
+                {% endfor %}
               </select>
             </label>
 
@@ -71,11 +81,6 @@
               <label>
                 Query
                 <input name="query" type="text" placeholder="Provider default">
-              </label>
-
-              <label>
-                Country
-                <input name="country" type="text" placeholder="Required for Adzuna">
               </label>
 
               <label>
@@ -204,6 +209,20 @@
           button.disabled = true;
           button.textContent = form.dataset.runningLabel || "Running...";
         });
+      }
+      const sourceSelect = document.getElementById("fetch-source");
+      const marketField = document.querySelector('[data-provider="adzuna"]');
+      const marketSelect = document.getElementById("adzuna-market");
+      const updateProviderFields = () => {
+        if (!sourceSelect || !marketField || !marketSelect) return;
+        const isAdzuna = sourceSelect.value === "adzuna";
+        marketField.hidden = !isAdzuna;
+        marketSelect.disabled = !isAdzuna;
+        marketSelect.required = isAdzuna;
+      };
+      if (sourceSelect) {
+        sourceSelect.addEventListener("change", updateProviderFields);
+        updateProviderFields();
       }
     </script>
   </body>
