@@ -25,13 +25,22 @@
 
     <main>
       <section class="workflow-panel single-workflow">
-        <form class="workflow-card" method="post" action="/workflows/rank" data-running-label="Ranking...">
+        <form class="workflow-card" method="post" action="/workflows/rank" data-running-label="Reviewing...">
           <div class="workflow-head">
-            <h2>AI review screened offers</h2>
-            <button type="submit">Run AI review</button>
+            <h2>Review with AI</h2>
+            <button type="submit">Review with AI</button>
           </div>
           
           <div class="workflow-grid">
+            <label>
+              Profile
+              <select name="profile">
+                {% for profile in profiles %}
+                  <option value="{{ profile.value }}" {% if loop.first %}selected{% endif %}>{{ profile.label }}</option>
+                {% endfor %}
+              </select>
+            </label>
+
             <label>
               AI provider
               <select name="provider">
@@ -43,25 +52,7 @@
             </label>
 
             <label>
-              Ranking strategy
-              <select name="ranking_mode">
-                <option value="hybrid" selected>Balanced hybrid</option>
-                <option value="rules">Fast rules preview</option>
-                <option value="ai">AI only</option>
-              </select>
-            </label>
-
-            <label>
-              Profile
-              <select name="profile">
-                {% for profile in profiles %}
-                  <option value="{{ profile.value }}" {% if loop.first %}selected{% endif %}>{{ profile.label }}</option>
-                {% endfor %}
-              </select>
-            </label>
-
-            <label>
-              Offers to rank
+              Screened offers to review
               <input name="limit" type="number" min="1" value="10">
             </label>
           </div>
@@ -150,15 +141,6 @@
         <label>
           Location
           <input name="location" type="text" value="{{ filters.location }}" placeholder="Any" list="location-suggestions">
-        </label>
-        <label>
-          Ranking mode
-          <select name="ranking_mode">
-            <option value="">Any</option>
-            {% for value in options.ranking_modes %}
-              <option value="{{ value }}" {% if filters.ranking_mode == value %}selected{% endif %}>{{ value }}</option>
-            {% endfor %}
-          </select>
         </label>
         <label>
           Recent days

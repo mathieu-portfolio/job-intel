@@ -53,7 +53,7 @@ class UiWorkflowTests(unittest.TestCase):
             response = client.get("/")
 
             self.assertEqual(response.status_code, 200)
-            self.assertIn("AI review screened offers", response.text)
+            self.assertIn("Review with AI", response.text)
             self.assertIn("Default", response.text)
             self.assertIn("Mathieu", response.text)
             self.assertIn("Default weights", response.text)
@@ -62,6 +62,11 @@ class UiWorkflowTests(unittest.TestCase):
             self.assertIn("Clear AI reviews", response.text)
             self.assertIn("Maintenance", response.text)
             self.assertIn("Danger zone", response.text)
+            self.assertIn("Screened offers to review", response.text)
+            self.assertNotIn("Ranking strategy", response.text)
+            self.assertNotIn("Balanced hybrid", response.text)
+            self.assertNotIn("Fast rules preview", response.text)
+            self.assertNotIn('name="ranking_mode"', response.text)
             self.assertNotIn("Fetch offers</button>", response.text)
             self.assert_confirm_happens_before_loading_state(response.text)
 
@@ -125,7 +130,7 @@ class UiWorkflowTests(unittest.TestCase):
             self.assertIn('value="50"', response.text)
             self.assertIn("Clear screened offers", response.text)
             self.assertIn("Danger zone", response.text)
-            self.assertNotIn("Run AI review</button>", response.text)
+            self.assertNotIn("Review with AI</button>", response.text)
             self.assertNotIn('value="c++ simulation"', response.text)
             self.assert_confirm_happens_before_loading_state(response.text)
 
@@ -273,9 +278,9 @@ class UiWorkflowTests(unittest.TestCase):
                 "/workflows/rank",
                 data={
                     "profile": str(profile_path),
-                    "ranking_mode": "rules",
                     "limit": "1",
                     "min_score": "40",
+                    "provider": "mock",
                 },
                 follow_redirects=True,
             )

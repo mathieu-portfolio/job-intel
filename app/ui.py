@@ -114,8 +114,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                     "status": status or "",
                     "source": source or "",
                     "location": location or "",
-                    "ranking_mode": ranking_mode or "",
-                    "recency": recency_days,
+                "recency": recency_days,
                     "ai_only": ai_only,
                     "sort": sort,
                     "limit": limit,
@@ -298,7 +297,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 only_recent_days=_optional_positive_int(form.get("only_recent_days")),
                 min_score=_positive_int(form.get("min_score"), 40),
                 weights_path=weights_path,
-                ranking_mode=form.get("ranking_mode") or "hybrid",  # type: ignore[arg-type]
+                ranking_mode="ai",
                 provider=((form.get("provider") or "").strip() or None),  # type: ignore[arg-type]
                 model=(form.get("model") or "").strip() or None,
             )
