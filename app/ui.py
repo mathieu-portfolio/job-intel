@@ -27,28 +27,12 @@ from app.workflows import fetch_offers, rank_offers
 UI_DIR = Path(__file__).parent / "ui"
 templates = Jinja2Templates(directory=str(UI_DIR / "templates"))
 DEFAULT_RECENCY_DAYS = 30
-CLEAR_OPTIONS = [
-    {
-        "scope": "rankings",
-        "label": "Rankings only",
-        "description": "Deletes ranking rows and keeps offers, statuses, and explored tracking.",
-    },
-    {
-        "scope": "offers",
-        "label": "Offers + dependent rankings",
-        "description": "Deletes fetched offers. Dependent ranking rows are removed by SQLite foreign keys.",
-    },
-    {
-        "scope": "explored",
-        "label": "Explored tracking only",
-        "description": "Deletes provider exploration history. Existing offers and rankings remain.",
-    },
-    {
-        "scope": "all",
-        "label": "All app data",
-        "description": "Deletes explored tracking, offers, rankings, and ranking run metadata. This is the strongest reset.",
-    },
-]
+CLEAR_SUMMARIES = {
+    "rankings": "Deletes ranking rows only.",
+    "offers": "Deletes fetched offers. Dependent ranking rows are removed by SQLite foreign keys.",
+    "explored": "Deletes provider exploration history. Existing offers and rankings remain.",
+    "all": "Deletes explored tracking, fetched offers, rankings, and ranking run metadata.",
+}
 
 
 def _positive_int(value: str | None, default: int) -> int:
@@ -138,13 +122,6 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 "options": get_review_filter_options(request.app.state.db_path),
                 "db_path": request.app.state.db_path,
                 "workflow_notice": request.app.state.workflow_notice,
-                "storage_counts": get_storage_counts(request.app.state.db_path),
-                "storage_capacities": {
-                    "explored": DEFAULT_EXPLORED_CAPACITY,
-                    "unranked": DEFAULT_UNRANKED_CAPACITY,
-                    "ranked": DEFAULT_RANKED_CAPACITY,
-                },
-                "clear_options": CLEAR_OPTIONS,
                 "active_page": "ranked",
             },
         )
@@ -174,7 +151,27 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 },
                 "options": get_review_filter_options(request.app.state.db_path),
                 "db_path": request.app.state.db_path,
+                "workflow_notice": request.app.state.workflow_notice,
+                "storage_capacities": {
+                    "explored": DEFAULT_EXPLORED_CAPACITY,
+                    "unranked": DEFAULT_UNRANKED_CAPACITY,
+                    "ranked": DEFAULT_RANKED_CAPACITY,
+                },
                 "active_page": "offers",
+            },
+        )
+
+    @app.get("/maintenance", response_class=HTMLResponse)
+    def maintenance(request: Request) -> HTMLResponse:
+        return templates.TemplateResponse(
+            request,
+            "maintenance.html",
+            {
+                "db_path": request.app.state.db_path,
+                "workflow_notice": request.app.state.workflow_notice,
+                "storage_counts": get_storage_counts(request.app.state.db_path),
+                "clear_summaries": CLEAR_SUMMARIES,
+                "active_page": "maintenance",
             },
         )
 
@@ -228,7 +225,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 "Fetch failed",
                 {"Error": str(error)},
             )
-        return RedirectResponse("/", status_code=303)
+        return RedirectResponse("/offers", status_code=303)
 
     @app.post("/workflows/rank")
     async def run_rank(request: Request):
@@ -297,10 +294,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
     async def clear_storage_action(request: Request):
         form = await _form_data(request)
         scope = (form.get("scope") or "").strip()
-        confirmation = (form.get("confirm_scope") or "").strip()
         try:
-            if confirmation != scope:
-                raise ValueError(f"Type '{scope}' to confirm clearing this scope.")
             result = clear_data(db_path=request.app.state.db_path, scope=scope)
             request.app.state.workflow_notice = _workflow_notice(
                 "success",
@@ -319,7 +313,10 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 "Clear failed",
                 {"Error": str(error)},
             )
-        return RedirectResponse("/", status_code=303)
+        redirect_to = (form.get("redirect_to") or request.headers.get("referer") or "/").strip()
+        if not redirect_to.startswith("/") or redirect_to.startswith("//"):
+            redirect_to = "/"
+        return RedirectResponse(redirect_to, status_code=303)
 
     @app.post("/storage/prune")
     async def prune_storage_action(request: Request):

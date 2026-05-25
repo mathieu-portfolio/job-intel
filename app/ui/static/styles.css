@@ -108,6 +108,10 @@ main {
   margin-bottom: 20px;
 }
 
+.workflow-panel.single-workflow {
+  grid-template-columns: 1fr;
+}
+
 .workflow-card,
 .workflow-notice {
   background: var(--panel);
@@ -287,6 +291,79 @@ button.danger {
   white-space: nowrap;
 }
 
+button.subtle {
+  background: #fff;
+  font-weight: 600;
+}
+
+.discreet-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin: -6px 0 20px;
+}
+
+.discreet-actions form {
+  margin: 0;
+}
+
+.maintenance-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.metric-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 18px;
+}
+
+.metric-card span {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.metric-card strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 28px;
+}
+
+.maintenance-actions {
+  margin-bottom: 20px;
+}
+
+.destructive-list {
+  display: grid;
+  gap: 14px;
+}
+
+.destructive-list form {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: center;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.destructive-list form:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.destructive-list p {
+  margin-top: 4px;
+  color: var(--muted);
+}
+
+.destructive-list .strong-warning {
+  color: var(--danger);
+}
+
 .list {
   display: grid;
   gap: 14px;
@@ -438,6 +515,15 @@ li span {
   }
 
   .details-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .maintenance-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .destructive-list form {
+    display: grid;
     grid-template-columns: 1fr;
   }
 

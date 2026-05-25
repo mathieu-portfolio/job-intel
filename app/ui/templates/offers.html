@@ -14,6 +14,7 @@
         <nav class="nav-links">
           <a class="{% if active_page == 'ranked' %}active{% endif %}" href="/">Ranked offers</a>
           <a class="{% if active_page == 'offers' %}active{% endif %}" href="/offers">Fetched offers</a>
+          <a class="{% if active_page == 'maintenance' %}active{% endif %}" href="/maintenance">Maintenance</a>
         </nav>
       </div>
       <div class="header-actions">
@@ -22,6 +23,93 @@
     </header>
 
     <main>
+      <section class="workflow-panel single-workflow">
+        <form class="workflow-card" method="post" action="/workflows/fetch" data-running-label="Fetching...">
+          <div class="workflow-head">
+            <h2>Fetch offers</h2>
+            <button type="submit">Fetch offers</button>
+          </div>
+          <div class="workflow-grid">
+            <label>
+              Source
+              <select name="source">
+                <option value="arbeitnow">arbeitnow</option>
+                <option value="adzuna">adzuna</option>
+              </select>
+            </label>
+            <label>
+              Newly explored
+              <input name="new_offers" type="number" min="1" value="20">
+            </label>
+            <label>
+              Max pages
+              <input name="max_pages" type="number" min="1" value="10">
+            </label>
+            <label>
+              Start page
+              <input name="page" type="number" min="1" value="1">
+            </label>
+            <label>
+              Preview
+              <input name="limit" type="number" min="1" value="20">
+            </label>
+            <label>
+              Query
+              <input name="query" type="text" value="c++ simulation">
+            </label>
+            <label>
+              Country
+              <input name="country" type="text" value="fr">
+            </label>
+            <label>
+              Where
+              <input name="where" type="text" placeholder="Any">
+            </label>
+            <label>
+              Min score
+              <input name="min_score" type="number" min="0" max="100" value="40">
+            </label>
+            <label>
+              Seen pages stop
+              <input name="max_seen_pages" type="number" min="1" value="5">
+            </label>
+            <label>
+              Explored cap
+              <input name="explored_capacity" type="number" min="0" value="{{ storage_capacities.explored }}">
+            </label>
+            <label>
+              Unranked cap
+              <input name="unranked_capacity" type="number" min="0" value="{{ storage_capacities.unranked }}">
+            </label>
+            <label>
+              Ranked cap
+              <input name="ranked_capacity" type="number" min="0" value="{{ storage_capacities.ranked }}">
+            </label>
+          </div>
+        </form>
+      </section>
+
+      {% if workflow_notice %}
+        <section class="workflow-notice {{ workflow_notice.kind }}">
+          <h2>{{ workflow_notice.title }}</h2>
+          <dl>
+            {% for key, value in workflow_notice.summary.items() %}
+              <div>
+                <dt>{{ key }}</dt>
+                <dd>{{ value }}</dd>
+              </div>
+            {% endfor %}
+          </dl>
+          {% if workflow_notice.messages %}
+            <ul>
+              {% for message in workflow_notice.messages %}
+                <li>{{ message }}</li>
+              {% endfor %}
+            </ul>
+          {% endif %}
+        </section>
+      {% endif %}
+
       <form class="filters offers-filters" method="get" action="/offers">
         <label class="wide-filter">
           Search
@@ -43,6 +131,19 @@
         <button type="submit">Apply</button>
         <a class="clear" href="/offers">Clear</a>
       </form>
+
+      <section class="discreet-actions">
+        <form
+          method="post"
+          action="/storage/clear"
+          data-running-label="Clearing..."
+          data-confirm-message="Delete fetched offers? Dependent ranking rows will also be removed. Explored tracking will remain."
+        >
+          <input type="hidden" name="scope" value="offers">
+          <input type="hidden" name="redirect_to" value="/offers">
+          <button class="danger subtle" type="submit">Clear fetched offers</button>
+        </form>
+      </section>
 
       <section class="list">
         {% for offer in offers %}
@@ -72,5 +173,22 @@
         {% endfor %}
       </section>
     </main>
+    <script>
+      for (const form of document.querySelectorAll("form[data-running-label]")) {
+        form.addEventListener("submit", () => {
+          const button = form.querySelector("button[type='submit']");
+          if (!button) return;
+          button.disabled = true;
+          button.textContent = form.dataset.runningLabel || "Running...";
+        });
+      }
+      for (const form of document.querySelectorAll("form[data-confirm-message]")) {
+        form.addEventListener("submit", (event) => {
+          if (!confirm(form.dataset.confirmMessage || "Continue?")) {
+            event.preventDefault();
+          }
+        });
+      }
+    </script>
   </body>
 </html>

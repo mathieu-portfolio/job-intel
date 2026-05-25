@@ -9,7 +9,9 @@ from fastapi.testclient import TestClient
 from app.models.job import JobOffer
 from app.storage.sqlite import (
     create_ranking_run,
+    get_storage_counts,
     list_ranked_offers,
+    list_unranked_review_offers,
     record_explored_job,
     save_ranking,
     upsert_offers,
@@ -35,7 +37,7 @@ def _job(
 
 
 class UiWorkflowTests(unittest.TestCase):
-    def test_index_renders_scoped_clear_controls(self) -> None:
+    def test_ranked_page_renders_rank_workflow_without_fetch_controls(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "jobs.sqlite"
             client = TestClient(create_app(db_path))
@@ -43,14 +45,12 @@ class UiWorkflowTests(unittest.TestCase):
             response = client.get("/")
 
             self.assertEqual(response.status_code, 200)
-            self.assertIn("Clear data", response.text)
-            self.assertIn("Rankings only", response.text)
-            self.assertIn("Offers + dependent rankings", response.text)
-            self.assertIn("Explored tracking only", response.text)
-            self.assertIn("All app data", response.text)
-            self.assertIn("Type rankings", response.text)
+            self.assertIn("Rank offers", response.text)
+            self.assertIn("Clear rankings", response.text)
+            self.assertIn("Maintenance", response.text)
+            self.assertNotIn("Fetch offers</button>", response.text)
 
-    def test_clear_action_requires_typed_scope_confirmation(self) -> None:
+    def test_clear_rankings_action_uses_scope_service_and_reports_counts(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "jobs.sqlite"
             upsert_offers([_job("https://example.com/ranked", "Ranked")], db_path=db_path)
@@ -78,15 +78,87 @@ class UiWorkflowTests(unittest.TestCase):
 
             response = client.post(
                 "/storage/clear",
-                data={"scope": "rankings", "confirm_scope": "wrong"},
+                data={"scope": "rankings", "redirect_to": "/"},
                 follow_redirects=True,
             )
 
             self.assertEqual(response.status_code, 200)
-            self.assertIn("Clear failed", response.text)
-            self.assertEqual(len(list_ranked_offers(db_path=db_path)), 1)
+            self.assertIn("Clear complete", response.text)
+            self.assertIn("Deleted rankings", response.text)
+            self.assertEqual(len(list_ranked_offers(db_path=db_path)), 0)
 
-    def test_clear_action_clears_selected_scope_and_reports_counts(self) -> None:
+    def test_fetched_page_renders_fetch_workflow_and_clear_fetched_action(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "jobs.sqlite"
+            upsert_offers([_job("https://example.com/fetched", "Fetched")], db_path=db_path)
+            client = TestClient(create_app(db_path))
+
+            response = client.get("/offers")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("Fetch offers", response.text)
+            self.assertIn("Clear fetched offers", response.text)
+            self.assertNotIn("Rank offers</button>", response.text)
+
+    def test_clear_fetched_action_clears_offers_and_redirects_to_fetched_page(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "jobs.sqlite"
+            upsert_offers([_job("https://example.com/fetched", "Fetched")], db_path=db_path)
+            run_id = create_ranking_run(
+                db_path=db_path,
+                started_at="2026-05-24T12:00:00",
+                algorithm="rules",
+                model=None,
+                profile_path="profiles/default.json",
+                config={},
+            )
+            save_ranking(
+                db_path=db_path,
+                run_id=run_id,
+                offer_id=1,
+                algorithm="rules",
+                model=None,
+                profile_path="profiles/default.json",
+                score=50,
+                recommendation="low",
+                summary="summary",
+                result={},
+            )
+            client = TestClient(create_app(db_path))
+
+            response = client.post(
+                "/storage/clear",
+                data={"scope": "offers", "redirect_to": "/offers"},
+                follow_redirects=True,
+            )
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("Clear complete", response.text)
+            self.assertIn("Fetched offers", response.text)
+            self.assertEqual(len(list_unranked_review_offers(db_path=db_path)), 0)
+            self.assertEqual(len(list_ranked_offers(db_path=db_path)), 0)
+
+    def test_maintenance_page_shows_counts_and_global_clear_actions(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "jobs.sqlite"
+            record_explored_job(
+                _job("https://example.com/explored", "Explored"),
+                status="filtered_out",
+                db_path=db_path,
+            )
+            upsert_offers([_job("https://example.com/unranked", "Unranked")], db_path=db_path)
+            client = TestClient(create_app(db_path))
+
+            response = client.get("/maintenance")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("Explored tracking", response.text)
+            self.assertIn("Fetched/unranked offers", response.text)
+            self.assertIn("Ranked offers", response.text)
+            self.assertIn("Clear explored tracking", response.text)
+            self.assertIn("Clear all data", response.text)
+
+    def test_maintenance_clear_all_clears_all_counts(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "jobs.sqlite"
             record_explored_job(
@@ -119,14 +191,15 @@ class UiWorkflowTests(unittest.TestCase):
 
             response = client.post(
                 "/storage/clear",
-                data={"scope": "rankings", "confirm_scope": "rankings"},
+                data={"scope": "all", "redirect_to": "/maintenance"},
                 follow_redirects=True,
             )
 
             self.assertEqual(response.status_code, 200)
             self.assertIn("Clear complete", response.text)
-            self.assertIn("Deleted rankings", response.text)
-            self.assertEqual(len(list_ranked_offers(db_path=db_path)), 0)
+            self.assertEqual(get_storage_counts(db_path).explored, 0)
+            self.assertEqual(get_storage_counts(db_path).unranked, 0)
+            self.assertEqual(get_storage_counts(db_path).ranked, 0)
 
     def test_rank_action_runs_rules_workflow_and_renders_summary(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

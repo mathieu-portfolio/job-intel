@@ -14,6 +14,7 @@
         <nav class="nav-links">
           <a class="{% if active_page == 'ranked' %}active{% endif %}" href="/">Ranked offers</a>
           <a class="{% if active_page == 'offers' %}active{% endif %}" href="/offers">Fetched offers</a>
+          <a class="{% if active_page == 'maintenance' %}active{% endif %}" href="/maintenance">Maintenance</a>
         </nav>
       </div>
       <div class="header-actions">
@@ -22,71 +23,7 @@
     </header>
 
     <main>
-      <section class="workflow-panel">
-        <form class="workflow-card" method="post" action="/workflows/fetch" data-running-label="Fetching...">
-          <div class="workflow-head">
-            <h2>Fetch offers</h2>
-            <button type="submit">Fetch offers</button>
-          </div>
-          <div class="workflow-grid">
-            <label>
-              Source
-              <select name="source">
-                <option value="arbeitnow">arbeitnow</option>
-                <option value="adzuna">adzuna</option>
-              </select>
-            </label>
-            <label>
-              Newly explored
-              <input name="new_offers" type="number" min="1" value="20">
-            </label>
-            <label>
-              Max pages
-              <input name="max_pages" type="number" min="1" value="10">
-            </label>
-            <label>
-              Start page
-              <input name="page" type="number" min="1" value="1">
-            </label>
-            <label>
-              Preview
-              <input name="limit" type="number" min="1" value="20">
-            </label>
-            <label>
-              Query
-              <input name="query" type="text" value="c++ simulation">
-            </label>
-            <label>
-              Country
-              <input name="country" type="text" value="fr">
-            </label>
-            <label>
-              Where
-              <input name="where" type="text" placeholder="Any">
-            </label>
-            <label>
-              Min score
-              <input name="min_score" type="number" min="0" max="100" value="40">
-            </label>
-            <label>
-              Seen pages stop
-              <input name="max_seen_pages" type="number" min="1" value="5">
-            </label>
-            <label>
-              Explored cap
-              <input name="explored_capacity" type="number" min="0" value="{{ storage_capacities.explored }}">
-            </label>
-            <label>
-              Unranked cap
-              <input name="unranked_capacity" type="number" min="0" value="{{ storage_capacities.unranked }}">
-            </label>
-            <label>
-              Ranked cap
-              <input name="ranked_capacity" type="number" min="0" value="{{ storage_capacities.ranked }}">
-            </label>
-          </div>
-        </form>
-
+      <section class="workflow-panel single-workflow">
         <form class="workflow-card" method="post" action="/workflows/rank" data-running-label="Ranking...">
           <div class="workflow-head">
             <h2>Rank offers</h2>
@@ -135,71 +72,6 @@
               <input name="weights_path" type="text" placeholder="Default">
             </label>
           </div>
-        </form>
-      </section>
-
-      <section class="workflow-panel">
-        <form
-          class="workflow-card"
-          method="post"
-          action="/storage/prune"
-          data-running-label="Cleaning..."
-          onsubmit="return confirm('Run cleanup and delete rows over the configured capacities?');"
-        >
-          <div class="workflow-head">
-            <h2>Storage cleanup</h2>
-            <button type="submit">Run cleanup</button>
-          </div>
-          <div class="workflow-grid">
-            <label>
-              Explored
-              <input name="explored_capacity" type="number" min="0" value="{{ storage_capacities.explored }}">
-              <span>{{ storage_counts.explored }} rows</span>
-            </label>
-            <label>
-              Unranked
-              <input name="unranked_capacity" type="number" min="0" value="{{ storage_capacities.unranked }}">
-              <span>{{ storage_counts.unranked }} rows</span>
-            </label>
-            <label>
-              Ranked
-              <input name="ranked_capacity" type="number" min="0" value="{{ storage_capacities.ranked }}">
-              <span>{{ storage_counts.ranked }} rows</span>
-            </label>
-          </div>
-        </form>
-      </section>
-
-      <section class="workflow-panel destructive-panel">
-        <form class="workflow-card destructive-card" method="post" action="/storage/clear" data-running-label="Clearing...">
-          <div class="workflow-head">
-            <h2>Clear data</h2>
-            <button class="danger" type="submit">Clear selected data</button>
-          </div>
-          <div class="workflow-grid clear-grid">
-            <label>
-              Scope
-              <select name="scope" id="clear-scope">
-                {% for option in clear_options %}
-                  <option
-                    value="{{ option.scope }}"
-                    data-description="{{ option.description }}"
-                    {% if option.scope == "all" %}data-strong="true"{% endif %}
-                  >
-                    {{ option.label }}
-                  </option>
-                {% endfor %}
-              </select>
-            </label>
-            <label>
-              Confirm scope
-              <input id="clear-confirm" name="confirm_scope" type="text" placeholder="Type rankings" autocomplete="off">
-            </label>
-          </div>
-          <p id="clear-description" class="danger-copy"></p>
-          <p class="danger-copy strong-warning" id="clear-strong-warning" hidden>
-            This removes every application data group and cannot be undone from the UI.
-          </p>
         </form>
       </section>
 
@@ -287,6 +159,19 @@
         <button type="submit">Apply</button>
         <a class="clear" href="/">Clear</a>
       </form>
+
+      <section class="discreet-actions">
+        <form
+          method="post"
+          action="/storage/clear"
+          data-running-label="Clearing..."
+          data-confirm-message="Delete all ranking rows? Fetched offers and explored tracking will remain."
+        >
+          <input type="hidden" name="scope" value="rankings">
+          <input type="hidden" name="redirect_to" value="/">
+          <button class="danger subtle" type="submit">Clear rankings</button>
+        </form>
+      </section>
 
       <section class="list">
         {% for offer in offers %}
@@ -395,21 +280,12 @@
           button.textContent = form.dataset.runningLabel || "Running...";
         });
       }
-      const clearScope = document.getElementById("clear-scope");
-      const clearConfirm = document.getElementById("clear-confirm");
-      const clearDescription = document.getElementById("clear-description");
-      const clearStrongWarning = document.getElementById("clear-strong-warning");
-      const updateClearDescription = () => {
-        if (!clearScope || !clearConfirm || !clearDescription || !clearStrongWarning) return;
-        const option = clearScope.selectedOptions[0];
-        const scope = option.value;
-        clearDescription.textContent = option.dataset.description || "";
-        clearConfirm.placeholder = `Type ${scope}`;
-        clearStrongWarning.hidden = option.dataset.strong !== "true";
-      };
-      if (clearScope) {
-        clearScope.addEventListener("change", updateClearDescription);
-        updateClearDescription();
+      for (const form of document.querySelectorAll("form[data-confirm-message]")) {
+        form.addEventListener("submit", (event) => {
+          if (!confirm(form.dataset.confirmMessage || "Continue?")) {
+            event.preventDefault();
+          }
+        });
       }
     </script>
   </body>
