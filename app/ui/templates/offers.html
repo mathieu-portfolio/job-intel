@@ -30,6 +30,7 @@
           class="workflow-card"
           method="post"
           action="/workflows/fetch"
+          data-persist-key="jobIntel.fetchPrefs"
           data-running-label="Fetching..."
           data-progress-modal="true"
           data-workflow-kind="fetch"
@@ -123,7 +124,13 @@
       </section>
       {% endif %}
 
-      <form class="filters offers-filters" method="get" action="{{ listing_path }}">
+      <form
+        class="filters offers-filters"
+        method="get"
+        action="{{ listing_path }}"
+        data-persist-key="{% if active_page == 'screened' %}jobIntel.screenedFilters{% else %}jobIntel.exploreFilters{% endif %}"
+        data-sync-query="true"
+      >
         <label class="wide-filter">
           Search
           <input name="q" type="search" value="{{ filters.q }}" placeholder="Title, company, description">
@@ -142,7 +149,7 @@
           <input name="limit" type="number" min="1" max="500" value="{{ filters.limit }}">
         </label>
         <button type="submit">Apply</button>
-        <a class="clear" href="{{ listing_path }}">Clear</a>
+        <a class="clear" href="{{ listing_path }}" data-reset-prefs data-reset-extra-keys="{% if active_page == 'explore' %}jobIntel.fetchPrefs{% endif %}">Reset filters/preferences</a>
       </form>
 
       <datalist id="location-suggestions">
@@ -197,6 +204,7 @@
       </section>
     </main>
     {% include "_workflow_modal.html" %}
+    <script src="{{ url_for('static', path='preferences.js') }}"></script>
     <script>
       const sourceSelect = document.getElementById("fetch-source");
       const marketField = document.querySelector('[data-provider="adzuna"]');

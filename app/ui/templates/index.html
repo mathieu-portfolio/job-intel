@@ -29,6 +29,7 @@
           class="workflow-card"
           method="post"
           action="/workflows/rank"
+          data-persist-key="jobIntel.aiReviewPrefs"
           data-running-label="Reviewing..."
           data-progress-modal="true"
           data-workflow-kind="ai"
@@ -98,7 +99,7 @@
 </form>
       </section>
 
-      <form class="filters" method="get">
+      <form class="filters" method="get" data-persist-key="jobIntel.aiReviewedFilters" data-sync-query="true">
         <label>
           Recommendation
           <select name="recommendation">
@@ -150,7 +151,7 @@
           <input name="limit" type="number" min="1" max="500" value="{{ filters.limit }}">
         </label>
         <button type="submit">Apply</button>
-        <a class="clear" href="/">Clear</a>
+        <a class="clear" href="/" data-reset-prefs data-reset-extra-keys="jobIntel.aiReviewPrefs">Reset filters/preferences</a>
       </form>
 
       <datalist id="location-suggestions">
@@ -275,5 +276,6 @@
       </section>
     </main>
     {% include "_workflow_modal.html" %}
+    <script src="{{ url_for('static', path='preferences.js') }}"></script>
   </body>
 </html>
