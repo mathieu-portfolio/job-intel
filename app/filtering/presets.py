@@ -20,25 +20,23 @@ BUILTIN_SCORING_PRESETS: tuple[ScoringPreset, ...] = (
         id="balanced",
         name="Balanced",
         description="General fit across profile match, technical relevance, and risk.",
-        weights=RuleScoringConfig(
-            positive_terms={
-                "backend": 4,
-                "platform": 4,
-                "r&d": 5,
-            },
-            negative_terms={"sales": -8, "cold calling": -12, "unpaid": -20},
-        ),
+        weights=RuleScoringConfig(),
     ),
     ScoringPreset(
         id="safe_match",
         name="Safe Match",
         description="Conservative preset that penalizes mismatch and ambiguity more heavily.",
         weights=RuleScoringConfig(
-            positive_terms={"stable": 4, "long-term": 4, "mentorship": 4},
-            negative_terms={"senior": -4, "lead": -6, "sales": -10, "unpaid": -24, "commission": -12},
+            category_weights={
+                "interests": 0.20,
+                "preferred_domains": 0.15,
+                "strengths": 0.15,
+                "portfolio_projects": 0.10,
+                "disliked_work": -0.30,
+                "exclusions": -0.90,
+                "negative_signals": -0.40,
+            },
             no_signal_score=15,
-            positive_score_scale=2,
-            negative_score_scale=5,
             strong_negative_threshold=-16,
             strong_negative_score_cap=5,
         ),
@@ -48,17 +46,13 @@ BUILTIN_SCORING_PRESETS: tuple[ScoringPreset, ...] = (
         name="High Potential",
         description="Rewards growth potential, learning-heavy roles, and adjacent technical domains.",
         weights=RuleScoringConfig(
-            positive_terms={
-                "research": 8,
-                "robotics": 8,
-                "platform": 6,
-                "learning": 5,
-                "mentorship": 5,
-                "r&d": 8,
+            category_weights={
+                "interests": 0.30,
+                "preferred_domains": 0.20,
+                "strengths": 0.15,
+                "portfolio_projects": 0.25,
+                "disliked_work": -0.15,
             },
-            negative_terms={"maintenance": -5, "legacy": -4, "support": -8, "sales": -10},
-            positive_score_scale=4,
-            negative_score_scale=3,
         ),
     ),
     ScoringPreset(
@@ -66,8 +60,12 @@ BUILTIN_SCORING_PRESETS: tuple[ScoringPreset, ...] = (
         name="Remote First",
         description="Prioritizes remote-friendly and distributed work.",
         weights=RuleScoringConfig(
-            positive_terms={"remote": 16, "hybrid": 7, "distributed": 8, "async": 5, "work from home": 14},
-            negative_terms={"on-site": -14, "onsite": -14, "relocation": -10, "commute": -8},
+            category_weights={
+                "location_preferences": 0.35,
+                "interests": 0.15,
+                "preferred_domains": 0.10,
+                "disliked_work": -0.20,
+            },
             no_signal_score=18,
         ),
     ),
@@ -76,17 +74,14 @@ BUILTIN_SCORING_PRESETS: tuple[ScoringPreset, ...] = (
         name="Compensation Focused",
         description="Prioritizes explicit compensation, seniority leverage, and benefits.",
         weights=RuleScoringConfig(
-            positive_terms={
-                "salary": 10,
-                "equity": 7,
-                "bonus": 6,
-                "benefits": 5,
-                "senior": 5,
-                "stock options": 8,
+            category_weights={
+                "compensation": 0.45,
+                "interests": 0.10,
+                "preferred_domains": 0.10,
+                "disliked_work": -0.25,
+                "negative_signals": -0.35,
             },
-            negative_terms={"unpaid": -30, "internship": -12, "volunteer": -24},
             no_signal_score=12,
-            positive_score_scale=4,
         ),
     ),
     ScoringPreset(
@@ -94,14 +89,13 @@ BUILTIN_SCORING_PRESETS: tuple[ScoringPreset, ...] = (
         name="Engineering Quality",
         description="Rewards strong engineering practice, systems depth, and code quality signals.",
         weights=RuleScoringConfig(
-            positive_terms={
-                "architecture": 8,
-                "testing": 7,
-                "observability": 6,
-                "performance": 7,
-                "code quality": 8,
+            category_weights={
+                "strengths": 0.30,
+                "portfolio_projects": 0.25,
+                "interests": 0.20,
+                "preferred_domains": 0.10,
+                "disliked_work": -0.20,
             },
-            negative_terms={"wordpress": -6, "cms": -5, "no-code": -10, "support": -8},
         ),
     ),
     ScoringPreset(
@@ -109,11 +103,13 @@ BUILTIN_SCORING_PRESETS: tuple[ScoringPreset, ...] = (
         name="Fast Apply",
         description="Favors clear, practical matches likely to be quick applications.",
         weights=RuleScoringConfig(
-            positive_terms={"easy apply": 12, "quick apply": 12, "remote": 7, "hybrid": 5},
-            negative_terms={"cover letter": -6, "assessment": -8, "security clearance": -12, "relocation": -8},
+            category_weights={
+                "fast_apply": 0.35,
+                "location_preferences": 0.20,
+                "interests": 0.15,
+                "disliked_work": -0.20,
+            },
             no_signal_score=25,
-            positive_score_scale=3,
-            negative_score_scale=3,
         ),
     ),
 )

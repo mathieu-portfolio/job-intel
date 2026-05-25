@@ -14,11 +14,12 @@ from app.models.profile import CandidateProfile
 class RuleScoringConfig(BaseModel):
     positive_terms: dict[str, int] = Field(default_factory=dict)
     negative_terms: dict[str, int] = Field(default_factory=dict)
+    category_weights: dict[str, float] = Field(default_factory=dict)
     profile_positive_weight: int = 8
     profile_negative_weight: int = -10
     no_signal_score: int = 20
-    positive_score_scale: int = 3
-    negative_score_scale: int = 4
+    positive_score_scale: float = 80
+    negative_score_scale: float = 80
     strong_negative_threshold: int = -20
     strong_negative_score_cap: int = 10
 
@@ -43,70 +44,10 @@ def _contains_term(text: str, term: str) -> bool:
     return re.search(rf"(?<!\w){escaped}(?!\w)", text) is not None
 
 
-def _profile_positive_terms(profile: CandidateProfile | None) -> list[str]:
-    if profile is None:
-        return []
-
-    terms = [
-        *profile.interests,
-        *profile.preferred_domains,
-        *profile.strengths,
-        *profile.portfolio_projects,
-    ]
-    return [term.lower() for term in terms if term.strip()]
-
-
-def _profile_negative_terms(profile: CandidateProfile | None) -> list[str]:
-    if profile is None:
-        return []
-
-    terms = [
-        *profile.disliked_work,
-    ]
-    if profile.target_seniority and profile.target_seniority.lower() in {"junior", "entry", "entry-level"}:
-        terms.extend(["senior", "lead", "principal", "staff"])
-
-    return [term.lower() for term in terms if term.strip()]
-
-
-def _profile_positive_weights(profile: CandidateProfile | None) -> dict[str, int]:
-    if profile is None:
-        return {}
-    weights = {term.lower(): weight for term, weight in profile.positive_signals.items()}
-    for term in _profile_positive_terms(profile):
-        weights.setdefault(term, profile.positive_signal_weight)
-    return weights
-
-
-def _profile_negative_weights(profile: CandidateProfile | None) -> dict[str, int]:
-    if profile is None:
-        return {}
-    weights = {term.lower(): weight for term, weight in profile.negative_signals.items()}
-    for term in _profile_negative_terms(profile):
-        weights.setdefault(term, profile.negative_signal_weight)
-    for term in profile.exclusions:
-        cleaned = term.lower().strip()
-        if cleaned:
-            weights.setdefault(cleaned, profile.strong_negative_threshold)
-    return weights
-
-
-def _term_weights(
-    *,
-    configured_terms: dict[str, int],
-    profile_terms: list[str],
-    default_profile_weight: int,
-) -> dict[str, int]:
-    weights = {term.lower(): weight for term, weight in configured_terms.items()}
-    for term in profile_terms:
-        weights.setdefault(term.lower(), default_profile_weight)
-    return weights
-
-
 def _normalized_score(
     *,
-    positive_score: int,
-    negative_score: int,
+    positive_score: float,
+    negative_score: float,
     config: RuleScoringConfig,
 ) -> int:
     raw_score = positive_score + negative_score
@@ -118,6 +59,67 @@ def _normalized_score(
     if raw_score <= config.strong_negative_threshold:
         score = min(score, config.strong_negative_score_cap)
     return max(0, min(100, round(score)))
+
+
+def _configured_term_matches(
+    *,
+    text: str,
+    terms: dict[str, int],
+) -> list[WeightedTermMatch]:
+    return [
+        WeightedTermMatch(term=term.lower(), weight=float(weight))
+        for term, weight in terms.items()
+        if _contains_term(text, term)
+    ]
+
+
+def _profile_signal_matches(
+    *,
+    text: str,
+    profile: CandidateProfile | None,
+    config: RuleScoringConfig,
+) -> tuple[list[WeightedTermMatch], list[WeightedTermMatch], float, float, list[str]]:
+    if profile is None:
+        return [], [], 0.0, 0.0, []
+
+    positives: list[WeightedTermMatch] = []
+    negatives: list[WeightedTermMatch] = []
+    positive_score = 0.0
+    negative_score = 0.0
+    reasoning: list[str] = []
+
+    for category_name, category in profile.signals.items():
+        category_weight = config.category_weights.get(category_name, category.weight)
+        total_item_weight = sum(abs(item.weight) for item in category.items if item.term.strip())
+        if total_item_weight <= 0:
+            continue
+        matched_items = [
+            item
+            for item in category.items
+            if item.term.strip() and _contains_term(text, item.term)
+        ]
+        matched_weight = sum(abs(item.weight) for item in matched_items)
+        category_score = matched_weight / total_item_weight
+        contribution = category_score * category_weight
+        if category_weight >= 0:
+            positive_score += contribution
+            positives.extend(
+                WeightedTermMatch(term=item.term.lower(), weight=contribution * 100)
+                for item in matched_items
+            )
+        else:
+            negative_score += contribution
+            negatives.extend(
+                WeightedTermMatch(term=item.term.lower(), weight=contribution * 100)
+                for item in matched_items
+            )
+        if matched_items:
+            reasoning.append(
+                f"Matched {len(matched_items)}/{len(category.items)} items in {category_name} "
+                f"for {contribution:+.2f}."
+            )
+
+    return positives, negatives, positive_score, negative_score, reasoning
 
 
 def evaluate_job(
@@ -146,31 +148,16 @@ def evaluate_job(
         ]
     ).lower()
 
-    positive_weights = _term_weights(
-        configured_terms=config.positive_terms,
-        profile_terms=[],
-        default_profile_weight=config.profile_positive_weight,
+    configured_positives = _configured_term_matches(text=text, terms=config.positive_terms)
+    configured_negatives = _configured_term_matches(text=text, terms=config.negative_terms)
+    profile_positives, profile_negatives, profile_positive_score, profile_negative_score, profile_reasoning = (
+        _profile_signal_matches(text=text, profile=profile, config=config)
     )
-    positive_weights.update(_profile_positive_weights(profile))
-    negative_weights = _term_weights(
-        configured_terms=config.negative_terms,
-        profile_terms=[],
-        default_profile_weight=config.profile_negative_weight,
-    )
-    negative_weights.update(_profile_negative_weights(profile))
-    positives = [
-        WeightedTermMatch(term=term, weight=weight)
-        for term, weight in positive_weights.items()
-        if _contains_term(text, term)
-    ]
-    negatives = [
-        WeightedTermMatch(term=term, weight=weight)
-        for term, weight in negative_weights.items()
-        if _contains_term(text, term)
-    ]
+    positives = [*configured_positives, *profile_positives]
+    negatives = [*configured_negatives, *profile_negatives]
 
-    positive_score = sum(match.weight for match in positives)
-    negative_score = sum(match.weight for match in negatives)
+    positive_score = sum(match.weight for match in configured_positives) + profile_positive_score
+    negative_score = sum(match.weight for match in configured_negatives) + profile_negative_score
     score = positive_score + negative_score
     normalized_score = _normalized_score(
         positive_score=positive_score,
@@ -178,13 +165,14 @@ def evaluate_job(
         config=config,
     )
     reasoning = [
-        f"Matched {len(positives)} positive weighted terms for {positive_score:+d}.",
-        f"Matched {len(negatives)} negative weighted terms for {negative_score:+d}.",
-        f"Calibrated raw score {score:+d} to {normalized_score}/100.",
+        f"Matched {len(positives)} positive weighted terms for {positive_score:+.2f}.",
+        f"Matched {len(negatives)} negative weighted terms for {negative_score:+.2f}.",
+        *profile_reasoning,
+        f"Calibrated raw score {score:+.2f} to {normalized_score}/100.",
     ]
 
     return RuleEvaluation(
-        score=score,
+        score=round(score),
         normalized_score=normalized_score,
         matched_positive_terms=positives,
         matched_negative_terms=negatives,

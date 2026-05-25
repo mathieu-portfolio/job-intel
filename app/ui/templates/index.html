@@ -211,7 +211,7 @@
                   <h4>Positive terms</h4>
                   <ul>
                     {% for item in rule.get("matched_positive_terms") or [] %}
-                      <li>{{ item.term }} <span>{{ "%+d"|format(item.weight) }}</span></li>
+                      <li>{{ item.term }} <span>{{ "%+g"|format(item.weight) }}</span></li>
                     {% else %}
                       <li>none</li>
                     {% endfor %}
@@ -219,7 +219,7 @@
                   <h4>Negative terms</h4>
                   <ul>
                     {% for item in rule.get("matched_negative_terms") or [] %}
-                      <li>{{ item.term }} <span>{{ "%+d"|format(item.weight) }}</span></li>
+                      <li>{{ item.term }} <span>{{ "%+g"|format(item.weight) }}</span></li>
                     {% else %}
                       <li>none</li>
                     {% endfor %}

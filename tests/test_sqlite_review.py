@@ -8,6 +8,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from app.models.job import JobOffer
+from app.models.profile import CandidateProfile
+from app.filtering.rules import evaluate_job
 from app.storage.sqlite import (
     clear_data,
     clear_rankings,
@@ -114,6 +116,54 @@ class SqliteReviewTests(unittest.TestCase):
             result=_result(None),
         )
         return run_id
+
+    def test_profile_signal_categories_are_normalized_by_item_weight_totals(self) -> None:
+        profile = CandidateProfile.model_validate(
+            {
+                "signals": {
+                    "small": {
+                        "weight": 0.25,
+                        "items": [{"term": "simulation", "weight": 1.0}],
+                    },
+                    "large": {
+                        "weight": 0.25,
+                        "items": [
+                            {"term": "simulation", "weight": 1.0},
+                            {"term": "missing one", "weight": 1.0},
+                            {"term": "missing two", "weight": 1.0},
+                        ],
+                    },
+                    "negative": {
+                        "weight": -0.20,
+                        "items": [{"term": "generic CRUD", "weight": 1.0}],
+                    },
+                }
+            }
+        )
+
+        positive = evaluate_job(_job("https://example.com/sim", "Simulation Engineer"), profile=profile)
+        negative = evaluate_job(
+            _job("https://example.com/crud", "Generic CRUD Engineer"),
+            profile=profile,
+        )
+
+        self.assertGreater(positive.normalized_score, negative.normalized_score)
+        self.assertTrue(any("small" in reason for reason in positive.reasoning))
+        self.assertTrue(any("large" in reason for reason in positive.reasoning))
+
+    def test_legacy_profile_fields_migrate_to_signal_categories(self) -> None:
+        profile = CandidateProfile.model_validate(
+            {
+                "interests": ["simulation"],
+                "positive_signals": {"python": 50},
+                "negative_signals": {"sales": -30},
+            }
+        )
+
+        self.assertIn("interests", profile.signals)
+        self.assertIn("positive_signals", profile.signals)
+        self.assertIn("negative_signals", profile.signals)
+        self.assertEqual(profile.signals["interests"].items[0].term, "simulation")
 
     def test_clear_scope_rankings_keeps_offers_and_explored(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

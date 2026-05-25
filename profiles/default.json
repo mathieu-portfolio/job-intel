@@ -1,34 +1,58 @@
 {
   "name": "Default junior systems candidate",
-  "interests": [
-    "systems",
-    "simulation",
-    "infrastructure",
-    "graphics",
-    "tooling"
-  ],
-  "preferred_domains": [
-    "aerospace",
-    "defense",
-    "engineering software",
-    "infrastructure"
-  ],
-  "disliked_work": [
-    "generic CRUD",
-    "pure consulting",
-    "marketing-driven products"
-  ],
-  "strengths": [
-    "C++",
-    "architecture thinking",
-    "modular design",
-    "technical curiosity"
-  ],
-  "portfolio_projects": [
-    "C++ systems projects",
-    "simulation or graphics experiments",
-    "tooling and infrastructure work"
-  ],
+  "signals": {
+    "interests": {
+      "weight": 0.25,
+      "items": [
+        { "term": "systems", "weight": 1.0 },
+        { "term": "simulation", "weight": 1.0 },
+        { "term": "infrastructure", "weight": 1.0 },
+        { "term": "graphics", "weight": 1.0 },
+        { "term": "tooling", "weight": 1.0 }
+      ]
+    },
+    "preferred_domains": {
+      "weight": 0.15,
+      "items": [
+        { "term": "aerospace", "weight": 1.0 },
+        { "term": "defense", "weight": 1.0 },
+        { "term": "engineering software", "weight": 1.0 },
+        { "term": "infrastructure", "weight": 1.0 }
+      ]
+    },
+    "strengths": {
+      "weight": 0.20,
+      "items": [
+        { "term": "C++", "weight": 1.0 },
+        { "term": "architecture thinking", "weight": 1.0 },
+        { "term": "modular design", "weight": 1.0 },
+        { "term": "technical curiosity", "weight": 1.0 }
+      ]
+    },
+    "portfolio_projects": {
+      "weight": 0.15,
+      "items": [
+        { "term": "C++ systems projects", "weight": 1.0 },
+        { "term": "simulation or graphics experiments", "weight": 1.0 },
+        { "term": "tooling and infrastructure work", "weight": 1.0 }
+      ]
+    },
+    "disliked_work": {
+      "weight": -0.20,
+      "items": [
+        { "term": "generic CRUD", "weight": 1.0 },
+        { "term": "pure consulting", "weight": 1.0 },
+        { "term": "marketing-driven products", "weight": 1.0 }
+      ]
+    },
+    "location_preferences": {
+      "weight": 0.15,
+      "items": [
+        { "term": "France", "weight": 1.0 },
+        { "term": "remote Europe", "weight": 1.0 }
+      ]
+    }
+  },
   "location_preferences": [
     "France",
     "remote Europe"

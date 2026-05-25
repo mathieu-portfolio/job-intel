@@ -37,7 +37,7 @@ console = Console()
 def _format_term_matches(matches: list[WeightedTermMatch]) -> str:
     if not matches:
         return "none"
-    return ", ".join(f"{match.term} ({match.weight:+d})" for match in matches)
+    return ", ".join(f"{match.term} ({match.weight:+g})" for match in matches)
 
 
 def _print_clear_plan(scope: str, db: Path) -> None:

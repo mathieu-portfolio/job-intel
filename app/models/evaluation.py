@@ -20,7 +20,7 @@ def recommendation_from_score(score: int) -> Recommendation:
 
 class WeightedTermMatch(BaseModel):
     term: str
-    weight: int
+    weight: float
 
 
 class RuleEvaluation(BaseModel):
