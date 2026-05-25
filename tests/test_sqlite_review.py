@@ -23,10 +23,12 @@ from app.storage.sqlite import (
     list_unranked_review_offers,
     prune_storage,
     record_explored_job,
+    save_exploration_metadata,
     save_ranking,
     update_offer_status,
     upsert_offers,
 )
+from app.workflows import _exploration_scope_key, _exploration_scope_payload
 from app.workflows import fetch_offers, rank_offers
 
 
@@ -665,6 +667,151 @@ class SqliteReviewTests(unittest.TestCase):
             self.assertEqual(result.stats.inserted, 0)
             self.assertEqual(records[0]["status"], "filtered_out")
             self.assertEqual(records[0]["reason"], "missing_description")
+
+    def _save_fetch_scope_metadata(
+        self,
+        *,
+        db_path: Path,
+        newest_id: str,
+        oldest_id: str,
+        last_explored_page: int,
+        profile_path: Path = Path("profiles/default.json"),
+    ) -> None:
+        scope = _exploration_scope_payload(
+            source="arbeitnow",
+            query="c++ simulation",
+            country="fr",
+            where=None,
+            profile_path=profile_path,
+            min_score=0,
+        )
+        save_exploration_metadata(
+            db_path=db_path,
+            scope_key=_exploration_scope_key(scope),
+            source="arbeitnow",
+            scope=scope,
+            newest_id=newest_id,
+            oldest_id=oldest_id,
+            last_explored_page=last_explored_page,
+        )
+
+    def test_fast_backfill_falls_back_when_metadata_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "jobs.sqlite"
+            new = _source_job("new", "https://example.com/new", "C++ Simulation")
+
+            with patch("app.workflows.fetch_arbeitnow", return_value=[new]):
+                result = fetch_offers(
+                    source="arbeitnow",
+                    db_path=db_path,
+                    min_score=0,
+                    new_offers=1,
+                    max_pages=1,
+                    exploration_mode="fast_backfill",
+                )
+
+            self.assertEqual(result.stats.inserted, 1)
+
+    def test_fast_backfill_processes_new_top_offers_before_previous_newest(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "jobs.sqlite"
+            self._save_fetch_scope_metadata(
+                db_path=db_path,
+                newest_id="previous-newest",
+                oldest_id="previous-oldest",
+                last_explored_page=4,
+            )
+            new_top = _source_job("new-top", "https://example.com/new-top", "C++ Simulation New")
+            previous_newest = _source_job("previous-newest", "https://example.com/previous-newest", "Previous")
+            previous_oldest = _source_job("previous-oldest", "https://example.com/previous-oldest", "Previous Oldest")
+
+            with patch("app.workflows.fetch_arbeitnow", side_effect=[[new_top, previous_newest], [previous_oldest]]):
+                result = fetch_offers(
+                    source="arbeitnow",
+                    db_path=db_path,
+                    min_score=0,
+                    max_pages=2,
+                    exploration_mode="fast_backfill",
+                )
+
+            self.assertEqual([job.title for job, _ in result.matches], ["C++ Simulation New"])
+            self.assertEqual(result.stats.inserted, 1)
+
+    def test_fast_backfill_jumps_to_previous_last_explored_page_minus_one(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "jobs.sqlite"
+            self._save_fetch_scope_metadata(
+                db_path=db_path,
+                newest_id="previous-newest",
+                oldest_id="previous-oldest",
+                last_explored_page=4,
+            )
+            previous_newest = _source_job("previous-newest", "https://example.com/previous-newest", "Previous")
+
+            with patch("app.workflows.fetch_arbeitnow", side_effect=[[previous_newest], []]) as fetch_mock:
+                fetch_offers(
+                    source="arbeitnow",
+                    db_path=db_path,
+                    min_score=0,
+                    pages=2,
+                    exploration_mode="fast_backfill",
+                )
+
+            self.assertEqual([call.kwargs["page"] for call in fetch_mock.call_args_list], [1, 3])
+
+    def test_fast_backfill_skips_until_previous_oldest(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "jobs.sqlite"
+            self._save_fetch_scope_metadata(
+                db_path=db_path,
+                newest_id="previous-newest",
+                oldest_id="previous-oldest",
+                last_explored_page=4,
+            )
+            previous_newest = _source_job("previous-newest", "https://example.com/previous-newest", "Previous")
+            skipped = _source_job("skipped", "https://example.com/skipped", "Skipped")
+            previous_oldest = _source_job("previous-oldest", "https://example.com/previous-oldest", "Previous Oldest")
+            older = _source_job("older", "https://example.com/older", "C++ Simulation Older")
+
+            with patch("app.workflows.fetch_arbeitnow", side_effect=[[previous_newest], [skipped], [previous_oldest, older]]):
+                result = fetch_offers(
+                    source="arbeitnow",
+                    db_path=db_path,
+                    min_score=0,
+                    pages=3,
+                    exploration_mode="fast_backfill",
+                )
+
+            records = list_explored_offers(db_path)
+            self.assertEqual([job.title for job, _ in result.matches], ["C++ Simulation Older"])
+            self.assertNotIn("skipped", {record["external_id"] for record in records})
+            self.assertIn("older", {record["external_id"] for record in records})
+
+    def test_fast_backfill_resumes_normal_dedupe_after_previous_oldest(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "jobs.sqlite"
+            self._save_fetch_scope_metadata(
+                db_path=db_path,
+                newest_id="previous-newest",
+                oldest_id="previous-oldest",
+                last_explored_page=4,
+            )
+            previous_newest = _source_job("previous-newest", "https://example.com/previous-newest", "Previous")
+            previous_oldest = _source_job("previous-oldest", "https://example.com/previous-oldest", "Previous Oldest")
+            already_seen = _source_job("already-seen", "https://example.com/already-seen", "Already Seen")
+            record_explored_job(already_seen, status="inserted", db_path=db_path)
+
+            with patch("app.workflows.fetch_arbeitnow", side_effect=[[previous_newest], [previous_oldest, already_seen]]):
+                result = fetch_offers(
+                    source="arbeitnow",
+                    db_path=db_path,
+                    min_score=0,
+                    pages=2,
+                    exploration_mode="fast_backfill",
+                )
+
+            self.assertEqual(result.stats.already_seen, 1)
+            self.assertEqual(result.stats.inserted, 0)
 
     def test_fetch_workflow_persists_profile_driven_screening_results(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -26,6 +26,16 @@ CREATE TABLE IF NOT EXISTS explored_offers (
     keep_flag INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS exploration_scopes (
+    scope_key TEXT PRIMARY KEY,
+    source TEXT NOT NULL,
+    scope_json TEXT NOT NULL,
+    newest_id TEXT,
+    oldest_id TEXT,
+    last_explored_page INTEGER,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS profiles (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     profile_path TEXT NOT NULL UNIQUE,

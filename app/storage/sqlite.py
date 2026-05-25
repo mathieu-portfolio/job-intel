@@ -78,6 +78,15 @@ class ClearPlan:
     ranking_runs: int = 0
 
 
+@dataclass(frozen=True)
+class ExplorationMetadata:
+    scope_key: str
+    newest_id: str | None
+    oldest_id: str | None
+    last_explored_page: int | None
+    updated_at: str
+
+
 VALID_REVIEW_STATUSES = {"new", "saved", "skipped", "applied"}
 DEFAULT_SCORING_PRESET_ID = "balanced"
 
@@ -106,6 +115,7 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
     with _connect(db_path) as connection:
         connection.executescript(load_sql("schema/init.sql"))
         _migrate_multi_preset_scores(connection)
+        _migrate_exploration_metadata(connection)
         offer_columns = {
             row["name"]
             for row in connection.execute(load_sql("schema/offers_columns.sql")).fetchall()
@@ -120,6 +130,22 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
             connection.execute(load_sql("schema/add_explored_keep_flag.sql"))
         _seed_builtin_scoring_presets(connection)
         _backfill_balanced_scores(connection)
+
+
+def _migrate_exploration_metadata(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS exploration_scopes (
+            scope_key TEXT PRIMARY KEY,
+            source TEXT NOT NULL,
+            scope_json TEXT NOT NULL,
+            newest_id TEXT,
+            oldest_id TEXT,
+            last_explored_page INTEGER,
+            updated_at TEXT NOT NULL
+        );
+        """
+    )
 
 
 def _table_columns(connection: sqlite3.Connection, table_name: str) -> set[str]:
@@ -403,6 +429,74 @@ def record_explored_job(
     )
 
 
+def get_exploration_metadata(
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+    scope_key: str,
+) -> ExplorationMetadata | None:
+    init_db(db_path)
+    with _connect(db_path) as connection:
+        row = connection.execute(
+            """
+            SELECT scope_key, newest_id, oldest_id, last_explored_page, updated_at
+            FROM exploration_scopes
+            WHERE scope_key = ?;
+            """,
+            (scope_key,),
+        ).fetchone()
+    if row is None:
+        return None
+    return ExplorationMetadata(
+        scope_key=row["scope_key"],
+        newest_id=row["newest_id"],
+        oldest_id=row["oldest_id"],
+        last_explored_page=(
+            int(row["last_explored_page"]) if row["last_explored_page"] is not None else None
+        ),
+        updated_at=row["updated_at"],
+    )
+
+
+def save_exploration_metadata(
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+    scope_key: str,
+    source: str,
+    scope: dict[str, Any],
+    newest_id: str | None,
+    oldest_id: str | None,
+    last_explored_page: int | None,
+    updated_at: str | None = None,
+) -> None:
+    init_db(db_path)
+    updated_at = updated_at or _now_iso()
+    with _connect(db_path) as connection:
+        connection.execute(
+            """
+            INSERT INTO exploration_scopes (
+                scope_key, source, scope_json, newest_id, oldest_id, last_explored_page, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(scope_key) DO UPDATE SET
+                source = excluded.source,
+                scope_json = excluded.scope_json,
+                newest_id = excluded.newest_id,
+                oldest_id = excluded.oldest_id,
+                last_explored_page = excluded.last_explored_page,
+                updated_at = excluded.updated_at;
+            """,
+            (
+                scope_key,
+                source,
+                json.dumps(scope, sort_keys=True, ensure_ascii=False),
+                newest_id,
+                oldest_id,
+                last_explored_page,
+                updated_at,
+            ),
+        )
+
+
 def find_existing_offer_id(
     job: JobOffer,
     *,
@@ -600,8 +694,10 @@ def clear_data(
             connection.execute(load_sql("clear/delete_offers.sql"))
         elif plan.scope == "explored":
             connection.execute(load_sql("clear/delete_explored.sql"))
+            connection.execute("DELETE FROM exploration_scopes;")
         elif plan.scope == "all":
             connection.execute(load_sql("clear/delete_explored.sql"))
+            connection.execute("DELETE FROM exploration_scopes;")
             connection.execute(load_sql("clear/delete_ai_reviews.sql"))
             connection.execute(load_sql("clear/delete_rankings.sql"))
             connection.execute(load_sql("clear/delete_offers.sql"))

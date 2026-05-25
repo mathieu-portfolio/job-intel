@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import re
 import time
+import hashlib
+import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -32,12 +34,14 @@ from app.storage.sqlite import (
     find_existing_offer_id,
     find_existing_offer_id_by_url,
     find_screening_result_id,
+    get_exploration_metadata,
     get_scoring_preset,
     has_explored_offer,
     list_scoring_presets,
     prune_storage,
     record_explored_job,
     save_ai_review,
+    save_exploration_metadata,
     save_offer_scores,
     save_ranking,
     save_screening_result,
@@ -49,8 +53,10 @@ from app.storage.sqlite import (
 
 RankingMode = Literal["rules", "ai", "hybrid"]
 FetchSource = Literal["arbeitnow", "adzuna"]
+ExplorationMode = Literal["safe", "normal", "fast_backfill"]
 RankedResult = tuple[StoredOffer, RuleEvaluation, AiJobEvaluation | None, FinalDecision]
 ProgressCallback = Callable[[str], None]
+FAST_BACKFILL_SKIP_PAGE_LIMIT = 5
 
 
 @dataclass(frozen=True)
@@ -134,6 +140,34 @@ def ranking_result_payload(
     }
 
 
+def _offer_exploration_id(job: JobOffer) -> str:
+    return job.source_id or str(job.url)
+
+
+def _exploration_scope_payload(
+    *,
+    source: FetchSource,
+    query: str,
+    country: str,
+    where: str | None,
+    profile_path: Path,
+    min_score: int | None,
+) -> dict[str, object]:
+    return {
+        "source": source,
+        "query": query,
+        "country": country,
+        "where": where or "",
+        "profile_path": str(profile_path),
+        "min_score": min_score,
+    }
+
+
+def _exploration_scope_key(scope: dict[str, object]) -> str:
+    payload = json.dumps(scope, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def fetch_offers(
     *,
     source: FetchSource = "arbeitnow",
@@ -151,6 +185,7 @@ def fetch_offers(
     explored_capacity: int = DEFAULT_EXPLORED_CAPACITY,
     unranked_capacity: int = DEFAULT_UNRANKED_CAPACITY,
     ranked_capacity: int = DEFAULT_RANKED_CAPACITY,
+    exploration_mode: ExplorationMode = "safe",
     progress: ProgressCallback | None = None,
 ) -> FetchWorkflowResult:
     messages: list[str] = []
@@ -162,6 +197,8 @@ def fetch_offers(
         raise ValueError("max_pages must be at least 1.")
     if max_seen_pages < 1:
         raise ValueError("max_seen_pages must be at least 1.")
+    if exploration_mode not in {"safe", "normal", "fast_backfill"}:
+        raise ValueError("exploration_mode must be safe, normal, or fast_backfill.")
 
     target_new_offers = new_offers
     page_limit = max_pages if target_new_offers is not None else pages
@@ -193,8 +230,164 @@ def fetch_offers(
     if not enabled_presets:
         raise RuntimeError("No enabled scoring presets are configured.")
 
-    for offset in range(page_limit):
-        current_page = page + offset
+    scope_payload = _exploration_scope_payload(
+        source=source,
+        query=query,
+        country=country,
+        where=where,
+        profile_path=profile_path,
+        min_score=min_score,
+    )
+    scope_key = _exploration_scope_key(scope_payload)
+    metadata = get_exploration_metadata(db_path=db_path, scope_key=scope_key)
+    previous_newest_id = metadata.newest_id if metadata else None
+    previous_oldest_id = metadata.oldest_id if metadata else None
+    previous_last_explored_page = metadata.last_explored_page if metadata else None
+    fast_backfill_active = (
+        exploration_mode == "fast_backfill"
+        and bool(previous_newest_id)
+        and bool(previous_oldest_id)
+        and previous_last_explored_page is not None
+        and previous_last_explored_page > 1
+    )
+    if exploration_mode == "fast_backfill" and not fast_backfill_active:
+        _emit(messages, progress, "Fast backfill metadata missing or incomplete; using normal exploration.")
+    elif fast_backfill_active:
+        _emit(
+            messages,
+            progress,
+            (
+                "Fast backfill enabled; processing new top offers before "
+                f"{previous_newest_id}, then jumping near page {previous_last_explored_page}."
+            ),
+        )
+
+    first_seen_identity: str | None = None
+    last_seen_identity: str | None = None
+    last_scanned_page: int | None = None
+    current_page = 1 if fast_backfill_active else page
+    fast_phase = "top" if fast_backfill_active else "normal"
+    skip_pages_scanned = 0
+
+    def process_job(job: JobOffer, *, page_counts: dict[str, int]) -> bool:
+        nonlocal inserted
+        nonlocal updated
+        nonlocal already_seen
+        nonlocal newly_explored
+        nonlocal filtered_out
+        nonlocal errors
+        canonical_url = str(job.url)
+        counted_as_new = False
+        try:
+            if has_explored_offer(
+                provider=job.source,
+                external_id=job.source_id,
+                canonical_url=canonical_url,
+                db_path=db_path,
+            ):
+                already_seen += 1
+                page_counts["already_seen"] += 1
+                return False
+
+            newly_explored += 1
+            page_counts["newly_explored"] += 1
+            counted_as_new = True
+            if not job.description.strip():
+                filtered_out += 1
+                record_explored_job(
+                    job,
+                    status="filtered_out",
+                    reason="missing_description",
+                    db_path=db_path,
+                )
+                return target_new_offers is not None and newly_explored >= target_new_offers
+
+            existing_offer_id = find_existing_offer_id(job, db_path=db_path)
+            if existing_offer_id is not None:
+                preset_evaluations = {
+                    preset.id: evaluate_job(job, profile=candidate_profile, config=preset.weights)
+                    for preset in enabled_presets
+                }
+                evaluation = preset_evaluations.get("balanced") or next(iter(preset_evaluations.values()))
+                save_offer_scores(
+                    db_path=db_path,
+                    offer_id=existing_offer_id,
+                    evaluations=preset_evaluations,
+                )
+                save_screening_result(
+                    db_path=db_path,
+                    offer_id=existing_offer_id,
+                    profile_path=str(profile_path),
+                    evaluation=evaluation,
+                    threshold=screening_threshold,
+                )
+                upsert_stats = UpsertStats(fetched=1, inserted=0, updated=0)
+                if find_existing_offer_id_by_url(canonical_url, db_path=db_path) is not None:
+                    upsert_stats = upsert_offers([job], db_path=db_path)
+                updated += upsert_stats.updated
+                record_explored_job(
+                    job,
+                    status="updated" if upsert_stats.updated else "duplicate",
+                    reason="already_in_offers",
+                    db_path=db_path,
+                )
+                return target_new_offers is not None and newly_explored >= target_new_offers
+
+            preset_evaluations = {
+                preset.id: evaluate_job(job, profile=candidate_profile, config=preset.weights)
+                for preset in enabled_presets
+            }
+            evaluation = preset_evaluations.get("balanced") or next(iter(preset_evaluations.values()))
+            best_score = max(score.normalized_score for score in preset_evaluations.values())
+            if best_score < screening_threshold:
+                filtered_out += 1
+                record_explored_job(
+                    job,
+                    status="filtered_out",
+                    reason="rule_filter_failed",
+                    db_path=db_path,
+                )
+                return target_new_offers is not None and newly_explored >= target_new_offers
+
+            upsert_stats = upsert_offers([job], db_path=db_path)
+            inserted += upsert_stats.inserted
+            updated += upsert_stats.updated
+            offer_id = find_existing_offer_id(job, db_path=db_path)
+            if offer_id is not None:
+                save_offer_scores(
+                    db_path=db_path,
+                    offer_id=offer_id,
+                    evaluations=preset_evaluations,
+                )
+                save_screening_result(
+                    db_path=db_path,
+                    offer_id=offer_id,
+                    profile_path=str(profile_path),
+                    evaluation=evaluation,
+                    threshold=screening_threshold,
+                )
+            record_explored_job(
+                job,
+                status="inserted" if upsert_stats.inserted else "updated",
+                reason=None,
+                db_path=db_path,
+            )
+            matches.append((job, evaluation))
+            return target_new_offers is not None and newly_explored >= target_new_offers
+        except Exception as error:
+            errors += 1
+            if not counted_as_new:
+                newly_explored += 1
+                page_counts["newly_explored"] += 1
+            record_explored_job(
+                job,
+                status="error",
+                reason=str(error),
+                db_path=db_path,
+            )
+            return target_new_offers is not None and newly_explored >= target_new_offers
+
+    while pages_scanned < page_limit:
         try:
             if source == "arbeitnow":
                 jobs = fetch_arbeitnow(page=current_page)
@@ -206,135 +399,50 @@ def fetch_offers(
             raise RuntimeError(f"Network/API error: {error}") from error
 
         pages_scanned += 1
+        last_scanned_page = current_page
         fetched += len(jobs)
         _emit(messages, progress, f"Scanned page {current_page}: {len(jobs)} offers.")
         if not jobs:
             _emit(messages, progress, "Provider returned no more offers.")
             break
 
-        page_already_seen = 0
-        page_newly_explored = 0
-        for job in jobs:
-            canonical_url = str(job.url)
-            counted_as_new = False
-            try:
-                if has_explored_offer(
-                    provider=job.source,
-                    external_id=job.source_id,
-                    canonical_url=canonical_url,
-                    db_path=db_path,
-                ):
-                    already_seen += 1
-                    page_already_seen += 1
-                    continue
+        if first_seen_identity is None:
+            first_seen_identity = _offer_exploration_id(jobs[0])
+        last_seen_identity = _offer_exploration_id(jobs[-1])
 
-                newly_explored += 1
-                page_newly_explored += 1
-                counted_as_new = True
-                if not job.description.strip():
-                    filtered_out += 1
-                    record_explored_job(
-                        job,
-                        status="filtered_out",
-                        reason="missing_description",
-                        db_path=db_path,
-                    )
-                    if target_new_offers is not None and newly_explored >= target_new_offers:
-                        break
-                    continue
-
-                existing_offer_id = find_existing_offer_id(job, db_path=db_path)
-                if existing_offer_id is not None:
-                    preset_evaluations = {
-                        preset.id: evaluate_job(job, profile=candidate_profile, config=preset.weights)
-                        for preset in enabled_presets
-                    }
-                    evaluation = preset_evaluations.get("balanced") or next(iter(preset_evaluations.values()))
-                    save_offer_scores(
-                        db_path=db_path,
-                        offer_id=existing_offer_id,
-                        evaluations=preset_evaluations,
-                    )
-                    save_screening_result(
-                        db_path=db_path,
-                        offer_id=existing_offer_id,
-                        profile_path=str(profile_path),
-                        evaluation=evaluation,
-                        threshold=screening_threshold,
-                    )
-                    upsert_stats = UpsertStats(fetched=1, inserted=0, updated=0)
-                    if find_existing_offer_id_by_url(canonical_url, db_path=db_path) is not None:
-                        upsert_stats = upsert_offers([job], db_path=db_path)
-                    updated += upsert_stats.updated
-                    record_explored_job(
-                        job,
-                        status="updated" if upsert_stats.updated else "duplicate",
-                        reason="already_in_offers",
-                        db_path=db_path,
-                    )
-                    if target_new_offers is not None and newly_explored >= target_new_offers:
-                        break
-                    continue
-
-                preset_evaluations = {
-                    preset.id: evaluate_job(job, profile=candidate_profile, config=preset.weights)
-                    for preset in enabled_presets
-                }
-                evaluation = preset_evaluations.get("balanced") or next(iter(preset_evaluations.values()))
-                best_score = max(score.normalized_score for score in preset_evaluations.values())
-                if best_score < screening_threshold:
-                    filtered_out += 1
-                    record_explored_job(
-                        job,
-                        status="filtered_out",
-                        reason="rule_filter_failed",
-                        db_path=db_path,
-                    )
-                    if target_new_offers is not None and newly_explored >= target_new_offers:
-                        break
-                    continue
-
-                upsert_stats = upsert_offers([job], db_path=db_path)
-                inserted += upsert_stats.inserted
-                updated += upsert_stats.updated
-                offer_id = find_existing_offer_id(job, db_path=db_path)
-                if offer_id is not None:
-                    save_offer_scores(
-                        db_path=db_path,
-                        offer_id=offer_id,
-                        evaluations=preset_evaluations,
-                    )
-                    save_screening_result(
-                        db_path=db_path,
-                        offer_id=offer_id,
-                        profile_path=str(profile_path),
-                        evaluation=evaluation,
-                        threshold=screening_threshold,
-                    )
-                record_explored_job(
-                    job,
-                    status="inserted" if upsert_stats.inserted else "updated",
-                    reason=None,
-                    db_path=db_path,
-                )
-                matches.append((job, evaluation))
-                if target_new_offers is not None and newly_explored >= target_new_offers:
+        page_counts = {"already_seen": 0, "newly_explored": 0}
+        jump_page: int | None = None
+        for index, job in enumerate(jobs):
+            identity = _offer_exploration_id(job)
+            if fast_phase == "top" and identity == previous_newest_id:
+                jump_page = max(1, int(previous_last_explored_page or 1) - 1)
+                fast_phase = "skip"
+                skip_pages_scanned = 0
+                _emit(messages, progress, f"Reached previous newest offer; jumping to page {jump_page}.")
+                break
+            if fast_phase == "skip":
+                if identity == previous_oldest_id:
+                    fast_phase = "normal"
+                    _emit(messages, progress, "Reached previous oldest offer; resuming normal deduplication.")
+                    for remaining_job in jobs[index + 1:]:
+                        if process_job(remaining_job, page_counts=page_counts):
+                            break
                     break
-            except Exception as error:
-                errors += 1
-                if not counted_as_new:
-                    newly_explored += 1
-                    page_newly_explored += 1
-                record_explored_job(
-                    job,
-                    status="error",
-                    reason=str(error),
-                    db_path=db_path,
-                )
-                if target_new_offers is not None and newly_explored >= target_new_offers:
-                    break
+                continue
+            if process_job(job, page_counts=page_counts):
+                break
 
-        if page_already_seen == len(jobs) and page_newly_explored == 0:
+        if fast_phase == "skip":
+            skip_pages_scanned += 1
+            if skip_pages_scanned >= FAST_BACKFILL_SKIP_PAGE_LIMIT:
+                fast_phase = "normal"
+                _emit(
+                    messages,
+                    progress,
+                    "Previous oldest offer was not found quickly; resuming normal deduplication.",
+                )
+
+        if page_counts["already_seen"] == len(jobs) and page_counts["newly_explored"] == 0:
             consecutive_seen_pages += 1
             if consecutive_seen_pages >= max_seen_pages:
                 _emit(
@@ -348,6 +456,10 @@ def fetch_offers(
         if target_new_offers is not None and newly_explored >= target_new_offers:
             _emit(messages, progress, f"Processed {newly_explored} newly explored offers.")
             break
+        if jump_page is not None:
+            current_page = jump_page
+            continue
+        current_page += 1
 
     stats = UpsertStats(
         fetched=fetched,
@@ -372,6 +484,16 @@ def fetch_offers(
             f"updated {stats.updated}; errors {stats.errors}."
         ),
     )
+    if first_seen_identity and last_seen_identity and last_scanned_page is not None:
+        save_exploration_metadata(
+            db_path=db_path,
+            scope_key=scope_key,
+            source=source,
+            scope=scope_payload,
+            newest_id=first_seen_identity,
+            oldest_id=last_seen_identity,
+            last_explored_page=last_scanned_page,
+        )
     prune_stats = prune_storage(
         db_path,
         explored_capacity=explored_capacity,

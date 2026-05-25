@@ -88,7 +88,19 @@
               Preview count
               <input name="limit" type="number" min="1" value="20">
             </label>
+
+            <label>
+              Exploration mode
+              <select name="exploration_mode">
+                <option value="safe" selected>Normal / safe</option>
+                <option value="fast_backfill">Fast backfill</option>
+              </select>
+            </label>
           </div>
+
+          <p class="helper-text">
+            Fast backfill uses previous source metadata to skip known result ranges. It is faster on stable result ordering, but normal mode is safer when providers reorder older offers.
+          </p>
 
           <details class="advanced-options">
             <summary>Advanced options</summary>

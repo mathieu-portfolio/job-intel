@@ -78,6 +78,7 @@ def fetch(
     explored_capacity: int = typer.Option(DEFAULT_EXPLORED_CAPACITY, help="Maximum explored-offer rows to keep."),
     unranked_capacity: int = typer.Option(DEFAULT_UNRANKED_CAPACITY, help="Maximum unranked offer rows to keep."),
     ranked_capacity: int = typer.Option(DEFAULT_RANKED_CAPACITY, help="Maximum ranked offer rows to keep."),
+    exploration_mode: str = typer.Option("safe", help="Exploration mode: safe or fast_backfill."),
 ) -> None:
     """Fetch jobs from one source, track newly explored offers, and print a shortlist."""
 
@@ -98,6 +99,7 @@ def fetch(
             explored_capacity=explored_capacity,
             unranked_capacity=unranked_capacity,
             ranked_capacity=ranked_capacity,
+            exploration_mode=exploration_mode,  # type: ignore[arg-type]
         )
     except requests.RequestException as error:
         console.print(f"[red]Network/API error:[/red] {error}")

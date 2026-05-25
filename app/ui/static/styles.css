@@ -383,6 +383,12 @@ label {
   font-size: 13px;
 }
 
+.helper-text {
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 12px;
+}
+
 .score-meta {
   margin-top: 12px;
 }

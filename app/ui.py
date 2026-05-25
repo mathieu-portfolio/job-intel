@@ -276,6 +276,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 explored_capacity=_positive_int(form.get("explored_capacity"), DEFAULT_EXPLORED_CAPACITY),
                 unranked_capacity=_positive_int(form.get("unranked_capacity"), DEFAULT_UNRANKED_CAPACITY),
                 ranked_capacity=_positive_int(form.get("ranked_capacity"), DEFAULT_RANKED_CAPACITY),
+                exploration_mode=(form.get("exploration_mode") or "safe"),  # type: ignore[arg-type]
             )
             request.app.state.workflow_notice = _workflow_notice(
                 "success",
