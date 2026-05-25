@@ -71,6 +71,7 @@ def fetch(
     query: str = typer.Option("c++ simulation", help="Search query for sources that support it."),
     country: str = typer.Option("fr", help="Adzuna country code, for example fr, gb, us."),
     where: str | None = typer.Option(None, help="Optional Adzuna location filter."),
+    profile: Path = typer.Option(Path("profiles/default.json"), help="Candidate profile JSON path for fast screening."),
     db: Path = typer.Option(DEFAULT_DB_PATH, "--db", help="SQLite database path."),
     min_score: int = typer.Option(40, help="Minimum calibrated rule score to print."),
     limit: int = typer.Option(20, help="Maximum number of matches to print."),
@@ -91,6 +92,7 @@ def fetch(
             query=query,
             country=country,
             where=where,
+            profile_path=profile,
             db_path=db,
             min_score=min_score,
             explored_capacity=explored_capacity,
@@ -277,7 +279,7 @@ def rank(
 
     console.print(f"[bold]Profile:[/bold] {profile}")
     console.print(f"[bold]Database:[/bold] {db}")
-    console.print(f"[bold]Selected jobs:[/bold] {result.selected_count} unranked offers")
+    console.print(f"[bold]Selected jobs:[/bold] {result.selected_count} screened offers")
     console.print(f"[bold]Ranking mode:[/bold] {ranking_mode}")
     console.print(f"[bold]Prefiltered jobs:[/bold] {result.prefiltered_count}")
     console.print(f"[bold]AI-evaluated jobs:[/bold] {result.ai_evaluation_count}")
@@ -288,7 +290,7 @@ def rank(
         console.print()
 
     if not result.candidates:
-        console.print("[yellow]No unranked offers matched this ranking request.[/yellow]")
+        console.print("[yellow]No screened offers matched this ranking request.[/yellow]")
         raise typer.Exit()
 
     if dry_run:

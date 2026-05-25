@@ -12,34 +12,8 @@ from app.models.profile import CandidateProfile
 
 
 class RuleScoringConfig(BaseModel):
-    positive_terms: dict[str, int] = Field(
-        default_factory=lambda: {
-            "c++": 14,
-            "cpp": 10,
-            "simulation": 12,
-            "systems": 10,
-            "linux": 8,
-            "embedded": 8,
-            "graphics": 8,
-            "rendering": 8,
-            "tooling": 7,
-            "infrastructure": 6,
-            "performance": 8,
-        }
-    )
-    negative_terms: dict[str, int] = Field(
-        default_factory=lambda: {
-            "frontend": -8,
-            "react": -8,
-            "php": -10,
-            "wordpress": -12,
-            "salesforce": -12,
-            "senior": -16,
-            "lead": -14,
-            "principal": -18,
-            "staff": -16,
-        }
-    )
+    positive_terms: dict[str, int] = Field(default_factory=dict)
+    negative_terms: dict[str, int] = Field(default_factory=dict)
     profile_positive_weight: int = 8
     profile_negative_weight: int = -10
     no_signal_score: int = 20
@@ -95,6 +69,28 @@ def _profile_negative_terms(profile: CandidateProfile | None) -> list[str]:
     return [term.lower() for term in terms if term.strip()]
 
 
+def _profile_positive_weights(profile: CandidateProfile | None) -> dict[str, int]:
+    if profile is None:
+        return {}
+    weights = {term.lower(): weight for term, weight in profile.positive_signals.items()}
+    for term in _profile_positive_terms(profile):
+        weights.setdefault(term, profile.positive_signal_weight)
+    return weights
+
+
+def _profile_negative_weights(profile: CandidateProfile | None) -> dict[str, int]:
+    if profile is None:
+        return {}
+    weights = {term.lower(): weight for term, weight in profile.negative_signals.items()}
+    for term in _profile_negative_terms(profile):
+        weights.setdefault(term, profile.negative_signal_weight)
+    for term in profile.exclusions:
+        cleaned = term.lower().strip()
+        if cleaned:
+            weights.setdefault(cleaned, profile.strong_negative_threshold)
+    return weights
+
+
 def _term_weights(
     *,
     configured_terms: dict[str, int],
@@ -130,6 +126,16 @@ def evaluate_job(
     config: RuleScoringConfig | None = None,
 ) -> RuleEvaluation:
     config = config or RuleScoringConfig()
+    if profile is not None:
+        config = config.model_copy(
+            update={
+                "no_signal_score": profile.no_signal_score,
+                "positive_score_scale": profile.positive_score_scale,
+                "negative_score_scale": profile.negative_score_scale,
+                "strong_negative_threshold": profile.strong_negative_threshold,
+                "strong_negative_score_cap": profile.strong_negative_score_cap,
+            }
+        )
     text = " ".join(
         [
             job.title,
@@ -142,14 +148,16 @@ def evaluate_job(
 
     positive_weights = _term_weights(
         configured_terms=config.positive_terms,
-        profile_terms=_profile_positive_terms(profile),
+        profile_terms=[],
         default_profile_weight=config.profile_positive_weight,
     )
+    positive_weights.update(_profile_positive_weights(profile))
     negative_weights = _term_weights(
         configured_terms=config.negative_terms,
-        profile_terms=_profile_negative_terms(profile),
+        profile_terms=[],
         default_profile_weight=config.profile_negative_weight,
     )
+    negative_weights.update(_profile_negative_weights(profile))
     positives = [
         WeightedTermMatch(term=term, weight=weight)
         for term, weight in positive_weights.items()

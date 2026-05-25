@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Fetched Offers - Job Intel Review</title>
+    <title>{{ page_title }} - Job Intel Review</title>
     <link rel="stylesheet" href="{{ url_for('static', path='styles.css') }}">
   </head>
   <body>
@@ -12,17 +12,19 @@
         <h1>Job Intel Review</h1>
         <p>{{ db_path }}</p>
         <nav class="nav-links">
-          <a class="{% if active_page == 'ranked' %}active{% endif %}" href="/">Ranked offers</a>
-          <a class="{% if active_page == 'offers' %}active{% endif %}" href="/offers">Fetched offers</a>
+          <a class="{% if active_page == 'explore' %}active{% endif %}" href="/explore">Explore</a>
+          <a class="{% if active_page == 'screened' %}active{% endif %}" href="/screened">Screened</a>
+          <a class="{% if active_page == 'ai_reviewed' %}active{% endif %}" href="/">AI Reviewed</a>
           <a class="{% if active_page == 'maintenance' %}active{% endif %}" href="/maintenance">Maintenance</a>
         </nav>
       </div>
       <div class="header-actions">
-        <div class="count">{{ offers|length }} fetched offers</div>
+        <div class="count">{{ offers|length }} screened offers</div>
       </div>
     </header>
 
     <main>
+      {% if show_fetch_workflow %}
       <section class="workflow-panel single-workflow">
         <form class="workflow-card" method="post" action="/workflows/fetch" data-running-label="Fetching...">
           <div class="workflow-head">
@@ -45,6 +47,15 @@
                 <option value="">Choose market</option>
                 {% for market in adzuna_markets %}
                   <option value="{{ market.value }}">{{ market.label }}</option>
+                {% endfor %}
+              </select>
+            </label>
+
+            <label>
+              Profile
+              <select name="profile">
+                {% for profile in profiles %}
+                  <option value="{{ profile.value }}" {% if loop.first %}selected{% endif %}>{{ profile.label }}</option>
                 {% endfor %}
               </select>
             </label>
@@ -101,6 +112,7 @@
           </details>
 </form>
       </section>
+      {% endif %}
 
       {% if workflow_notice %}
         <section class="workflow-notice {{ workflow_notice.kind }}">
@@ -123,7 +135,7 @@
         </section>
       {% endif %}
 
-      <form class="filters offers-filters" method="get" action="/offers">
+      <form class="filters offers-filters" method="get" action="{{ listing_path }}">
         <label class="wide-filter">
           Search
           <input name="q" type="search" value="{{ filters.q }}" placeholder="Title, company, description">
@@ -142,7 +154,7 @@
           <input name="limit" type="number" min="1" max="500" value="{{ filters.limit }}">
         </label>
         <button type="submit">Apply</button>
-        <a class="clear" href="/offers">Clear</a>
+        <a class="clear" href="{{ listing_path }}">Clear</a>
       </form>
 
       <datalist id="location-suggestions">
@@ -175,24 +187,24 @@
             <p class="summary description-preview">{{ offer.description }}</p>
           </article>
         {% else %}
-          <p class="empty">No fetched offers match these filters.</p>
+          <p class="empty">{{ empty_message }}</p>
         {% endfor %}
       </section>
 
       <section class="danger-zone">
         <div>
           <h2>Danger zone</h2>
-          <p>Deletes fetched offers. Dependent ranking rows are removed; explored tracking remains.</p>
+          <p>Deletes screened offers. Dependent AI review rows are removed; explored tracking remains.</p>
         </div>
         <form
           method="post"
           action="/storage/clear"
           data-running-label="Clearing..."
-          data-confirm-message="Delete fetched offers? Dependent ranking rows will also be removed. Explored tracking will remain."
+          data-confirm-message="Delete screened offers? Dependent AI review rows will also be removed. Explored tracking will remain."
         >
           <input type="hidden" name="scope" value="offers">
-          <input type="hidden" name="redirect_to" value="/offers">
-          <button class="danger subtle" type="submit">Clear fetched offers</button>
+          <input type="hidden" name="redirect_to" value="/explore">
+          <button class="danger subtle" type="submit">Clear screened offers</button>
         </form>
       </section>
     </main>

@@ -53,13 +53,13 @@ class UiWorkflowTests(unittest.TestCase):
             response = client.get("/")
 
             self.assertEqual(response.status_code, 200)
-            self.assertIn("Rank offers", response.text)
+            self.assertIn("AI review screened offers", response.text)
             self.assertIn("Default", response.text)
             self.assertIn("Mathieu", response.text)
             self.assertIn("Default weights", response.text)
             self.assertIn("Rule Weights Example", response.text)
             self.assertIn('value="Berlin"', response.text)
-            self.assertIn("Clear rankings", response.text)
+            self.assertIn("Clear AI reviews", response.text)
             self.assertIn("Maintenance", response.text)
             self.assertIn("Danger zone", response.text)
             self.assertNotIn("Fetch offers</button>", response.text)
@@ -99,7 +99,7 @@ class UiWorkflowTests(unittest.TestCase):
 
             self.assertEqual(response.status_code, 200)
             self.assertIn("Clear complete", response.text)
-            self.assertIn("Deleted rankings", response.text)
+            self.assertIn("Deleted AI reviews", response.text)
             self.assertEqual(len(list_ranked_offers(db_path=db_path)), 0)
 
     def test_fetched_page_renders_fetch_workflow_and_clear_fetched_action(self) -> None:
@@ -108,7 +108,7 @@ class UiWorkflowTests(unittest.TestCase):
             upsert_offers([_job("https://example.com/fetched", "Fetched", "Paris")], db_path=db_path)
             client = TestClient(create_app(db_path))
 
-            response = client.get("/offers")
+            response = client.get("/explore")
 
             self.assertEqual(response.status_code, 200)
             self.assertIn("Fetch offers", response.text)
@@ -123,9 +123,9 @@ class UiWorkflowTests(unittest.TestCase):
             self.assertIn("marketSelect.required = isAdzuna", response.text)
             self.assertIn('placeholder="Provider default"', response.text)
             self.assertIn('value="50"', response.text)
-            self.assertIn("Clear fetched offers", response.text)
+            self.assertIn("Clear screened offers", response.text)
             self.assertIn("Danger zone", response.text)
-            self.assertNotIn("Rank offers</button>", response.text)
+            self.assertNotIn("Run AI review</button>", response.text)
             self.assertNotIn('value="c++ simulation"', response.text)
             self.assert_confirm_happens_before_loading_state(response.text)
 
@@ -172,13 +172,13 @@ class UiWorkflowTests(unittest.TestCase):
 
             response = client.post(
                 "/storage/clear",
-                data={"scope": "offers", "redirect_to": "/offers"},
+                data={"scope": "offers", "redirect_to": "/explore"},
                 follow_redirects=True,
             )
 
             self.assertEqual(response.status_code, 200)
             self.assertIn("Clear complete", response.text)
-            self.assertIn("Fetched offers", response.text)
+            self.assertIn("Explore", response.text)
             self.assertEqual(len(list_unranked_review_offers(db_path=db_path)), 0)
             self.assertEqual(len(list_ranked_offers(db_path=db_path)), 0)
 
@@ -197,8 +197,8 @@ class UiWorkflowTests(unittest.TestCase):
 
             self.assertEqual(response.status_code, 200)
             self.assertIn("Explored tracking", response.text)
-            self.assertIn("Fetched/unranked offers", response.text)
-            self.assertIn("Ranked offers", response.text)
+            self.assertIn("Screened offers", response.text)
+            self.assertIn("AI reviewed offers", response.text)
             self.assertIn("Clear explored tracking", response.text)
             self.assertIn("Clear all data", response.text)
             self.assert_confirm_happens_before_loading_state(response.text)
@@ -282,7 +282,7 @@ class UiWorkflowTests(unittest.TestCase):
 
             self.assertEqual(response.status_code, 200)
             self.assertIn("Rank complete", response.text)
-            self.assertIn("Saved rankings", response.text)
+            self.assertIn("Saved AI reviews", response.text)
             self.assertIn("C++ Simulation Engineer", response.text)
 
     def test_fetched_offers_page_lists_unranked_offers_with_search(self) -> None:
@@ -302,10 +302,10 @@ class UiWorkflowTests(unittest.TestCase):
             )
 
             client = TestClient(create_app(db_path))
-            response = client.get("/offers", params={"q": "simulation"})
+            response = client.get("/screened", params={"q": "simulation"})
 
             self.assertEqual(response.status_code, 200)
-            self.assertIn("Fetched offers", response.text)
+            self.assertIn("Screened", response.text)
             self.assertIn("Simulation Engineer", response.text)
             self.assertNotIn("Web Engineer", response.text)
 

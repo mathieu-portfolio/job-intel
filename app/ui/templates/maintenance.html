@@ -12,8 +12,9 @@
         <h1>Job Intel Review</h1>
         <p>{{ db_path }}</p>
         <nav class="nav-links">
-          <a class="{% if active_page == 'ranked' %}active{% endif %}" href="/">Ranked offers</a>
-          <a class="{% if active_page == 'offers' %}active{% endif %}" href="/offers">Fetched offers</a>
+          <a class="{% if active_page == 'explore' %}active{% endif %}" href="/explore">Explore</a>
+          <a class="{% if active_page == 'screened' %}active{% endif %}" href="/screened">Screened</a>
+          <a class="{% if active_page == 'ai_reviewed' %}active{% endif %}" href="/">AI Reviewed</a>
           <a class="{% if active_page == 'maintenance' %}active{% endif %}" href="/maintenance">Maintenance</a>
         </nav>
       </div>
@@ -43,11 +44,11 @@
           <strong>{{ storage_counts.explored }}</strong>
         </article>
         <article class="metric-card">
-          <span>Fetched/unranked offers</span>
+          <span>Screened offers</span>
           <strong>{{ storage_counts.unranked }}</strong>
         </article>
         <article class="metric-card">
-          <span>Ranked offers</span>
+          <span>AI reviewed offers</span>
           <strong>{{ storage_counts.ranked }}</strong>
         </article>
       </section>
@@ -61,7 +62,7 @@
             method="post"
             action="/storage/clear"
             data-running-label="Clearing..."
-            data-confirm-message="Delete explored tracking? Existing fetched offers and rankings will remain."
+            data-confirm-message="Delete explored tracking? Existing screened offers and AI reviews will remain."
           >
             <div>
               <strong>Clear explored tracking</strong>
@@ -76,7 +77,7 @@
             method="post"
             action="/storage/clear"
             data-running-label="Clearing..."
-            data-confirm-message="Delete all app data? This removes explored tracking, fetched offers, rankings, and ranking run metadata."
+            data-confirm-message="Delete all app data? This removes explored tracking, screened offers, AI reviews, and run metadata."
           >
             <div>
               <strong>Clear all data</strong>

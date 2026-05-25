@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -13,8 +14,10 @@ from app.storage.sqlite import (
     exclude_existing_offers,
     get_storage_counts,
     get_clear_plan,
+    list_ai_reviews,
     list_explored_offers,
     list_ranked_offers,
+    list_screening_results,
     list_unranked_review_offers,
     prune_storage,
     record_explored_job,
@@ -59,6 +62,26 @@ def _result(raw_ai: object | None) -> dict[str, object]:
 
 
 class SqliteReviewTests(unittest.TestCase):
+    def _write_profile(
+        self,
+        path: Path,
+        *,
+        positive_signals: dict[str, int] | None = None,
+        negative_signals: dict[str, int] | None = None,
+        threshold: int = 40,
+    ) -> None:
+        path.write_text(
+            json.dumps(
+                {
+                    "name": "Test profile",
+                    "positive_signals": positive_signals or {},
+                    "negative_signals": negative_signals or {},
+                    "screening_threshold": threshold,
+                }
+            ),
+            encoding="utf-8",
+        )
+
     def _seed_clear_data(self, db_path: Path) -> int:
         record_explored_job(
             _source_job("explored", "https://example.com/explored", "Explored"),
@@ -554,6 +577,82 @@ class SqliteReviewTests(unittest.TestCase):
             self.assertEqual(result.stats.inserted, 0)
             self.assertEqual(records[0]["status"], "filtered_out")
             self.assertEqual(records[0]["reason"], "missing_description")
+
+    def test_fetch_workflow_persists_profile_driven_screening_results(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base_path = Path(temp_dir)
+            db_path = base_path / "jobs.sqlite"
+            profile_path = base_path / "profile.json"
+            self._write_profile(profile_path, positive_signals={"simulation": 50}, threshold=40)
+            matching = _source_job("source-1", "https://example.com/match", "Simulation Engineer")
+
+            with patch("app.workflows.fetch_arbeitnow", return_value=[matching]):
+                result = fetch_offers(
+                    source="arbeitnow",
+                    db_path=db_path,
+                    profile_path=profile_path,
+                    new_offers=1,
+                    max_pages=1,
+                )
+
+            screenings = list_screening_results(db_path)
+            self.assertEqual(result.stats.inserted, 1)
+            self.assertEqual(len(screenings), 1)
+            self.assertEqual(screenings[0]["title"], "Simulation Engineer")
+            self.assertEqual(screenings[0]["profile_path"], str(profile_path))
+            self.assertEqual(screenings[0]["passed"], 1)
+
+    def test_fetch_workflow_uses_profile_signals_not_hardcoded_terms(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base_path = Path(temp_dir)
+            db_path = base_path / "jobs.sqlite"
+            profile_path = base_path / "profile.json"
+            self._write_profile(profile_path, positive_signals={"python": 50}, threshold=40)
+            old_global_match = _source_job("source-1", "https://example.com/cpp", "C++ Simulation Engineer")
+
+            with patch("app.workflows.fetch_arbeitnow", return_value=[old_global_match]):
+                result = fetch_offers(
+                    source="arbeitnow",
+                    db_path=db_path,
+                    profile_path=profile_path,
+                    new_offers=1,
+                    max_pages=1,
+                )
+
+            self.assertEqual(result.stats.inserted, 0)
+            self.assertEqual(result.stats.filtered_out, 1)
+            self.assertEqual(list_screening_results(db_path), [])
+
+    def test_ai_review_persistence_references_screening_result(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base_path = Path(temp_dir)
+            db_path = base_path / "jobs.sqlite"
+            profile_path = base_path / "profile.json"
+            self._write_profile(profile_path, positive_signals={"simulation": 50}, threshold=40)
+            matching = _source_job("source-1", "https://example.com/match", "Simulation Engineer")
+
+            with patch("app.workflows.fetch_arbeitnow", return_value=[matching]):
+                fetch_offers(
+                    source="arbeitnow",
+                    db_path=db_path,
+                    profile_path=profile_path,
+                    new_offers=1,
+                    max_pages=1,
+                )
+
+            rank_offers(
+                profile_path=profile_path,
+                db_path=db_path,
+                ranking_mode="ai",
+                provider="mock",
+                limit=1,
+            )
+
+            reviews = list_ai_reviews(db_path)
+            self.assertEqual(len(reviews), 1)
+            self.assertEqual(reviews[0]["title"], "Simulation Engineer")
+            self.assertIsNotNone(reviews[0]["screening_result_id"])
+            self.assertEqual(reviews[0]["provider"], "mock")
 
     def test_ai_only_filter_excludes_rule_only_hybrid_results(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

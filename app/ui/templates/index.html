@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Job Intel Review</title>
+    <title>AI Reviewed - Job Intel Review</title>
     <link rel="stylesheet" href="{{ url_for('static', path='styles.css') }}">
   </head>
   <body>
@@ -12,13 +12,14 @@
         <h1>Job Intel Review</h1>
         <p>{{ db_path }}</p>
         <nav class="nav-links">
-          <a class="{% if active_page == 'ranked' %}active{% endif %}" href="/">Ranked offers</a>
-          <a class="{% if active_page == 'offers' %}active{% endif %}" href="/offers">Fetched offers</a>
+          <a class="{% if active_page == 'explore' %}active{% endif %}" href="/explore">Explore</a>
+          <a class="{% if active_page == 'screened' %}active{% endif %}" href="/screened">Screened</a>
+          <a class="{% if active_page == 'ai_reviewed' %}active{% endif %}" href="/">AI Reviewed</a>
           <a class="{% if active_page == 'maintenance' %}active{% endif %}" href="/maintenance">Maintenance</a>
         </nav>
       </div>
       <div class="header-actions">
-        <div class="count">{{ offers|length }} ranked offers</div>
+        <div class="count">{{ offers|length }} AI reviewed offers</div>
       </div>
     </header>
 
@@ -26,8 +27,8 @@
       <section class="workflow-panel single-workflow">
         <form class="workflow-card" method="post" action="/workflows/rank" data-running-label="Ranking...">
           <div class="workflow-head">
-            <h2>Rank offers</h2>
-            <button type="submit">Rank offers</button>
+            <h2>AI review screened offers</h2>
+            <button type="submit">Run AI review</button>
           </div>
           
           <div class="workflow-grid">
@@ -282,24 +283,24 @@
             </details>
           </article>
         {% else %}
-          <p class="empty">No ranked offers match these filters.</p>
+          <p class="empty">No AI reviewed offers match these filters.</p>
         {% endfor %}
       </section>
 
       <section class="danger-zone">
         <div>
           <h2>Danger zone</h2>
-          <p>Deletes ranking rows only. Fetched offers and explored tracking remain.</p>
+          <p>Deletes AI review rows. Screened offers and explored tracking remain.</p>
         </div>
         <form
           method="post"
           action="/storage/clear"
           data-running-label="Clearing..."
-          data-confirm-message="Delete all ranking rows? Fetched offers and explored tracking will remain."
+          data-confirm-message="Delete all AI review rows? Screened offers and explored tracking will remain."
         >
           <input type="hidden" name="scope" value="rankings">
           <input type="hidden" name="redirect_to" value="/">
-          <button class="danger subtle" type="submit">Clear rankings</button>
+          <button class="danger subtle" type="submit">Clear AI reviews</button>
         </form>
       </section>
     </main>

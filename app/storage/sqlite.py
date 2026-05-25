@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from app.models.evaluation import Recommendation
+from app.models.evaluation import RuleEvaluation
 from app.models.job import JobOffer
 from app.sql import load_sql
 
@@ -450,6 +451,7 @@ def clear_data(
     init_db(db_path)
     with _connect(db_path) as connection:
         if plan.scope == "rankings":
+            connection.execute(load_sql("clear/delete_ai_reviews.sql"))
             connection.execute(load_sql("clear/delete_rankings.sql"))
         elif plan.scope == "offers":
             connection.execute(load_sql("clear/delete_offers.sql"))
@@ -457,6 +459,7 @@ def clear_data(
             connection.execute(load_sql("clear/delete_explored.sql"))
         elif plan.scope == "all":
             connection.execute(load_sql("clear/delete_explored.sql"))
+            connection.execute(load_sql("clear/delete_ai_reviews.sql"))
             connection.execute(load_sql("clear/delete_rankings.sql"))
             connection.execute(load_sql("clear/delete_offers.sql"))
             connection.execute(load_sql("clear/delete_ranking_runs.sql"))
@@ -651,6 +654,139 @@ def update_offer_status(
         )
 
 
+def save_screening_result(
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+    offer_id: int,
+    profile_path: str,
+    evaluation: RuleEvaluation,
+    threshold: int,
+    screened_at: str | None = None,
+) -> int:
+    init_db(db_path)
+    screened_at = screened_at or _now_iso()
+    matched_signals = {
+        "positive": [match.model_dump(mode="json") for match in evaluation.matched_positive_terms],
+        "negative": [match.model_dump(mode="json") for match in evaluation.matched_negative_terms],
+    }
+    passed = evaluation.normalized_score >= threshold
+    with _connect(db_path) as connection:
+        connection.execute(
+            load_sql("screening_results/upsert.sql"),
+            (
+                offer_id,
+                profile_path,
+                evaluation.normalized_score,
+                evaluation.decision,
+                threshold,
+                1 if passed else 0,
+                json.dumps(matched_signals, ensure_ascii=False),
+                json.dumps(evaluation.reasoning, ensure_ascii=False),
+                screened_at,
+            ),
+        )
+        row = connection.execute(
+            load_sql("screening_results/select_id.sql"),
+            (offer_id, profile_path),
+        ).fetchone()
+    return int(row["id"])
+
+
+def find_screening_result_id(
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+    offer_id: int,
+    profile_path: str,
+) -> int | None:
+    init_db(db_path)
+    with _connect(db_path) as connection:
+        row = connection.execute(
+            load_sql("screening_results/select_id.sql"),
+            (offer_id, profile_path),
+        ).fetchone()
+    return int(row["id"]) if row is not None else None
+
+
+def select_screened_offers(
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+    provider: str | None,
+    model: str | None,
+    profile_path: str,
+    limit: int,
+    only_recent_days: int | None = None,
+) -> list[StoredOffer]:
+    init_db(db_path)
+    params: list[Any] = [profile_path, provider, model, profile_path]
+    recent_clause = ""
+    if only_recent_days is not None:
+        cutoff = (datetime.now() - timedelta(days=only_recent_days)).isoformat(timespec="seconds")
+        recent_clause = "AND COALESCE(offers.published_at, offers.first_seen_at) >= ?"
+        params.append(cutoff)
+    params.append(limit)
+
+    with _connect(db_path) as connection:
+        sql = load_sql("screening_results/select_screened_offers.sql").replace(
+            "/*RECENT_FILTER*/",
+            recent_clause,
+        )
+        rows = connection.execute(sql, params).fetchall()
+
+    return [StoredOffer(id=row["id"], job=_job_from_offer_row(row)) for row in rows]
+
+
+def save_ai_review(
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+    screening_result_id: int | None,
+    offer_id: int,
+    provider: str | None,
+    model: str | None,
+    profile_path: str,
+    score: int,
+    recommendation: Recommendation,
+    summary: str,
+    result: dict[str, Any],
+    reviewed_at: str | None = None,
+) -> None:
+    init_db(db_path)
+    reviewed_at = reviewed_at or _now_iso()
+    with _connect(db_path) as connection:
+        connection.execute(
+            load_sql("ai_reviews/delete_existing.sql"),
+            (offer_id, provider, model, profile_path),
+        )
+        connection.execute(
+            load_sql("ai_reviews/insert.sql"),
+            (
+                screening_result_id,
+                offer_id,
+                provider,
+                model,
+                profile_path,
+                score,
+                recommendation,
+                summary,
+                json.dumps(result, ensure_ascii=False),
+                reviewed_at,
+            ),
+        )
+
+
+def list_screening_results(db_path: Path = DEFAULT_DB_PATH) -> list[dict[str, Any]]:
+    init_db(db_path)
+    with _connect(db_path) as connection:
+        rows = connection.execute(load_sql("screening_results/select_all_review.sql")).fetchall()
+    return [dict(row) for row in rows]
+
+
+def list_ai_reviews(db_path: Path = DEFAULT_DB_PATH) -> list[dict[str, Any]]:
+    init_db(db_path)
+    with _connect(db_path) as connection:
+        rows = connection.execute(load_sql("ai_reviews/select_all_review.sql")).fetchall()
+    return [dict(row) for row in rows]
+
+
 def clear_rankings(db_path: Path = DEFAULT_DB_PATH) -> None:
     init_db(db_path)
     with _connect(db_path) as connection:
@@ -801,13 +937,5 @@ def get_review_filter_options(db_path: Path = DEFAULT_DB_PATH) -> dict[str, list
 def list_offer_locations(db_path: Path = DEFAULT_DB_PATH) -> list[str]:
     init_db(db_path)
     with _connect(db_path) as connection:
-        rows = connection.execute(
-            """
-            SELECT DISTINCT location
-            FROM offers
-            WHERE location IS NOT NULL
-              AND TRIM(location) != ''
-            ORDER BY location
-            """
-        ).fetchall()
+        rows = connection.execute(load_sql("offers/select_locations.sql")).fetchall()
     return [str(row["location"]) for row in rows]

@@ -31,10 +31,14 @@ from app.storage.sqlite import (
     create_ranking_run,
     find_existing_offer_id,
     find_existing_offer_id_by_url,
+    find_screening_result_id,
     has_explored_offer,
     prune_storage,
     record_explored_job,
+    save_ai_review,
     save_ranking,
+    save_screening_result,
+    select_screened_offers,
     select_unranked_offers,
     upsert_offers,
 )
@@ -138,8 +142,9 @@ def fetch_offers(
     query: str = "c++ simulation",
     country: str = "fr",
     where: str | None = None,
+    profile_path: Path = Path("profiles/default.json"),
     db_path: Path = DEFAULT_DB_PATH,
-    min_score: int = 40,
+    min_score: int | None = None,
     explored_capacity: int = DEFAULT_EXPLORED_CAPACITY,
     unranked_capacity: int = DEFAULT_UNRANKED_CAPACITY,
     ranked_capacity: int = DEFAULT_RANKED_CAPACITY,
@@ -179,6 +184,8 @@ def fetch_offers(
     pages_scanned = 0
     consecutive_seen_pages = 0
     matches: list[tuple[JobOffer, RuleEvaluation]] = []
+    candidate_profile = load_profile(profile_path)
+    screening_threshold = min_score if min_score is not None else candidate_profile.screening_threshold
     rule_config = load_rule_scoring_config()
 
     for offset in range(page_limit):
@@ -233,6 +240,14 @@ def fetch_offers(
 
                 existing_offer_id = find_existing_offer_id(job, db_path=db_path)
                 if existing_offer_id is not None:
+                    evaluation = evaluate_job(job, profile=candidate_profile, config=rule_config)
+                    save_screening_result(
+                        db_path=db_path,
+                        offer_id=existing_offer_id,
+                        profile_path=str(profile_path),
+                        evaluation=evaluation,
+                        threshold=screening_threshold,
+                    )
                     upsert_stats = UpsertStats(fetched=1, inserted=0, updated=0)
                     if find_existing_offer_id_by_url(canonical_url, db_path=db_path) is not None:
                         upsert_stats = upsert_offers([job], db_path=db_path)
@@ -247,8 +262,8 @@ def fetch_offers(
                         break
                     continue
 
-                evaluation = evaluate_job(job, config=rule_config)
-                if evaluation.normalized_score < min_score:
+                evaluation = evaluate_job(job, profile=candidate_profile, config=rule_config)
+                if evaluation.normalized_score < screening_threshold:
                     filtered_out += 1
                     record_explored_job(
                         job,
@@ -263,6 +278,15 @@ def fetch_offers(
                 upsert_stats = upsert_offers([job], db_path=db_path)
                 inserted += upsert_stats.inserted
                 updated += upsert_stats.updated
+                offer_id = find_existing_offer_id(job, db_path=db_path)
+                if offer_id is not None:
+                    save_screening_result(
+                        db_path=db_path,
+                        offer_id=offer_id,
+                        profile_path=str(profile_path),
+                        evaluation=evaluation,
+                        threshold=screening_threshold,
+                    )
                 record_explored_job(
                     job,
                     status="inserted" if upsert_stats.inserted else "updated",
@@ -319,8 +343,9 @@ def fetch_offers(
         (
             f"Pages {stats.pages_scanned}; provider rows {stats.fetched}; "
             f"newly explored {stats.newly_explored}; "
-            f"already seen {stats.already_seen}; filtered out {stats.filtered_out}; "
-            f"inserted {stats.inserted}; updated {stats.updated}; errors {stats.errors}."
+            f"already seen {stats.already_seen}; screened out {stats.filtered_out}; "
+            f"screened {stats.inserted + stats.updated}; inserted {stats.inserted}; "
+            f"updated {stats.updated}; errors {stats.errors}."
         ),
     )
     prune_stats = prune_storage(
@@ -382,15 +407,24 @@ def rank_offers(
         provider_name = llm_provider.name
         model_name = llm_provider.model_name
 
-    selected_offers = select_unranked_offers(
+    selected_offers = select_screened_offers(
         db_path=db_path,
-        algorithm=ranking_mode,
+        provider=provider_name,
         model=model_name,
         profile_path=str(profile_path),
         limit=limit,
         only_recent_days=only_recent_days,
     )
-    _emit(messages, progress, f"Selected {len(selected_offers)} unranked offers.")
+    if not selected_offers:
+        selected_offers = select_unranked_offers(
+            db_path=db_path,
+            algorithm=ranking_mode,
+            model=model_name,
+            profile_path=str(profile_path),
+            limit=limit,
+            only_recent_days=only_recent_days,
+        )
+    _emit(messages, progress, f"Selected {len(selected_offers)} screened offers.")
 
     evaluated_jobs = [
         (stored_offer, evaluate_job(stored_offer.job, profile=candidate_profile, config=rule_config))
@@ -530,6 +564,22 @@ def rank_offers(
                 run_id=run_id,
                 offer_id=stored_offer.id,
                 algorithm=ranking_mode,
+                model=model_name,
+                profile_path=str(profile_path),
+                score=final_decision.final_score,
+                recommendation=final_decision.recommendation,
+                summary=ai_evaluation.summary,
+                result=result_payload,
+            )
+            save_ai_review(
+                db_path=db_path,
+                screening_result_id=find_screening_result_id(
+                    db_path=db_path,
+                    offer_id=stored_offer.id,
+                    profile_path=str(profile_path),
+                ),
+                offer_id=stored_offer.id,
+                provider=provider_name,
                 model=model_name,
                 profile_path=str(profile_path),
                 score=final_decision.final_score,

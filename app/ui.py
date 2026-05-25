@@ -30,10 +30,10 @@ UI_DIR = Path(__file__).parent / "ui"
 templates = Jinja2Templates(directory=str(UI_DIR / "templates"))
 DEFAULT_RECENCY_DAYS = 30
 CLEAR_SUMMARIES = {
-    "rankings": "Deletes ranking rows only.",
-    "offers": "Deletes fetched offers. Dependent ranking rows are removed by SQLite foreign keys.",
-    "explored": "Deletes provider exploration history. Existing offers and rankings remain.",
-    "all": "Deletes explored tracking, fetched offers, rankings, and ranking run metadata.",
+    "rankings": "Deletes AI review rows and legacy ranking rows.",
+    "offers": "Deletes screened offers. Dependent AI review rows are removed by SQLite foreign keys.",
+    "explored": "Deletes provider exploration history. Existing offers and AI reviews remain.",
+    "all": "Deletes explored tracking, screened offers, AI reviews, and run metadata.",
 }
 def _positive_int(value: str | None, default: int) -> int:
     try:
@@ -78,6 +78,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
     app.mount("/static", StaticFiles(directory=str(UI_DIR / "static")), name="static")
 
     @app.get("/", response_class=HTMLResponse)
+    @app.get("/ai-reviewed", response_class=HTMLResponse)
     def index(
         request: Request,
         recommendation: str | None = None,
@@ -125,10 +126,11 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 "location_suggestions": list_offer_locations(request.app.state.db_path),
                 "db_path": request.app.state.db_path,
                 "workflow_notice": request.app.state.workflow_notice,
-                "active_page": "ranked",
+                "active_page": "ai_reviewed",
             },
         )
 
+    @app.get("/explore", response_class=HTMLResponse)
     @app.get("/offers", response_class=HTMLResponse)
     def fetched_offers(
         request: Request,
@@ -155,6 +157,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 "options": get_review_filter_options(request.app.state.db_path),
                 "location_suggestions": list_offer_locations(request.app.state.db_path),
                 "adzuna_markets": ADZUNA_MARKETS,
+                "profiles": discover_profiles(),
                 "db_path": request.app.state.db_path,
                 "workflow_notice": request.app.state.workflow_notice,
                 "storage_capacities": {
@@ -162,7 +165,53 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                     "unranked": DEFAULT_UNRANKED_CAPACITY,
                     "ranked": DEFAULT_RANKED_CAPACITY,
                 },
-                "active_page": "offers",
+                "show_fetch_workflow": True,
+                "page_title": "Explore",
+                "empty_message": "No screened offers match these filters.",
+                "listing_path": "/explore",
+                "active_page": "explore",
+            },
+        )
+
+    @app.get("/screened", response_class=HTMLResponse)
+    def screened_offers(
+        request: Request,
+        q: str | None = None,
+        source: str | None = None,
+        limit: int = 100,
+    ) -> HTMLResponse:
+        offers = list_unranked_review_offers(
+            db_path=request.app.state.db_path,
+            search=q or None,
+            source=source or None,
+            limit=limit,
+        )
+        return templates.TemplateResponse(
+            request,
+            "offers.html",
+            {
+                "offers": offers,
+                "filters": {
+                    "q": q or "",
+                    "source": source or "",
+                    "limit": limit,
+                },
+                "options": get_review_filter_options(request.app.state.db_path),
+                "location_suggestions": list_offer_locations(request.app.state.db_path),
+                "adzuna_markets": ADZUNA_MARKETS,
+                "profiles": discover_profiles(),
+                "db_path": request.app.state.db_path,
+                "workflow_notice": request.app.state.workflow_notice,
+                "storage_capacities": {
+                    "explored": DEFAULT_EXPLORED_CAPACITY,
+                    "unranked": DEFAULT_UNRANKED_CAPACITY,
+                    "ranked": DEFAULT_RANKED_CAPACITY,
+                },
+                "show_fetch_workflow": False,
+                "page_title": "Screened",
+                "empty_message": "No screened offers match these filters.",
+                "listing_path": "/screened",
+                "active_page": "screened",
             },
         )
 
@@ -198,6 +247,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 query=(form.get("query") or "").strip(),
                 country=country or "fr",
                 where=(form.get("location") or "").strip() or None,
+                profile_path=Path(form.get("profile") or "profiles/default.json"),
                 db_path=request.app.state.db_path,
                 min_score=_positive_int(form.get("min_score"), 40),
                 explored_capacity=_positive_int(form.get("explored_capacity"), DEFAULT_EXPLORED_CAPACITY),
@@ -234,7 +284,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 "Fetch failed",
                 {"Error": str(error)},
             )
-        return RedirectResponse("/offers", status_code=303)
+        return RedirectResponse("/explore", status_code=303)
 
     @app.post("/workflows/rank")
     async def run_rank(request: Request):
@@ -260,7 +310,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                     "Prefiltered jobs": result.prefiltered_count,
                     "AI-evaluated jobs": result.ai_evaluation_count,
                     "Skipped jobs": result.skipped_count,
-                    "Saved rankings": result.saved_count,
+                    "Saved AI reviews": result.saved_count,
                     "Run": result.run_id or "none",
                 },
                 result.messages,
@@ -312,7 +362,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                     "Scope": result.scope,
                     "Deleted explored": result.explored,
                     "Deleted offers": result.offers,
-                    "Deleted rankings": result.rankings,
+                    "Deleted AI reviews": result.rankings,
                     "Deleted ranking runs": result.ranking_runs,
                 },
             )

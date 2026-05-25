@@ -26,6 +26,14 @@ CREATE TABLE IF NOT EXISTS explored_offers (
     keep_flag INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS profiles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_path TEXT NOT NULL UNIQUE,
+    name TEXT,
+    profile_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS ranking_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     started_at TEXT NOT NULL,
@@ -51,6 +59,36 @@ CREATE TABLE IF NOT EXISTS rankings (
     FOREIGN KEY(offer_id) REFERENCES offers(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS screening_results (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    offer_id INTEGER NOT NULL,
+    profile_path TEXT NOT NULL,
+    score INTEGER NOT NULL,
+    recommendation TEXT NOT NULL,
+    threshold INTEGER NOT NULL,
+    passed INTEGER NOT NULL,
+    matched_signals_json TEXT NOT NULL,
+    reasoning_json TEXT NOT NULL,
+    screened_at TEXT NOT NULL,
+    FOREIGN KEY(offer_id) REFERENCES offers(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS ai_reviews (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    screening_result_id INTEGER,
+    offer_id INTEGER NOT NULL,
+    provider TEXT,
+    model TEXT,
+    profile_path TEXT NOT NULL,
+    score INTEGER NOT NULL,
+    recommendation TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    review_json TEXT NOT NULL,
+    reviewed_at TEXT NOT NULL,
+    FOREIGN KEY(screening_result_id) REFERENCES screening_results(id) ON DELETE SET NULL,
+    FOREIGN KEY(offer_id) REFERENCES offers(id) ON DELETE CASCADE
+);
+
 CREATE INDEX IF NOT EXISTS idx_offers_newest
     ON offers(published_at DESC, first_seen_at DESC);
 CREATE INDEX IF NOT EXISTS idx_offers_source_source_id
@@ -68,3 +106,11 @@ CREATE INDEX IF NOT EXISTS idx_rankings_lookup
     ON rankings(algorithm, model, profile_path);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_rankings_unique_offer_algorithm_model_profile
     ON rankings(offer_id, algorithm, COALESCE(model, ''), profile_path);
+CREATE INDEX IF NOT EXISTS idx_screening_results_lookup
+    ON screening_results(profile_path, passed, score DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_screening_results_unique_offer_profile
+    ON screening_results(offer_id, profile_path);
+CREATE INDEX IF NOT EXISTS idx_ai_reviews_lookup
+    ON ai_reviews(profile_path, provider, model, score DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_reviews_unique_offer_provider_model_profile
+    ON ai_reviews(offer_id, COALESCE(provider, ''), COALESCE(model, ''), profile_path);
