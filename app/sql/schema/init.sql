@@ -22,7 +22,8 @@ CREATE TABLE IF NOT EXISTS explored_offers (
     first_seen_at TEXT NOT NULL,
     last_seen_at TEXT NOT NULL,
     status TEXT NOT NULL,
-    reason TEXT
+    reason TEXT,
+    keep_flag INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS ranking_runs (

@@ -13,7 +13,12 @@ from rich.table import Table
 from app.llm.factory import ProviderName
 from app.models.evaluation import AiJobEvaluation, FinalDecision, RuleEvaluation, WeightedTermMatch
 from app.models.job import JobOffer
-from app.storage.sqlite import DEFAULT_DB_PATH
+from app.storage.sqlite import (
+    DEFAULT_DB_PATH,
+    DEFAULT_EXPLORED_CAPACITY,
+    DEFAULT_RANKED_CAPACITY,
+    DEFAULT_UNRANKED_CAPACITY,
+)
 from app.workflows import (
     FetchSource,
     RankingMode,
@@ -55,6 +60,9 @@ def fetch(
     db: Path = typer.Option(DEFAULT_DB_PATH, "--db", help="SQLite database path."),
     min_score: int = typer.Option(40, help="Minimum calibrated rule score to print."),
     limit: int = typer.Option(20, help="Maximum number of matches to print."),
+    explored_capacity: int = typer.Option(DEFAULT_EXPLORED_CAPACITY, help="Maximum explored-offer rows to keep."),
+    unranked_capacity: int = typer.Option(DEFAULT_UNRANKED_CAPACITY, help="Maximum unranked offer rows to keep."),
+    ranked_capacity: int = typer.Option(DEFAULT_RANKED_CAPACITY, help="Maximum ranked offer rows to keep."),
 ) -> None:
     """Fetch jobs from one source, insert new relevant offers, and print a shortlist."""
 
@@ -71,6 +79,9 @@ def fetch(
             where=where,
             db_path=db,
             min_score=min_score,
+            explored_capacity=explored_capacity,
+            unranked_capacity=unranked_capacity,
+            ranked_capacity=ranked_capacity,
         )
     except requests.RequestException as error:
         console.print(f"[red]Network/API error:[/red] {error}")
@@ -93,6 +104,11 @@ def fetch(
         f"[red]Errors:[/red] {result.stats.errors}"
     )
     console.print(f"[green]Matched:[/green] {result.matched_count} jobs with calibrated score >= {min_score}\n")
+    console.print(
+        f"[bold]Pruned:[/bold] explored {result.prune_stats.deleted_explored} | "
+        f"unranked {result.prune_stats.deleted_unranked} | "
+        f"ranked {result.prune_stats.deleted_ranked}\n"
+    )
 
     for index, (job, evaluation) in enumerate(result.matches[:limit], start=1):
         console.print(f"[bold]{index}. {job.title}[/bold]")

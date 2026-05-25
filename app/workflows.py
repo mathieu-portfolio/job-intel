@@ -22,12 +22,17 @@ from app.sources.arbeitnow import fetch_arbeitnow
 from app.storage.files import load_profile
 from app.storage.sqlite import (
     DEFAULT_DB_PATH,
+    DEFAULT_EXPLORED_CAPACITY,
+    DEFAULT_RANKED_CAPACITY,
+    DEFAULT_UNRANKED_CAPACITY,
+    PruneStats,
     StoredOffer,
     UpsertStats,
     create_ranking_run,
     find_existing_offer_id,
     find_existing_offer_id_by_url,
     has_explored_offer,
+    prune_storage,
     record_explored_job,
     save_ranking,
     select_unranked_offers,
@@ -46,6 +51,7 @@ class FetchWorkflowResult:
     source: FetchSource
     db_path: Path
     stats: UpsertStats
+    prune_stats: PruneStats
     matched_count: int
     matches: list[tuple[JobOffer, RuleEvaluation]]
 
@@ -134,6 +140,9 @@ def fetch_offers(
     where: str | None = None,
     db_path: Path = DEFAULT_DB_PATH,
     min_score: int = 40,
+    explored_capacity: int = DEFAULT_EXPLORED_CAPACITY,
+    unranked_capacity: int = DEFAULT_UNRANKED_CAPACITY,
+    ranked_capacity: int = DEFAULT_RANKED_CAPACITY,
     progress: ProgressCallback | None = None,
 ) -> FetchWorkflowResult:
     messages: list[str] = []
@@ -299,10 +308,32 @@ def fetch_offers(
             f"inserted {stats.inserted}; updated {stats.updated}; errors {stats.errors}."
         ),
     )
+    prune_stats = prune_storage(
+        db_path,
+        explored_capacity=explored_capacity,
+        unranked_capacity=unranked_capacity,
+        ranked_capacity=ranked_capacity,
+    )
+    if (
+        prune_stats.deleted_explored
+        or prune_stats.deleted_unranked
+        or prune_stats.deleted_ranked
+    ):
+        _emit(
+            messages,
+            progress,
+            (
+                "Pruned storage: "
+                f"explored {prune_stats.deleted_explored}; "
+                f"unranked {prune_stats.deleted_unranked}; "
+                f"ranked {prune_stats.deleted_ranked}."
+            ),
+        )
     return FetchWorkflowResult(
         source=source,
         db_path=db_path,
         stats=stats,
+        prune_stats=prune_stats,
         matched_count=len(matches),
         matches=matches,
     )

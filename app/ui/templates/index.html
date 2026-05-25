@@ -79,6 +79,18 @@
               Seen stop
               <input name="consecutive_seen_limit" type="number" min="1" value="100">
             </label>
+            <label>
+              Explored cap
+              <input name="explored_capacity" type="number" min="0" value="{{ storage_capacities.explored }}">
+            </label>
+            <label>
+              Unranked cap
+              <input name="unranked_capacity" type="number" min="0" value="{{ storage_capacities.unranked }}">
+            </label>
+            <label>
+              Ranked cap
+              <input name="ranked_capacity" type="number" min="0" value="{{ storage_capacities.ranked }}">
+            </label>
           </div>
         </form>
 
@@ -128,6 +140,38 @@
             <label>
               Weights
               <input name="weights_path" type="text" placeholder="Default">
+            </label>
+          </div>
+        </form>
+      </section>
+
+      <section class="workflow-panel">
+        <form
+          class="workflow-card"
+          method="post"
+          action="/storage/prune"
+          data-running-label="Cleaning..."
+          onsubmit="return confirm('Run cleanup and delete rows over the configured capacities?');"
+        >
+          <div class="workflow-head">
+            <h2>Storage cleanup</h2>
+            <button type="submit">Run cleanup</button>
+          </div>
+          <div class="workflow-grid">
+            <label>
+              Explored
+              <input name="explored_capacity" type="number" min="0" value="{{ storage_capacities.explored }}">
+              <span>{{ storage_counts.explored }} rows</span>
+            </label>
+            <label>
+              Unranked
+              <input name="unranked_capacity" type="number" min="0" value="{{ storage_capacities.unranked }}">
+              <span>{{ storage_counts.unranked }} rows</span>
+            </label>
+            <label>
+              Ranked
+              <input name="ranked_capacity" type="number" min="0" value="{{ storage_capacities.ranked }}">
+              <span>{{ storage_counts.ranked }} rows</span>
             </label>
           </div>
         </form>

@@ -10,10 +10,15 @@ from fastapi.templating import Jinja2Templates
 
 from app.storage.sqlite import (
     DEFAULT_DB_PATH,
+    DEFAULT_EXPLORED_CAPACITY,
+    DEFAULT_RANKED_CAPACITY,
+    DEFAULT_UNRANKED_CAPACITY,
     clear_rankings,
+    get_storage_counts,
     get_review_filter_options,
     list_ranked_offers,
     list_unranked_review_offers,
+    prune_storage,
     update_offer_status,
 )
 from app.workflows import fetch_offers, rank_offers
@@ -111,6 +116,12 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 "options": get_review_filter_options(request.app.state.db_path),
                 "db_path": request.app.state.db_path,
                 "workflow_notice": request.app.state.workflow_notice,
+                "storage_counts": get_storage_counts(request.app.state.db_path),
+                "storage_capacities": {
+                    "explored": DEFAULT_EXPLORED_CAPACITY,
+                    "unranked": DEFAULT_UNRANKED_CAPACITY,
+                    "ranked": DEFAULT_RANKED_CAPACITY,
+                },
                 "active_page": "ranked",
             },
         )
@@ -160,6 +171,9 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 where=(form.get("where") or "").strip() or None,
                 db_path=request.app.state.db_path,
                 min_score=_positive_int(form.get("min_score"), 40),
+                explored_capacity=_positive_int(form.get("explored_capacity"), DEFAULT_EXPLORED_CAPACITY),
+                unranked_capacity=_positive_int(form.get("unranked_capacity"), DEFAULT_UNRANKED_CAPACITY),
+                ranked_capacity=_positive_int(form.get("ranked_capacity"), DEFAULT_RANKED_CAPACITY),
             )
             request.app.state.workflow_notice = _workflow_notice(
                 "success",
@@ -173,6 +187,9 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                     "Inserted": result.stats.inserted,
                     "Updated": result.stats.updated,
                     "Errors": result.stats.errors,
+                    "Pruned explored": result.prune_stats.deleted_explored,
+                    "Pruned unranked": result.prune_stats.deleted_unranked,
+                    "Pruned ranked": result.prune_stats.deleted_ranked,
                     "Matched": result.matched_count,
                     "Source": result.source,
                     "Preview limit": preview_limit,
@@ -251,6 +268,36 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
     @app.post("/rankings/clear")
     def clear_all_rankings(request: Request):
         clear_rankings(request.app.state.db_path)
+        return RedirectResponse("/", status_code=303)
+
+    @app.post("/storage/prune")
+    async def prune_storage_action(request: Request):
+        form = await _form_data(request)
+        try:
+            result = prune_storage(
+                request.app.state.db_path,
+                explored_capacity=_positive_int(form.get("explored_capacity"), DEFAULT_EXPLORED_CAPACITY),
+                unranked_capacity=_positive_int(form.get("unranked_capacity"), DEFAULT_UNRANKED_CAPACITY),
+                ranked_capacity=_positive_int(form.get("ranked_capacity"), DEFAULT_RANKED_CAPACITY),
+            )
+            request.app.state.workflow_notice = _workflow_notice(
+                "success",
+                "Cleanup complete",
+                {
+                    "Deleted explored": result.deleted_explored,
+                    "Deleted unranked": result.deleted_unranked,
+                    "Deleted ranked": result.deleted_ranked,
+                    "Explored count": result.after.explored,
+                    "Unranked count": result.after.unranked,
+                    "Ranked count": result.after.ranked,
+                },
+            )
+        except Exception as error:
+            request.app.state.workflow_notice = _workflow_notice(
+                "error",
+                "Cleanup failed",
+                {"Error": str(error)},
+            )
         return RedirectResponse("/", status_code=303)
 
     return app

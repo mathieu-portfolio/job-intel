@@ -10,11 +10,14 @@ from app.storage.sqlite import (
     clear_rankings,
     create_ranking_run,
     exclude_existing_offers,
+    get_storage_counts,
     list_explored_offers,
     list_ranked_offers,
     list_unranked_review_offers,
+    prune_storage,
     record_explored_job,
     save_ranking,
+    update_offer_status,
     upsert_offers,
 )
 from app.workflows import fetch_offers, rank_offers
@@ -54,6 +57,184 @@ def _result(raw_ai: object | None) -> dict[str, object]:
 
 
 class SqliteReviewTests(unittest.TestCase):
+    def test_pruning_removes_oldest_unmarked_unranked_offers_first(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "jobs.sqlite"
+            for index in range(3):
+                upsert_offers(
+                    [_job(f"https://example.com/unranked-{index}", f"Unranked {index}")],
+                    db_path=db_path,
+                    fetched_at=f"2026-05-24T12:0{index}:00",
+                )
+
+            result = prune_storage(
+                db_path,
+                explored_capacity=100,
+                unranked_capacity=2,
+                ranked_capacity=100,
+            )
+
+            remaining = {offer["title"] for offer in list_unranked_review_offers(db_path=db_path)}
+            self.assertEqual(result.deleted_unranked, 1)
+            self.assertEqual(remaining, {"Unranked 1", "Unranked 2"})
+
+    def test_pruning_preserves_marked_offers_while_unmarked_exist(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "jobs.sqlite"
+            upsert_offers(
+                [_job("https://example.com/marked", "Marked")],
+                db_path=db_path,
+                fetched_at="2026-05-24T12:00:00",
+            )
+            upsert_offers(
+                [_job("https://example.com/unmarked", "Unmarked")],
+                db_path=db_path,
+                fetched_at="2026-05-24T12:01:00",
+            )
+            update_offer_status(db_path=db_path, offer_id=1, status="saved")
+
+            prune_storage(
+                db_path,
+                explored_capacity=100,
+                unranked_capacity=1,
+                ranked_capacity=100,
+            )
+
+            remaining = list_unranked_review_offers(db_path=db_path)
+            self.assertEqual([offer["title"] for offer in remaining], ["Marked"])
+
+    def test_pruning_removes_unranked_before_ranked_when_ranked_capacity_allows(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "jobs.sqlite"
+            upsert_offers(
+                [
+                    _job("https://example.com/unranked", "Unranked"),
+                    _job("https://example.com/ranked", "Ranked"),
+                ],
+                db_path=db_path,
+                fetched_at="2026-05-24T12:00:00",
+            )
+            run_id = create_ranking_run(
+                db_path=db_path,
+                started_at="2026-05-24T12:00:00",
+                algorithm="rules",
+                model=None,
+                profile_path="profiles/default.json",
+                config={},
+            )
+            save_ranking(
+                db_path=db_path,
+                run_id=run_id,
+                offer_id=2,
+                algorithm="rules",
+                model=None,
+                profile_path="profiles/default.json",
+                score=50,
+                recommendation="low",
+                summary="summary",
+                result=_result(None),
+                ranked_at="2026-05-24T12:00:00",
+            )
+
+            result = prune_storage(
+                db_path,
+                explored_capacity=100,
+                unranked_capacity=0,
+                ranked_capacity=1,
+            )
+
+            self.assertEqual(result.deleted_unranked, 1)
+            self.assertEqual(result.deleted_ranked, 0)
+            self.assertEqual(get_storage_counts(db_path), result.after)
+            self.assertEqual(result.after.unranked, 0)
+            self.assertEqual(result.after.ranked, 1)
+
+    def test_pruning_enforces_each_capacity_independently_and_keeps_rankings_consistent(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "jobs.sqlite"
+            for index in range(2):
+                record_explored_job(
+                    _source_job(f"explored-{index}", f"https://example.com/explored-{index}", f"Explored {index}"),
+                    status="filtered_out",
+                    db_path=db_path,
+                    seen_at=f"2026-05-24T12:0{index}:00",
+                )
+            upsert_offers(
+                [
+                    _job("https://example.com/unranked-0", "Unranked 0"),
+                    _job("https://example.com/unranked-1", "Unranked 1"),
+                    _job("https://example.com/ranked-0", "Ranked 0"),
+                    _job("https://example.com/ranked-1", "Ranked 1"),
+                ],
+                db_path=db_path,
+                fetched_at="2026-05-24T12:00:00",
+            )
+            run_id = create_ranking_run(
+                db_path=db_path,
+                started_at="2026-05-24T12:00:00",
+                algorithm="rules",
+                model=None,
+                profile_path="profiles/default.json",
+                config={},
+            )
+            for offer_id, ranked_at in [(3, "2026-05-24T12:00:00"), (4, "2026-05-24T12:01:00")]:
+                save_ranking(
+                    db_path=db_path,
+                    run_id=run_id,
+                    offer_id=offer_id,
+                    algorithm="rules",
+                    model=None,
+                    profile_path="profiles/default.json",
+                    score=50,
+                    recommendation="low",
+                    summary="summary",
+                    result=_result(None),
+                    ranked_at=ranked_at,
+                )
+
+            result = prune_storage(
+                db_path,
+                explored_capacity=1,
+                unranked_capacity=1,
+                ranked_capacity=1,
+            )
+
+            self.assertEqual(result.deleted_explored, 1)
+            self.assertEqual(result.deleted_unranked, 1)
+            self.assertEqual(result.deleted_ranked, 1)
+            self.assertEqual(result.after.explored, 1)
+            self.assertEqual(result.after.unranked, 1)
+            self.assertEqual(result.after.ranked, 1)
+            self.assertEqual([offer["title"] for offer in list_ranked_offers(db_path=db_path)], ["Ranked 1"])
+
+    def test_explored_pruning_preserves_keep_flag_while_unmarked_exist(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "jobs.sqlite"
+            record_explored_job(
+                _source_job("kept", "https://example.com/kept", "Kept"),
+                status="filtered_out",
+                keep_flag=True,
+                db_path=db_path,
+                seen_at="2026-05-24T12:00:00",
+            )
+            record_explored_job(
+                _source_job("unkept", "https://example.com/unkept", "Unkept"),
+                status="filtered_out",
+                db_path=db_path,
+                seen_at="2026-05-24T12:01:00",
+            )
+
+            prune_storage(
+                db_path,
+                explored_capacity=1,
+                unranked_capacity=100,
+                ranked_capacity=100,
+            )
+
+            records = list_explored_offers(db_path)
+            self.assertEqual(records[0]["external_id"], "kept")
+            self.assertEqual(records[0]["keep_flag"], 1)
+
     def test_exclude_existing_offers_uses_source_id_and_url_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "jobs.sqlite"

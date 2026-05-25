@@ -1,0 +1,1 @@
+ALTER TABLE explored_offers ADD COLUMN keep_flag INTEGER NOT NULL DEFAULT 0;

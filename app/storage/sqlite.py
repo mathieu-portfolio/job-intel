@@ -15,6 +15,9 @@ from app.sql import load_sql
 
 
 DEFAULT_DB_PATH = Path("data/job_intel.sqlite")
+DEFAULT_EXPLORED_CAPACITY = 10_000
+DEFAULT_UNRANKED_CAPACITY = 1_000
+DEFAULT_RANKED_CAPACITY = 300
 
 
 @dataclass(frozen=True)
@@ -45,6 +48,22 @@ class ExploredOfferRecord:
     reason: str | None = None
 
 
+@dataclass(frozen=True)
+class StorageCounts:
+    explored: int
+    unranked: int
+    ranked: int
+
+
+@dataclass(frozen=True)
+class PruneStats:
+    deleted_explored: int
+    deleted_unranked: int
+    deleted_ranked: int
+    before: StorageCounts
+    after: StorageCounts
+
+
 VALID_REVIEW_STATUSES = {"new", "saved", "skipped", "applied"}
 
 
@@ -71,12 +90,18 @@ def _connect(db_path: Path) -> Iterator[sqlite3.Connection]:
 def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
     with _connect(db_path) as connection:
         connection.executescript(load_sql("schema/init.sql"))
-        columns = {
+        offer_columns = {
             row["name"]
             for row in connection.execute(load_sql("schema/offers_columns.sql")).fetchall()
         }
-        if "review_status" not in columns:
+        if "review_status" not in offer_columns:
             connection.execute(load_sql("schema/add_review_status.sql"))
+        explored_columns = {
+            row["name"]
+            for row in connection.execute(load_sql("schema/explored_offers_columns.sql")).fetchall()
+        }
+        if "keep_flag" not in explored_columns:
+            connection.execute(load_sql("schema/add_explored_keep_flag.sql"))
 
 
 def upsert_offers(
@@ -169,6 +194,7 @@ def record_explored_offer(
     canonical_url: str | None,
     status: str,
     reason: str | None = None,
+    keep_flag: bool = False,
     db_path: Path = DEFAULT_DB_PATH,
     seen_at: str | None = None,
 ) -> None:
@@ -182,12 +208,21 @@ def record_explored_offer(
         if row is None:
             connection.execute(
                 load_sql("explored_offers/insert.sql"),
-                (provider, external_id, canonical_url, seen_at, seen_at, status, reason),
+                (
+                    provider,
+                    external_id,
+                    canonical_url,
+                    seen_at,
+                    seen_at,
+                    status,
+                    reason,
+                    1 if keep_flag else 0,
+                ),
             )
         else:
             connection.execute(
                 load_sql("explored_offers/update.sql"),
-                (external_id, canonical_url, seen_at, status, reason, row["id"]),
+                (external_id, canonical_url, seen_at, status, reason, 1 if keep_flag else 0, row["id"]),
             )
 
 
@@ -196,6 +231,7 @@ def record_explored_job(
     *,
     status: str,
     reason: str | None = None,
+    keep_flag: bool = False,
     db_path: Path = DEFAULT_DB_PATH,
     seen_at: str | None = None,
 ) -> None:
@@ -205,6 +241,7 @@ def record_explored_job(
         canonical_url=_canonical_url(job),
         status=status,
         reason=reason,
+        keep_flag=keep_flag,
         db_path=db_path,
         seen_at=seen_at,
     )
@@ -244,6 +281,113 @@ def list_explored_offers(db_path: Path = DEFAULT_DB_PATH) -> list[dict[str, Any]
     with _connect(db_path) as connection:
         rows = connection.execute(load_sql("explored_offers/select_all.sql")).fetchall()
     return [dict(row) for row in rows]
+
+
+def _select_ids_to_delete(
+    connection: sqlite3.Connection,
+    sql_name: str,
+    count: int,
+) -> list[int]:
+    if count <= 0:
+        return []
+    rows = connection.execute(load_sql(sql_name), (count,)).fetchall()
+    return [int(row["id"]) for row in rows]
+
+
+def _delete_ids(
+    connection: sqlite3.Connection,
+    sql_name: str,
+    ids: list[int],
+) -> int:
+    if not ids:
+        return 0
+    placeholders = ", ".join(["?"] * len(ids))
+    sql = load_sql(sql_name).replace("/*IDS*/", placeholders)
+    cursor = connection.execute(sql, ids)
+    return int(cursor.rowcount if cursor.rowcount is not None else len(ids))
+
+
+def get_storage_counts(db_path: Path = DEFAULT_DB_PATH) -> StorageCounts:
+    init_db(db_path)
+    with _connect(db_path) as connection:
+        row = connection.execute(load_sql("pruning/counts.sql")).fetchone()
+    return StorageCounts(
+        explored=int(row["explored_count"]),
+        unranked=int(row["unranked_count"]),
+        ranked=int(row["ranked_count"]),
+    )
+
+
+def prune_storage(
+    db_path: Path = DEFAULT_DB_PATH,
+    *,
+    explored_capacity: int = DEFAULT_EXPLORED_CAPACITY,
+    unranked_capacity: int = DEFAULT_UNRANKED_CAPACITY,
+    ranked_capacity: int = DEFAULT_RANKED_CAPACITY,
+) -> PruneStats:
+    if explored_capacity < 0 or unranked_capacity < 0 or ranked_capacity < 0:
+        raise ValueError("Storage capacities must be zero or greater.")
+
+    init_db(db_path)
+    with _connect(db_path) as connection:
+        before_row = connection.execute(load_sql("pruning/counts.sql")).fetchone()
+        before = StorageCounts(
+            explored=int(before_row["explored_count"]),
+            unranked=int(before_row["unranked_count"]),
+            ranked=int(before_row["ranked_count"]),
+        )
+
+        explored_overage = max(0, before.explored - explored_capacity)
+        explored_ids = _select_ids_to_delete(
+            connection,
+            "pruning/select_explored_to_delete.sql",
+            explored_overage,
+        )
+        deleted_explored = _delete_ids(
+            connection,
+            "pruning/delete_explored_by_ids.sql",
+            explored_ids,
+        )
+
+        unranked_overage = max(0, before.unranked - unranked_capacity)
+        unranked_offer_ids = _select_ids_to_delete(
+            connection,
+            "pruning/select_unranked_offers_to_delete.sql",
+            unranked_overage,
+        )
+        deleted_unranked = _delete_ids(
+            connection,
+            "pruning/delete_offers_by_ids.sql",
+            unranked_offer_ids,
+        )
+
+        ranked_overage = max(0, before.ranked - ranked_capacity)
+        ranked_offer_ids = _select_ids_to_delete(
+            connection,
+            "pruning/select_ranked_offers_to_delete.sql",
+            ranked_overage,
+        )
+        deleted_ranked = _delete_ids(
+            connection,
+            "pruning/delete_offers_by_ids.sql",
+            ranked_offer_ids,
+        )
+        connection.execute(load_sql("pruning/delete_orphaned_ranking_runs.sql"))
+
+        after_row = connection.execute(load_sql("pruning/counts.sql")).fetchone()
+        after = StorageCounts(
+            explored=int(after_row["explored_count"]),
+            unranked=int(after_row["unranked_count"]),
+            ranked=int(after_row["ranked_count"]),
+        )
+
+    return PruneStats(
+        deleted_explored=deleted_explored,
+        deleted_unranked=deleted_unranked,
+        deleted_ranked=deleted_ranked,
+        before=before,
+        after=after,
+    )
 
 
 def exclude_existing_offers(
