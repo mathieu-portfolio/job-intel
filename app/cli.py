@@ -18,6 +18,9 @@ from app.storage.sqlite import (
     DEFAULT_EXPLORED_CAPACITY,
     DEFAULT_RANKED_CAPACITY,
     DEFAULT_UNRANKED_CAPACITY,
+    VALID_CLEAR_SCOPES,
+    clear_data,
+    get_clear_plan,
 )
 from app.workflows import (
     FetchSource,
@@ -35,6 +38,17 @@ def _format_term_matches(matches: list[WeightedTermMatch]) -> str:
     if not matches:
         return "none"
     return ", ".join(f"{match.term} ({match.weight:+d})" for match in matches)
+
+
+def _print_clear_plan(scope: str, db: Path) -> None:
+    plan = get_clear_plan(db_path=db, scope=scope)
+    console.print(f"[bold]Database:[/bold] {db}")
+    console.print(f"[bold]Clear scope:[/bold] {plan.scope}")
+    console.print("[bold]Will clear:[/bold]")
+    console.print(f"- explored offers: {plan.explored}")
+    console.print(f"- offers: {plan.offers}")
+    console.print(f"- rankings: {plan.rankings}")
+    console.print(f"- ranking runs: {plan.ranking_runs}")
 
 
 @app.callback()
@@ -295,6 +309,37 @@ def rank(
     for index, (stored_offer, rule_evaluation, ai_evaluation, final_decision) in enumerate(result.ranked, start=1):
         _print_ranked_job(index, stored_offer.job, rule_evaluation, ai_evaluation, final_decision)
     console.print(f"\n[bold]Saved ranking run:[/bold] {result.run_id} in {db}")
+
+
+@app.command()
+def clear(
+    scope: str = typer.Option(..., "--scope", help="Data to clear: rankings, offers, explored, or all."),
+    db: Path = typer.Option(DEFAULT_DB_PATH, "--db", help="SQLite database path."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation."),
+) -> None:
+    """Clear selected app data from SQLite."""
+
+    try:
+        if scope not in VALID_CLEAR_SCOPES:
+            valid = ", ".join(sorted(VALID_CLEAR_SCOPES))
+            raise ValueError(f"Unsupported clear scope: {scope}. Expected one of: {valid}.")
+        _print_clear_plan(scope, db)
+        if not yes and not typer.confirm("Proceed with clearing this data?"):
+            console.print("[yellow]Clear cancelled.[/yellow]")
+            raise typer.Exit()
+        result = clear_data(db_path=db, scope=scope)
+    except ValueError as error:
+        console.print(f"[red]Invalid input:[/red] {error}")
+        raise typer.Exit(code=1) from error
+
+    console.print("[green]Clear complete.[/green]")
+    console.print(
+        "Cleared "
+        f"explored offers {result.explored}, "
+        f"offers {result.offers}, "
+        f"rankings {result.rankings}, "
+        f"ranking runs {result.ranking_runs}."
+    )
 
 
 @app.command()

@@ -7,10 +7,12 @@ from unittest.mock import patch
 
 from app.models.job import JobOffer
 from app.storage.sqlite import (
+    clear_data,
     clear_rankings,
     create_ranking_run,
     exclude_existing_offers,
     get_storage_counts,
+    get_clear_plan,
     list_explored_offers,
     list_ranked_offers,
     list_unranked_review_offers,
@@ -57,6 +59,96 @@ def _result(raw_ai: object | None) -> dict[str, object]:
 
 
 class SqliteReviewTests(unittest.TestCase):
+    def _seed_clear_data(self, db_path: Path) -> int:
+        record_explored_job(
+            _source_job("explored", "https://example.com/explored", "Explored"),
+            status="filtered_out",
+            db_path=db_path,
+        )
+        upsert_offers([_job("https://example.com/offer", "Offer")], db_path=db_path)
+        run_id = create_ranking_run(
+            db_path=db_path,
+            started_at="2026-05-24T12:00:00",
+            algorithm="rules",
+            model=None,
+            profile_path="profiles/default.json",
+            config={},
+        )
+        save_ranking(
+            db_path=db_path,
+            run_id=run_id,
+            offer_id=1,
+            algorithm="rules",
+            model=None,
+            profile_path="profiles/default.json",
+            score=50,
+            recommendation="low",
+            summary="summary",
+            result=_result(None),
+        )
+        return run_id
+
+    def test_clear_scope_rankings_keeps_offers_and_explored(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "jobs.sqlite"
+            self._seed_clear_data(db_path)
+
+            plan = get_clear_plan(db_path=db_path, scope="rankings")
+            result = clear_data(db_path=db_path, scope="rankings")
+
+            self.assertEqual(plan.rankings, 1)
+            self.assertEqual(result.rankings, 1)
+            self.assertEqual(list_ranked_offers(db_path=db_path), [])
+            self.assertEqual(len(list_unranked_review_offers(db_path=db_path)), 1)
+            self.assertEqual(len(list_explored_offers(db_path)), 1)
+
+    def test_clear_scope_offers_clears_dependent_rankings(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "jobs.sqlite"
+            self._seed_clear_data(db_path)
+
+            result = clear_data(db_path=db_path, scope="offers")
+
+            self.assertEqual(result.offers, 1)
+            self.assertEqual(result.rankings, 1)
+            self.assertEqual(list_unranked_review_offers(db_path=db_path), [])
+            self.assertEqual(list_ranked_offers(db_path=db_path), [])
+            self.assertEqual(len(list_explored_offers(db_path)), 1)
+
+    def test_clear_scope_explored_keeps_offers_and_rankings(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "jobs.sqlite"
+            self._seed_clear_data(db_path)
+
+            result = clear_data(db_path=db_path, scope="explored")
+
+            self.assertEqual(result.explored, 1)
+            self.assertEqual(list_explored_offers(db_path), [])
+            self.assertEqual(len(list_ranked_offers(db_path=db_path)), 1)
+
+    def test_clear_scope_all_clears_data_and_rank_run_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "jobs.sqlite"
+            self._seed_clear_data(db_path)
+
+            result = clear_data(db_path=db_path, scope="all")
+
+            self.assertEqual(result.explored, 1)
+            self.assertEqual(result.offers, 1)
+            self.assertEqual(result.rankings, 1)
+            self.assertEqual(result.ranking_runs, 1)
+            self.assertEqual(list_explored_offers(db_path), [])
+            self.assertEqual(list_unranked_review_offers(db_path=db_path), [])
+            self.assertEqual(list_ranked_offers(db_path=db_path), [])
+            self.assertEqual(get_clear_plan(db_path=db_path, scope="all").ranking_runs, 0)
+
+    def test_clear_scope_rejects_unknown_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "jobs.sqlite"
+
+            with self.assertRaises(ValueError):
+                clear_data(db_path=db_path, scope="unknown")
+
     def test_pruning_removes_oldest_unmarked_unranked_offers_first(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "jobs.sqlite"

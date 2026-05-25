@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from app.models.evaluation import Recommendation
 from app.models.job import JobOffer
@@ -18,6 +18,8 @@ DEFAULT_DB_PATH = Path("data/job_intel.sqlite")
 DEFAULT_EXPLORED_CAPACITY = 10_000
 DEFAULT_UNRANKED_CAPACITY = 1_000
 DEFAULT_RANKED_CAPACITY = 300
+ClearScope = Literal["rankings", "offers", "explored", "all"]
+VALID_CLEAR_SCOPES: set[str] = {"rankings", "offers", "explored", "all"}
 
 
 @dataclass(frozen=True)
@@ -62,6 +64,15 @@ class PruneStats:
     deleted_ranked: int
     before: StorageCounts
     after: StorageCounts
+
+
+@dataclass(frozen=True)
+class ClearPlan:
+    scope: ClearScope
+    explored: int = 0
+    offers: int = 0
+    rankings: int = 0
+    ranking_runs: int = 0
 
 
 VALID_REVIEW_STATUSES = {"new", "saved", "skipped", "applied"}
@@ -388,6 +399,69 @@ def prune_storage(
         before=before,
         after=after,
     )
+
+
+def _validate_clear_scope(scope: str) -> ClearScope:
+    if scope not in VALID_CLEAR_SCOPES:
+        valid = ", ".join(sorted(VALID_CLEAR_SCOPES))
+        raise ValueError(f"Unsupported clear scope: {scope}. Expected one of: {valid}.")
+    return scope  # type: ignore[return-value]
+
+
+def get_clear_plan(
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+    scope: str,
+) -> ClearPlan:
+    clear_scope = _validate_clear_scope(scope)
+    init_db(db_path)
+    with _connect(db_path) as connection:
+        if clear_scope == "rankings":
+            row = connection.execute(load_sql("clear/count_rankings.sql")).fetchone()
+            return ClearPlan(scope=clear_scope, rankings=int(row["rankings_count"]))
+        if clear_scope == "offers":
+            row = connection.execute(load_sql("clear/count_offers.sql")).fetchone()
+            return ClearPlan(
+                scope=clear_scope,
+                offers=int(row["offers_count"]),
+                rankings=int(row["dependent_rankings_count"]),
+            )
+        if clear_scope == "explored":
+            row = connection.execute(load_sql("clear/count_explored.sql")).fetchone()
+            return ClearPlan(scope=clear_scope, explored=int(row["explored_count"]))
+
+        row = connection.execute(load_sql("clear/count_all.sql")).fetchone()
+        return ClearPlan(
+            scope=clear_scope,
+            explored=int(row["explored_count"]),
+            offers=int(row["offers_count"]),
+            rankings=int(row["rankings_count"]),
+            ranking_runs=int(row["ranking_runs_count"]),
+        )
+
+
+def clear_data(
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+    scope: str,
+) -> ClearPlan:
+    plan = get_clear_plan(db_path=db_path, scope=scope)
+    init_db(db_path)
+    with _connect(db_path) as connection:
+        if plan.scope == "rankings":
+            connection.execute(load_sql("clear/delete_rankings.sql"))
+        elif plan.scope == "offers":
+            connection.execute(load_sql("clear/delete_offers.sql"))
+        elif plan.scope == "explored":
+            connection.execute(load_sql("clear/delete_explored.sql"))
+        elif plan.scope == "all":
+            connection.execute(load_sql("clear/delete_explored.sql"))
+            connection.execute(load_sql("clear/delete_rankings.sql"))
+            connection.execute(load_sql("clear/delete_offers.sql"))
+            connection.execute(load_sql("clear/delete_ranking_runs.sql"))
+        else:
+            raise ValueError(f"Unsupported clear scope: {plan.scope}")
+    return plan
 
 
 def exclude_existing_offers(
