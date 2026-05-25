@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
+
+from pydantic import BaseModel, ValidationError
 
 from app.filtering.rules import RuleScoringConfig
+
+
+SCORING_PRESET_DIR = Path(__file__).resolve().parents[2] / "config" / "scoring_presets"
 
 
 @dataclass(frozen=True)
@@ -13,106 +20,44 @@ class ScoringPreset:
     weights: RuleScoringConfig
     is_builtin: bool = True
     enabled: bool = True
+    order: int = 100
 
 
-BUILTIN_SCORING_PRESETS: tuple[ScoringPreset, ...] = (
-    ScoringPreset(
-        id="balanced",
-        name="Balanced",
-        description="General fit across profile match, technical relevance, and risk.",
-        weights=RuleScoringConfig(),
-    ),
-    ScoringPreset(
-        id="safe_match",
-        name="Safe Match",
-        description="Conservative preset that penalizes mismatch and ambiguity more heavily.",
-        weights=RuleScoringConfig(
-            category_weights={
-                "interests": 0.20,
-                "preferred_domains": 0.15,
-                "strengths": 0.15,
-                "portfolio_projects": 0.10,
-                "disliked_work": -0.30,
-                "exclusions": -0.90,
-                "negative_signals": -0.40,
-            },
-            no_signal_score=15,
-            strong_negative_threshold=-16,
-            strong_negative_score_cap=5,
-        ),
-    ),
-    ScoringPreset(
-        id="high_potential",
-        name="High Potential",
-        description="Rewards growth potential, learning-heavy roles, and adjacent technical domains.",
-        weights=RuleScoringConfig(
-            category_weights={
-                "interests": 0.30,
-                "preferred_domains": 0.20,
-                "strengths": 0.15,
-                "portfolio_projects": 0.25,
-                "disliked_work": -0.15,
-            },
-        ),
-    ),
-    ScoringPreset(
-        id="remote_first",
-        name="Remote First",
-        description="Prioritizes remote-friendly and distributed work.",
-        weights=RuleScoringConfig(
-            category_weights={
-                "location_preferences": 0.35,
-                "interests": 0.15,
-                "preferred_domains": 0.10,
-                "disliked_work": -0.20,
-            },
-            no_signal_score=18,
-        ),
-    ),
-    ScoringPreset(
-        id="compensation_focused",
-        name="Compensation Focused",
-        description="Prioritizes explicit compensation, seniority leverage, and benefits.",
-        weights=RuleScoringConfig(
-            category_weights={
-                "compensation": 0.45,
-                "interests": 0.10,
-                "preferred_domains": 0.10,
-                "disliked_work": -0.25,
-                "negative_signals": -0.35,
-            },
-            no_signal_score=12,
-        ),
-    ),
-    ScoringPreset(
-        id="engineering_quality",
-        name="Engineering Quality",
-        description="Rewards strong engineering practice, systems depth, and code quality signals.",
-        weights=RuleScoringConfig(
-            category_weights={
-                "strengths": 0.30,
-                "portfolio_projects": 0.25,
-                "interests": 0.20,
-                "preferred_domains": 0.10,
-                "disliked_work": -0.20,
-            },
-        ),
-    ),
-    ScoringPreset(
-        id="fast_apply",
-        name="Fast Apply",
-        description="Favors clear, practical matches likely to be quick applications.",
-        weights=RuleScoringConfig(
-            category_weights={
-                "fast_apply": 0.35,
-                "location_preferences": 0.20,
-                "interests": 0.15,
-                "disliked_work": -0.20,
-            },
-            no_signal_score=25,
-        ),
-    ),
-)
+class ScoringPresetFile(BaseModel):
+    id: str
+    name: str
+    description: str = ""
+    weights: RuleScoringConfig
+    is_builtin: bool = True
+    enabled: bool = True
+    order: int = 100
+
+
+def load_builtin_scoring_presets(directory: Path = SCORING_PRESET_DIR) -> tuple[ScoringPreset, ...]:
+    presets: list[ScoringPreset] = []
+    for path in sorted(directory.glob("*.json")):
+        try:
+            raw_preset = json.loads(path.read_text(encoding="utf-8"))
+            preset_file = ScoringPresetFile.model_validate(raw_preset)
+        except (OSError, json.JSONDecodeError, ValidationError) as error:
+            raise RuntimeError(f"Scoring preset file is invalid: {path}") from error
+        presets.append(
+            ScoringPreset(
+                id=preset_file.id,
+                name=preset_file.name,
+                description=preset_file.description,
+                weights=preset_file.weights,
+                is_builtin=preset_file.is_builtin,
+                enabled=preset_file.enabled,
+                order=preset_file.order,
+            )
+        )
+    if not presets:
+        raise RuntimeError(f"No scoring presets found in {directory}")
+    return tuple(sorted(presets, key=lambda preset: (preset.order, preset.name.lower())))
+
+
+BUILTIN_SCORING_PRESETS: tuple[ScoringPreset, ...] = load_builtin_scoring_presets()
 
 
 def builtin_preset_by_id(preset_id: str) -> ScoringPreset:

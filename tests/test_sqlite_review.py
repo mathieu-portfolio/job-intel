@@ -133,7 +133,12 @@ class SqliteReviewTests(unittest.TestCase):
         )
 
         config = RuleScoringConfig(
-            category_weights={"small": 0.25, "large": 0.25, "negative": -0.20}
+            category_weights={"small": 0.25, "large": 0.25, "negative": -0.20},
+            no_signal_score=20,
+            positive_score_scale=80,
+            negative_score_scale=80,
+            strong_negative_threshold=-0.20,
+            strong_negative_score_cap=10,
         )
         positive = evaluate_job(
             _job("https://example.com/sim", "Simulation Engineer"),

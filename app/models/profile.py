@@ -55,13 +55,13 @@ class CandidateProfile(BaseModel):
     negative_signals: dict[str, int] = Field(default_factory=dict)
     exclusions: list[str] = Field(default_factory=list)
     screening_threshold: int = 40
-    no_signal_score: int = 20
+    no_signal_score: int | None = None
     positive_signal_weight: int = 8
     negative_signal_weight: int = -10
-    positive_score_scale: float = 80
-    negative_score_scale: float = 80
-    strong_negative_threshold: int = -20
-    strong_negative_score_cap: int = 10
+    positive_score_scale: float | None = None
+    negative_score_scale: float | None = None
+    strong_negative_threshold: float | None = None
+    strong_negative_score_cap: int | None = None
 
     @model_validator(mode="before")
     @classmethod

@@ -37,7 +37,7 @@ def discover_profiles(profiles_dir: Path = Path("profiles")) -> list[dict[str, s
     return profiles or [{"label": "Default", "value": default_value}]
 
 
-def discover_weight_files(config_dir: Path = Path("config")) -> list[dict[str, str]]:
+def discover_weight_files(config_dir: Path = Path("config/scoring_presets")) -> list[dict[str, str]]:
     return [
         {"label": "Default weights", "value": ""},
         *_discover_json_options(config_dir),

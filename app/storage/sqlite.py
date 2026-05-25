@@ -13,6 +13,7 @@ from app.models.evaluation import Recommendation
 from app.models.evaluation import RuleEvaluation
 from app.models.job import JobOffer
 from app.filtering.presets import BUILTIN_SCORING_PRESETS, ScoringPreset
+from app.filtering.rules import load_rule_scoring_config, parse_rule_scoring_config
 from app.sql import load_sql
 
 
@@ -1016,28 +1017,17 @@ def list_scoring_presets(
             SELECT id, name, description, weights_json, is_builtin, enabled
             FROM scoring_presets
             {where_sql}
-            ORDER BY
-                CASE id
-                    WHEN 'balanced' THEN 0
-                    WHEN 'safe_match' THEN 1
-                    WHEN 'high_potential' THEN 2
-                    WHEN 'remote_first' THEN 3
-                    WHEN 'compensation_focused' THEN 4
-                    WHEN 'engineering_quality' THEN 5
-                    WHEN 'fast_apply' THEN 6
-                    ELSE 99
-                END,
-                name ASC;
+            ORDER BY name ASC;
             """
         ).fetchall()
-    from app.filtering.rules import RuleScoringConfig
 
     presets: list[ScoringPreset] = []
+    builtin_orders = {preset.id: preset.order for preset in BUILTIN_SCORING_PRESETS}
     for row in rows:
         try:
-            weights = RuleScoringConfig.model_validate(json.loads(row["weights_json"]))
-        except (json.JSONDecodeError, ValueError):
-            weights = RuleScoringConfig()
+            weights = parse_rule_scoring_config(json.loads(row["weights_json"]))
+        except (json.JSONDecodeError, RuntimeError, ValueError):
+            weights = load_rule_scoring_config()
         presets.append(
             ScoringPreset(
                 id=row["id"],
@@ -1046,9 +1036,10 @@ def list_scoring_presets(
                 weights=weights,
                 is_builtin=bool(row["is_builtin"]),
                 enabled=bool(row["enabled"]),
+                order=builtin_orders.get(row["id"], 100),
             )
         )
-    return presets
+    return sorted(presets, key=lambda preset: (preset.order, preset.name.lower()))
 
 
 def get_scoring_preset(

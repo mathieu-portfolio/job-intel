@@ -210,7 +210,7 @@ python -m app.cli rank --db data/job_intel.sqlite --only-recent-days 14 --limit 
 Use custom rule weights:
 
 ```bash
-python -m app.cli rank --weights-path config/rule_weights.example.json
+python -m app.cli rank --weights-path config/scoring_presets/balanced.json
 ```
 
 Profiles own candidate-specific scoring signals. The current profile format is JSON:
@@ -229,7 +229,7 @@ Profiles own candidate-specific scoring signals. The current profile format is J
 }
 ```
 
-Each category is normalized by its own total item weight, so adding more items does not automatically make that category dominate. Category weights and score calibration come from presets or `config/rule_weights.example.json`; profile JSON owns only item terms and item weights.
+Each category is normalized by its own total item weight, so adding more items does not automatically make that category dominate. Category weights and score calibration come from JSON scoring presets under `config/scoring_presets/`; profile JSON owns only item terms and item weights.
 
 Start the local review dashboard:
 

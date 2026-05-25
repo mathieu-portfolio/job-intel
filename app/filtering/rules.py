@@ -10,45 +10,41 @@ from app.models.evaluation import RuleEvaluation, WeightedTermMatch, recommendat
 from app.models.job import JobOffer
 from app.models.profile import CandidateProfile
 
-DEFAULT_CATEGORY_WEIGHTS: dict[str, float] = {
-    "interests": 0.25,
-    "preferred_domains": 0.15,
-    "strengths": 0.20,
-    "portfolio_projects": 0.15,
-    "location_preferences": 0.15,
-    "disliked_work": -0.20,
-    "exclusions": -0.80,
-    "positive_signals": 0.50,
-    "negative_signals": -0.50,
-}
+DEFAULT_RULE_CONFIG_PATH = (
+    Path(__file__).resolve().parents[2] / "config" / "scoring_presets" / "balanced.json"
+)
 
 
 class RuleScoringConfig(BaseModel):
     positive_terms: dict[str, int] = Field(default_factory=dict)
     negative_terms: dict[str, int] = Field(default_factory=dict)
-    category_weights: dict[str, float] = Field(default_factory=dict)
-    profile_positive_weight: int = 8
-    profile_negative_weight: int = -10
-    no_signal_score: int = 20
-    positive_score_scale: float = 80
-    negative_score_scale: float = 80
-    strong_negative_threshold: int = -20
-    strong_negative_score_cap: int = 10
+    category_weights: dict[str, float]
+    no_signal_score: int
+    positive_score_scale: float
+    negative_score_scale: float
+    strong_negative_threshold: float
+    strong_negative_score_cap: int
 
 
 def load_rule_scoring_config(path: Path | None = None) -> RuleScoringConfig:
     if path is None:
-        return RuleScoringConfig()
+        path = DEFAULT_RULE_CONFIG_PATH
     try:
         raw_config = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as error:
         raise RuntimeError(f"Rule weights file not found: {path}") from error
     except json.JSONDecodeError as error:
         raise RuntimeError(f"Rule weights file is not valid JSON: {path}") from error
+    return parse_rule_scoring_config(raw_config, source=str(path))
+
+
+def parse_rule_scoring_config(raw_config: object, *, source: str = "rule scoring config") -> RuleScoringConfig:
+    if isinstance(raw_config, dict) and isinstance(raw_config.get("weights"), dict):
+        raw_config = raw_config["weights"]
     try:
         return RuleScoringConfig.model_validate(raw_config)
     except ValidationError as error:
-        raise RuntimeError(f"Rule weights file has invalid fields: {path}") from error
+        raise RuntimeError(f"Rule weights config has invalid fields: {source}") from error
 
 
 def _contains_term(text: str, term: str) -> bool:
@@ -101,10 +97,7 @@ def _profile_signal_matches(
     reasoning: list[str] = []
 
     for category_name, category in profile.signals.items():
-        category_weight = config.category_weights.get(
-            category_name,
-            DEFAULT_CATEGORY_WEIGHTS.get(category_name, 0.0),
-        )
+        category_weight = config.category_weights.get(category_name, 0.0)
         if category_weight == 0:
             continue
         total_item_weight = sum(abs(item.weight) for item in category.items if item.term.strip())
@@ -144,16 +137,17 @@ def evaluate_job(
     profile: CandidateProfile | None = None,
     config: RuleScoringConfig | None = None,
 ) -> RuleEvaluation:
-    config = config or RuleScoringConfig()
+    config = config or load_rule_scoring_config()
     if profile is not None:
+        overrides = {
+            "no_signal_score": profile.no_signal_score,
+            "positive_score_scale": profile.positive_score_scale,
+            "negative_score_scale": profile.negative_score_scale,
+            "strong_negative_threshold": profile.strong_negative_threshold,
+            "strong_negative_score_cap": profile.strong_negative_score_cap,
+        }
         config = config.model_copy(
-            update={
-                "no_signal_score": profile.no_signal_score,
-                "positive_score_scale": profile.positive_score_scale,
-                "negative_score_scale": profile.negative_score_scale,
-                "strong_negative_threshold": profile.strong_negative_threshold,
-                "strong_negative_score_cap": profile.strong_negative_score_cap,
-            }
+            update={key: value for key, value in overrides.items() if value is not None}
         )
     text = " ".join(
         [

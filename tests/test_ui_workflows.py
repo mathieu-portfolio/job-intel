@@ -64,7 +64,7 @@ class UiWorkflowTests(unittest.TestCase):
             self.assertIn("Default", response.text)
             self.assertIn("Mathieu", response.text)
             self.assertIn("Default weights", response.text)
-            self.assertIn("Rule Weights Example", response.text)
+            self.assertIn("Balanced", response.text)
             self.assertIn('value="Berlin"', response.text)
             self.assertIn("Clear AI reviews", response.text)
             self.assertIn("Maintenance", response.text)

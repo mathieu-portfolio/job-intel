@@ -95,11 +95,11 @@ Then category contribution is:
 category score * category weight
 ```
 
-Category weights come from scoring presets or `config/rule_weights.example.json`; profile files own only item terms and item weights.
+Category weights come from JSON scoring presets under `config/scoring_presets/`; profile files own only item terms and item weights.
 
 The legacy profile fields (`interests`, `preferred_domains`, `positive_signals`, `negative_signals`, and similar) and the previous `{ "weight": ..., "items": [...] }` signal-category shape are still accepted and converted at load time, but new profiles should use `signals` as category-to-item-list mappings.
 
-`config/rule_weights.example.json` contains generic category-weight and score-calibration settings. User-specific terms should stay in profile JSON.
+Each built-in preset has its own JSON file containing generic category-weight and score-calibration settings. User-specific terms should stay in profile JSON.
 
 ## Automatic Pruning
 
