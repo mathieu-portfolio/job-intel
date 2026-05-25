@@ -29,6 +29,7 @@
             <h2>Fetch offers</h2>
             <button type="submit">Fetch offers</button>
           </div>
+          
           <div class="workflow-grid">
             <label>
               Source
@@ -37,56 +38,74 @@
                 <option value="adzuna">adzuna</option>
               </select>
             </label>
+
             <label>
-              Newly explored
-              <input name="new_offers" type="number" min="1" value="20">
+              Profile
+              <select name="profile">
+                {% for profile in profiles %}
+                  <option value="{{ profile.value }}" {% if profile.value == "profiles/default.json" %}selected{% endif %}>
+                    {{ profile.label }}
+                  </option>
+                {% endfor %}
+              </select>
             </label>
+
             <label>
-              Max pages
-              <input name="max_pages" type="number" min="1" value="10">
+              Target new offers
+              <input name="new_offers" type="number" min="1" value="100">
             </label>
+
             <label>
-              Start page
-              <input name="page" type="number" min="1" value="1">
+              Search depth
+              <select name="max_pages">
+                <option value="25">Normal</option>
+                <option value="50" selected>Deep</option>
+                <option value="100">Very deep</option>
+              </select>
             </label>
+
             <label>
-              Preview
+              Preview count
               <input name="limit" type="number" min="1" value="20">
             </label>
-            <label>
-              Query
-              <input name="query" type="text" value="c++ simulation">
-            </label>
-            <label>
-              Country
-              <input name="country" type="text" value="fr">
-            </label>
-            <label>
-              Where
-              <input name="where" type="text" placeholder="Any">
-            </label>
-            <label>
-              Min score
-              <input name="min_score" type="number" min="0" max="100" value="40">
-            </label>
-            <label>
-              Seen pages stop
-              <input name="max_seen_pages" type="number" min="1" value="5">
-            </label>
-            <label>
-              Explored cap
-              <input name="explored_capacity" type="number" min="0" value="{{ storage_capacities.explored }}">
-            </label>
-            <label>
-              Unranked cap
-              <input name="unranked_capacity" type="number" min="0" value="{{ storage_capacities.unranked }}">
-            </label>
-            <label>
-              Ranked cap
-              <input name="ranked_capacity" type="number" min="0" value="{{ storage_capacities.ranked }}">
-            </label>
           </div>
-        </form>
+
+          <details class="advanced-options">
+            <summary>Advanced options</summary>
+
+            <div class="workflow-grid advanced-grid">
+              <label>
+                Query
+                <input name="query" type="text" value="c++ simulation">
+              </label>
+
+              <label>
+                Country
+                <input name="country" type="text" value="fr">
+              </label>
+
+              <label>
+                Where
+                <input name="where" type="text" placeholder="Any">
+              </label>
+
+              <label>
+                Min score
+                <input name="min_score" type="number" min="0" max="100" value="40">
+              </label>
+
+              <label>
+                Start page
+                <input name="page" type="number" min="1" value="1">
+              </label>
+
+              <label>
+                Stop after seen pages
+                <input name="max_seen_pages" type="number" min="1" value="5">
+              </label>
+            </div>
+          </details>
+</form>
       </section>
 
       {% if workflow_notice %}

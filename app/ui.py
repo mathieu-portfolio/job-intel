@@ -35,6 +35,25 @@ CLEAR_SUMMARIES = {
 }
 
 
+
+
+def _available_profiles() -> list[dict[str, str]]:
+    profiles_dir = Path("profiles")
+    if not profiles_dir.exists():
+        return [{"label": "Default", "value": "profiles/default.json"}]
+
+    profiles: list[dict[str, str]] = []
+    for profile in sorted(profiles_dir.glob("*.json")):
+        label = profile.stem.replace("_", " ").replace("-", " ").title()
+        profiles.append(
+            {
+                "label": label,
+                "value": str(profile).replace("\\", "/"),
+            }
+        )
+
+    return profiles or [{"label": "Default", "value": "profiles/default.json"}]
+
 def _positive_int(value: str | None, default: int) -> int:
     try:
         parsed = int(value or "")
@@ -152,6 +171,8 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 "options": get_review_filter_options(request.app.state.db_path),
                 "db_path": request.app.state.db_path,
                 "workflow_notice": request.app.state.workflow_notice,
+                "profiles": _available_profiles(),
+                "profiles": _available_profiles(),
                 "storage_capacities": {
                     "explored": DEFAULT_EXPLORED_CAPACITY,
                     "unranked": DEFAULT_UNRANKED_CAPACITY,

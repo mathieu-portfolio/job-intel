@@ -109,13 +109,7 @@ main {
 }
 
 .workflow-panel.single-workflow {
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.workflow-panel.single-workflow .workflow-card {
-  width: 100%;
-  max-width: none;
-  justify-self: stretch;
+  grid-template-columns: 1fr;
 }
 
 .workflow-card,
@@ -142,14 +136,12 @@ main {
 
 .workflow-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
   gap: 14px;
-  width: 100%;
 }
 
 .workflow-grid label {
-  flex: initial;
-  width: 100%;
+  flex: none;
 }
 
 .workflow-grid select,
@@ -566,4 +558,22 @@ li span {
   .scorebox {
     text-align: left;
   }
+}
+
+
+.advanced-options {
+  margin-top: 1rem;
+  border-top: 1px solid #2f3545;
+  padding-top: 1rem;
+}
+
+.advanced-options summary {
+  cursor: pointer;
+  color: #9fb2d1;
+  font-weight: 600;
+  margin-bottom: 1rem;
+}
+
+.advanced-grid {
+  margin-top: 1rem;
 }

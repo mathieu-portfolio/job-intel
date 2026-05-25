@@ -29,50 +29,70 @@
             <h2>Rank offers</h2>
             <button type="submit">Rank offers</button>
           </div>
+          
           <div class="workflow-grid">
             <label>
-              Provider
+              AI provider
               <select name="provider">
                 <option value="">Default</option>
-                <option value="openai">openai</option>
-                <option value="ollama">ollama</option>
-                <option value="mock">mock</option>
+                <option value="openai">OpenAI</option>
+                <option value="ollama">Ollama</option>
+                <option value="mock">Mock</option>
               </select>
             </label>
+
             <label>
-              Ranking mode
+              Ranking strategy
               <select name="ranking_mode">
-                <option value="hybrid">hybrid</option>
-                <option value="rules">rules</option>
-                <option value="ai">ai</option>
+                <option value="hybrid" selected>Balanced hybrid</option>
+                <option value="rules">Fast rules preview</option>
+                <option value="ai">AI only</option>
               </select>
             </label>
-            <label>
-              Limit
-              <input name="limit" type="number" min="1" value="10">
-            </label>
+
             <label>
               Profile
-              <input name="profile" type="text" value="profiles/default.json">
+              <select name="profile">
+                {% for profile in profiles %}
+                  <option value="{{ profile.value }}" {% if profile.value == "profiles/default.json" %}selected{% endif %}>
+                    {{ profile.label }}
+                  </option>
+                {% endfor %}
+              </select>
             </label>
+
             <label>
-              Model
-              <input name="model" type="text" placeholder="Provider default">
-            </label>
-            <label>
-              Recent days
-              <input name="only_recent_days" type="number" min="1" placeholder="Any">
-            </label>
-            <label>
-              Min score
-              <input name="min_score" type="number" min="0" max="100" value="40">
-            </label>
-            <label>
-              Weights
-              <input name="weights_path" type="text" placeholder="Default">
+              Offers to rank
+              <input name="limit" type="number" min="1" value="10">
             </label>
           </div>
-        </form>
+
+          <details class="advanced-options">
+            <summary>Advanced options</summary>
+
+            <div class="workflow-grid advanced-grid">
+              <label>
+                Model
+                <input name="model" type="text" placeholder="Provider default">
+              </label>
+
+              <label>
+                Recent days
+                <input name="only_recent_days" type="number" min="1" placeholder="Any">
+              </label>
+
+              <label>
+                Min score
+                <input name="min_score" type="number" min="0" max="100" value="40">
+              </label>
+
+              <label>
+                Weights file
+                <input name="weights_path" type="text" placeholder="Default">
+              </label>
+            </div>
+          </details>
+</form>
       </section>
 
       {% if workflow_notice %}
