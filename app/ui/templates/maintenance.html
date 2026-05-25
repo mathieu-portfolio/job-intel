@@ -24,20 +24,6 @@
     </header>
 
     <main>
-      {% if workflow_notice %}
-        <section class="workflow-notice {{ workflow_notice.kind }}">
-          <h2>{{ workflow_notice.title }}</h2>
-          <dl>
-            {% for key, value in workflow_notice.summary.items() %}
-              <div>
-                <dt>{{ key }}</dt>
-                <dd>{{ value }}</dd>
-              </div>
-            {% endfor %}
-          </dl>
-        </section>
-      {% endif %}
-
       <section class="maintenance-grid">
         <article class="metric-card">
           <span>Explored tracking</span>

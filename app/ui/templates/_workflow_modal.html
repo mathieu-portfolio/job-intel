@@ -65,6 +65,8 @@
     const stage = document.getElementById("workflow-modal-stage");
     const elapsed = document.getElementById("workflow-modal-elapsed");
     const closeButton = document.getElementById("workflow-modal-close");
+    const progress = document.getElementById("workflow-modal-progress");
+    const result = document.getElementById("workflow-modal-result");
     let modalActive = false;
     let timerId = null;
     let stageId = null;
@@ -96,11 +98,18 @@
       let stageIndex = 0;
       modalActive = true;
       modal.hidden = false;
+      delete modal.dataset.complete;
       if (title) title.textContent = form.dataset.modalTitle || "Working";
       if (status) status.textContent = form.dataset.modalStatus || "Please wait while the workflow runs.";
       if (stage) stage.textContent = stages[stageIndex];
       if (elapsed) elapsed.textContent = "Elapsed 0s";
       if (closeButton) closeButton.hidden = true;
+      if (progress) progress.hidden = false;
+      if (result) {
+        result.hidden = true;
+        result.replaceChildren();
+        result.className = "workflow-modal-result";
+      }
 
       stopTimers();
       timerId = window.setInterval(() => {
@@ -117,6 +126,13 @@
       stopTimers();
       modalActive = false;
       modal.hidden = true;
+      delete modal.dataset.complete;
+      if (result) {
+        result.hidden = true;
+        result.replaceChildren();
+        result.className = "workflow-modal-result";
+      }
+      if (progress) progress.hidden = true;
     };
 
     if (closeButton) closeButton.addEventListener("click", closeModal);

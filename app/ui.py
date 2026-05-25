@@ -71,6 +71,12 @@ async def _form_data(request: Request) -> dict[str, str]:
     return {key: values[-1] for key, values in parsed.items() if values}
 
 
+def _consume_workflow_notice(request: Request) -> dict[str, object] | None:
+    notice = request.app.state.workflow_notice
+    request.app.state.workflow_notice = None
+    return notice
+
+
 def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
     app = FastAPI(title="Job Intel Review")
     app.state.db_path = db_path
@@ -124,7 +130,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 "weight_files": discover_weight_files(),
                 "location_suggestions": list_offer_locations(request.app.state.db_path),
                 "db_path": request.app.state.db_path,
-                "workflow_notice": request.app.state.workflow_notice,
+                "workflow_notice": _consume_workflow_notice(request),
                 "active_page": "ai_reviewed",
             },
         )
@@ -158,7 +164,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 "adzuna_markets": ADZUNA_MARKETS,
                 "profiles": discover_profiles(),
                 "db_path": request.app.state.db_path,
-                "workflow_notice": request.app.state.workflow_notice,
+                "workflow_notice": _consume_workflow_notice(request),
                 "storage_capacities": {
                     "explored": DEFAULT_EXPLORED_CAPACITY,
                     "unranked": DEFAULT_UNRANKED_CAPACITY,
@@ -200,7 +206,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 "adzuna_markets": ADZUNA_MARKETS,
                 "profiles": discover_profiles(),
                 "db_path": request.app.state.db_path,
-                "workflow_notice": request.app.state.workflow_notice,
+                "workflow_notice": _consume_workflow_notice(request),
                 "storage_capacities": {
                     "explored": DEFAULT_EXPLORED_CAPACITY,
                     "unranked": DEFAULT_UNRANKED_CAPACITY,
@@ -221,7 +227,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
             "maintenance.html",
             {
                 "db_path": request.app.state.db_path,
-                "workflow_notice": request.app.state.workflow_notice,
+                "workflow_notice": _consume_workflow_notice(request),
                 "storage_counts": get_storage_counts(request.app.state.db_path),
                 "clear_summaries": CLEAR_SUMMARIES,
                 "active_page": "maintenance",

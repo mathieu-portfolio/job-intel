@@ -123,27 +123,6 @@
       </section>
       {% endif %}
 
-      {% if workflow_notice %}
-        <section class="workflow-notice {{ workflow_notice.kind }}">
-          <h2>{{ workflow_notice.title }}</h2>
-          <dl>
-            {% for key, value in workflow_notice.summary.items() %}
-              <div>
-                <dt>{{ key }}</dt>
-                <dd>{{ value }}</dd>
-              </div>
-            {% endfor %}
-          </dl>
-          {% if workflow_notice.messages %}
-            <ul>
-              {% for message in workflow_notice.messages %}
-                <li>{{ message }}</li>
-              {% endfor %}
-            </ul>
-          {% endif %}
-        </section>
-      {% endif %}
-
       <form class="filters offers-filters" method="get" action="{{ listing_path }}">
         <label class="wide-filter">
           Search
