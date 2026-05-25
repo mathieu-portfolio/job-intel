@@ -41,6 +41,9 @@ CREATE TABLE IF NOT EXISTS rankings (
 
 CREATE INDEX IF NOT EXISTS idx_offers_newest
     ON offers(published_at DESC, first_seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_offers_source_source_id
+    ON offers(source, source_id)
+    WHERE source_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_rankings_lookup
     ON rankings(algorithm, model, profile_path);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_rankings_unique_offer_algorithm_model_profile

@@ -25,6 +25,7 @@ from app.storage.sqlite import (
     StoredOffer,
     UpsertStats,
     create_ranking_run,
+    exclude_existing_offers,
     save_ranking,
     select_unranked_offers,
     upsert_offers,
@@ -140,13 +141,26 @@ def fetch_offers(
     except requests.RequestException as error:
         raise RuntimeError(f"Network/API error: {error}") from error
 
-    _emit(messages, progress, f"Fetched {len(jobs)} jobs. Updating database.")
-    stats = upsert_offers(jobs, db_path=db_path)
-    matches = filter_jobs(jobs, min_score=min_score)
+    _emit(messages, progress, f"Fetched {len(jobs)} jobs. Excluding known offers.")
+    new_jobs = exclude_existing_offers(jobs, db_path=db_path)
+    skipped_existing = len(jobs) - len(new_jobs)
     _emit(
         messages,
         progress,
-        f"Inserted {stats.inserted}, updated {stats.updated}, matched {len(matches)}.",
+        f"{len(new_jobs)} new jobs, {skipped_existing} already in the database.",
+    )
+    stats = upsert_offers(new_jobs, db_path=db_path)
+    stats = UpsertStats(
+        fetched=len(jobs),
+        inserted=stats.inserted,
+        updated=stats.updated,
+        skipped_existing=skipped_existing,
+    )
+    matches = filter_jobs(new_jobs, min_score=min_score)
+    _emit(
+        messages,
+        progress,
+        f"Inserted {stats.inserted}, skipped {stats.skipped_existing}, matched {len(matches)}.",
     )
     return FetchWorkflowResult(
         source=source,

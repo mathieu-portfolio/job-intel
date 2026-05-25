@@ -72,7 +72,10 @@ def fetch(
 
     console.print(f"[bold]Fetched:[/bold] {result.stats.fetched} jobs from {source}")
     console.print(f"[bold]Database:[/bold] {db}")
-    console.print(f"[green]Inserted:[/green] {result.stats.inserted} | [yellow]Updated:[/yellow] {result.stats.updated}")
+    console.print(
+        f"[green]Inserted:[/green] {result.stats.inserted} | "
+        f"[yellow]Skipped existing:[/yellow] {result.stats.skipped_existing}"
+    )
     console.print(f"[green]Matched:[/green] {result.matched_count} jobs with calibrated score >= {min_score}\n")
 
     for index, (job, evaluation) in enumerate(result.matches[:limit], start=1):

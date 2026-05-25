@@ -28,6 +28,7 @@ class UpsertStats:
     fetched: int
     inserted: int
     updated: int
+    skipped_existing: int = 0
 
 
 VALID_REVIEW_STATUSES = {"new", "saved", "skipped", "applied"}
@@ -125,6 +126,67 @@ def upsert_offers(
                 )
 
     return UpsertStats(fetched=len(jobs), inserted=inserted, updated=updated)
+
+
+def exclude_existing_offers(
+    jobs: list[JobOffer],
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> list[JobOffer]:
+    if not jobs:
+        return []
+
+    init_db(db_path)
+    source_id_pairs = sorted(
+        {(job.source, job.source_id) for job in jobs if job.source_id is not None}
+    )
+    urls = sorted({str(job.url) for job in jobs})
+    existing_source_ids: set[tuple[str, str]] = set()
+    existing_urls: set[str] = set()
+
+    with _connect(db_path) as connection:
+        for start in range(0, len(source_id_pairs), 250):
+            chunk = source_id_pairs[start:start + 250]
+            placeholders = ", ".join(["(?, ?)"] * len(chunk))
+            params = [value for pair in chunk for value in pair]
+            rows = connection.execute(
+                (
+                    "SELECT source, source_id FROM offers "
+                    f"WHERE (source, source_id) IN ({placeholders})"
+                ),
+                params,
+            ).fetchall()
+            existing_source_ids.update((row["source"], row["source_id"]) for row in rows)
+
+        for start in range(0, len(urls), 500):
+            chunk = urls[start:start + 500]
+            placeholders = ", ".join(["?"] * len(chunk))
+            rows = connection.execute(
+                f"SELECT url FROM offers WHERE url IN ({placeholders})",
+                chunk,
+            ).fetchall()
+            existing_urls.update(row["url"] for row in rows)
+
+    new_jobs: list[JobOffer] = []
+    seen_source_ids: set[tuple[str, str]] = set()
+    seen_urls: set[str] = set()
+    for job in jobs:
+        source_id_key = (job.source, job.source_id) if job.source_id is not None else None
+        url = str(job.url)
+        if source_id_key is not None and source_id_key in existing_source_ids:
+            continue
+        if url in existing_urls:
+            continue
+        if source_id_key is not None and source_id_key in seen_source_ids:
+            continue
+        if url in seen_urls:
+            continue
+        if source_id_key is not None:
+            seen_source_ids.add(source_id_key)
+        seen_urls.add(url)
+        new_jobs.append(job)
+
+    return new_jobs
 
 
 def _job_from_offer_row(row: sqlite3.Row) -> JobOffer:

@@ -3,17 +3,19 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from app.models.job import JobOffer
 from app.storage.sqlite import (
     clear_rankings,
     create_ranking_run,
+    exclude_existing_offers,
     list_ranked_offers,
     list_unranked_review_offers,
     save_ranking,
     upsert_offers,
 )
-from app.workflows import rank_offers
+from app.workflows import fetch_offers, rank_offers
 
 
 def _job(url: str, title: str, location: str | None = None) -> JobOffer:
@@ -22,6 +24,18 @@ def _job(url: str, title: str, location: str | None = None) -> JobOffer:
         title=title,
         company="Example",
         location=location,
+        url=url,
+        description="systems engineering",
+        raw_json={},
+    )
+
+
+def _source_job(source_id: str | None, url: str, title: str) -> JobOffer:
+    return JobOffer(
+        source="test",
+        source_id=source_id,
+        title=title,
+        company="Example",
         url=url,
         description="systems engineering",
         raw_json={},
@@ -38,6 +52,47 @@ def _result(raw_ai: object | None) -> dict[str, object]:
 
 
 class SqliteReviewTests(unittest.TestCase):
+    def test_exclude_existing_offers_uses_source_id_and_url_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "jobs.sqlite"
+            upsert_offers(
+                [
+                    _source_job("source-1", "https://example.com/old-url", "Known by ID"),
+                    _source_job(None, "https://example.com/known-url", "Known by URL"),
+                ],
+                db_path=db_path,
+            )
+
+            new_jobs = exclude_existing_offers(
+                [
+                    _source_job("source-1", "https://example.com/new-url", "Duplicate ID"),
+                    _source_job(None, "https://example.com/known-url", "Duplicate URL"),
+                    _source_job("source-2", "https://example.com/new", "New"),
+                ],
+                db_path=db_path,
+            )
+
+            self.assertEqual([job.title for job in new_jobs], ["New"])
+
+    def test_fetch_workflow_only_inserts_and_matches_new_offers(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "jobs.sqlite"
+            existing = _source_job("source-1", "https://example.com/old-url", "Known")
+            new = _source_job("source-2", "https://example.com/new", "C++ Simulation")
+            upsert_offers([existing], db_path=db_path)
+
+            with patch("app.workflows.fetch_arbeitnow", return_value=[existing, new]):
+                result = fetch_offers(
+                    source="arbeitnow",
+                    db_path=db_path,
+                    min_score=0,
+                )
+
+            self.assertEqual(result.stats.fetched, 2)
+            self.assertEqual(result.stats.inserted, 1)
+            self.assertEqual(result.stats.skipped_existing, 1)
+            self.assertEqual([job.title for job, _ in result.matches], ["C++ Simulation"])
+
     def test_ai_only_filter_excludes_rule_only_hybrid_results(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "jobs.sqlite"

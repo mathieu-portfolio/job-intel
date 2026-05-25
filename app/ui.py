@@ -164,7 +164,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 {
                     "Fetched": result.stats.fetched,
                     "Inserted": result.stats.inserted,
-                    "Updated/skipped": result.stats.updated,
+                    "Skipped existing": result.stats.skipped_existing,
                     "Matched": result.matched_count,
                     "Source": result.source,
                     "Preview limit": preview_limit,
