@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 import json
+import sqlite3
 from pathlib import Path
 from unittest.mock import patch
 
@@ -14,6 +15,7 @@ from app.storage.sqlite import (
     exclude_existing_offers,
     get_storage_counts,
     get_clear_plan,
+    init_db,
     list_ai_reviews,
     list_explored_offers,
     list_ranked_offers,
@@ -171,6 +173,92 @@ class SqliteReviewTests(unittest.TestCase):
 
             with self.assertRaises(ValueError):
                 clear_data(db_path=db_path, scope="unknown")
+
+    def test_init_db_migrates_legacy_ai_reviews_to_preset_aware_schema(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "jobs.sqlite"
+            connection = sqlite3.connect(db_path)
+            try:
+                connection.executescript(
+                    """
+                    CREATE TABLE offers (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        source TEXT NOT NULL,
+                        source_id TEXT,
+                        url TEXT NOT NULL UNIQUE,
+                        title TEXT NOT NULL,
+                        company TEXT NOT NULL,
+                        location TEXT,
+                        description TEXT NOT NULL DEFAULT '',
+                        published_at TEXT,
+                        first_seen_at TEXT NOT NULL,
+                        last_seen_at TEXT NOT NULL,
+                        last_fetched_at TEXT NOT NULL,
+                        raw_json TEXT NOT NULL
+                    );
+                    CREATE TABLE ai_reviews (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        screening_result_id INTEGER,
+                        offer_id INTEGER NOT NULL,
+                        provider TEXT,
+                        model TEXT,
+                        profile_path TEXT NOT NULL,
+                        score INTEGER NOT NULL,
+                        recommendation TEXT NOT NULL,
+                        summary TEXT NOT NULL,
+                        review_json TEXT NOT NULL,
+                        reviewed_at TEXT NOT NULL
+                    );
+                    INSERT INTO offers (
+                        source, url, title, company, description,
+                        first_seen_at, last_seen_at, last_fetched_at, raw_json
+                    )
+                    VALUES (
+                        'test', 'https://example.com/legacy', 'Legacy', 'Example', 'systems',
+                        '2026-05-24T12:00:00', '2026-05-24T12:00:00', '2026-05-24T12:00:00', '{}'
+                    );
+                    INSERT INTO ai_reviews (
+                        offer_id, provider, model, profile_path, score,
+                        recommendation, summary, review_json, reviewed_at
+                    )
+                    VALUES (
+                        1, 'mock', 'mock-model', 'profiles/default.json', 70,
+                        'medium', 'legacy review', '{}', '2026-05-24T12:01:00'
+                    );
+                    """
+                )
+            finally:
+                connection.close()
+
+            init_db(db_path)
+
+            connection = sqlite3.connect(db_path)
+            try:
+                ai_columns = {
+                    row[1]
+                    for row in connection.execute("PRAGMA table_info(ai_reviews);").fetchall()
+                }
+                tables = {
+                    row[0]
+                    for row in connection.execute(
+                        "SELECT name FROM sqlite_master WHERE type = 'table';"
+                    ).fetchall()
+                }
+                preset_id = connection.execute(
+                    "SELECT preset_id FROM ai_reviews WHERE offer_id = 1;"
+                ).fetchone()[0]
+                backfilled = connection.execute(
+                    "SELECT ai_score, verdict FROM offer_ai_reviews WHERE offer_id = 1 AND preset_id = 'balanced';"
+                ).fetchone()
+            finally:
+                connection.close()
+
+            self.assertIn("preset_id", ai_columns)
+            self.assertIn("scoring_presets", tables)
+            self.assertIn("offer_scores", tables)
+            self.assertIn("offer_ai_reviews", tables)
+            self.assertEqual(preset_id, "balanced")
+            self.assertEqual(backfilled, (70, "medium"))
 
     def test_pruning_removes_oldest_unmarked_unranked_offers_first(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -105,7 +105,7 @@ def _connect(db_path: Path) -> Iterator[sqlite3.Connection]:
 def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
     with _connect(db_path) as connection:
         connection.executescript(load_sql("schema/init.sql"))
-        _migrate_scoring_presets(connection)
+        _migrate_multi_preset_scores(connection)
         offer_columns = {
             row["name"]
             for row in connection.execute(load_sql("schema/offers_columns.sql")).fetchall()
@@ -122,7 +122,14 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
         _backfill_balanced_scores(connection)
 
 
-def _migrate_scoring_presets(connection: sqlite3.Connection) -> None:
+def _table_columns(connection: sqlite3.Connection, table_name: str) -> set[str]:
+    return {
+        row["name"]
+        for row in connection.execute(f"PRAGMA table_info({table_name});").fetchall()
+    }
+
+
+def _migrate_multi_preset_scores(connection: sqlite3.Connection) -> None:
     connection.execute(
         """
         CREATE TABLE IF NOT EXISTS scoring_presets (
@@ -149,13 +156,34 @@ def _migrate_scoring_presets(connection: sqlite3.Connection) -> None:
         );
         """
     )
+    offer_score_columns = _table_columns(connection, "offer_scores")
+    if "preset_id" not in offer_score_columns:
+        connection.execute(
+            "ALTER TABLE offer_scores ADD COLUMN preset_id TEXT NOT NULL DEFAULT 'balanced';"
+        )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS offer_ai_reviews (
+            offer_id INTEGER NOT NULL,
+            preset_id TEXT NOT NULL DEFAULT 'balanced',
+            ai_score INTEGER,
+            verdict TEXT,
+            rationale TEXT,
+            reviewed_at TEXT NOT NULL,
+            PRIMARY KEY (offer_id, preset_id),
+            FOREIGN KEY(offer_id) REFERENCES offers(id) ON DELETE CASCADE
+        );
+        """
+    )
+    offer_ai_review_columns = _table_columns(connection, "offer_ai_reviews")
+    if "preset_id" not in offer_ai_review_columns:
+        connection.execute(
+            "ALTER TABLE offer_ai_reviews ADD COLUMN preset_id TEXT NOT NULL DEFAULT 'balanced';"
+        )
     connection.execute(
         "CREATE INDEX IF NOT EXISTS idx_offer_scores_preset_score ON offer_scores(preset_id, score DESC);"
     )
-    ai_columns = {
-        row["name"]
-        for row in connection.execute("PRAGMA table_info(ai_reviews);").fetchall()
-    }
+    ai_columns = _table_columns(connection, "ai_reviews")
     if "preset_id" not in ai_columns:
         connection.execute(
             "ALTER TABLE ai_reviews ADD COLUMN preset_id TEXT NOT NULL DEFAULT 'balanced';"
@@ -171,6 +199,21 @@ def _migrate_scoring_presets(connection: sqlite3.Connection) -> None:
         """
         CREATE INDEX IF NOT EXISTS idx_ai_reviews_preset_lookup
         ON ai_reviews(profile_path, preset_id, provider, model, score DESC);
+        """
+    )
+    connection.execute(
+        """
+        INSERT OR IGNORE INTO offer_ai_reviews (
+            offer_id, preset_id, ai_score, verdict, rationale, reviewed_at
+        )
+        SELECT
+            offer_id,
+            COALESCE(preset_id, 'balanced'),
+            score,
+            recommendation,
+            summary,
+            reviewed_at
+        FROM ai_reviews;
         """
     )
 
