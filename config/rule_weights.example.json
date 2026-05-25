@@ -1,33 +1,18 @@
 {
-  "positive_terms": {
-    "c++": 14,
-    "cpp": 10,
-    "simulation": 12,
-    "systems": 10,
-    "linux": 8,
-    "embedded": 8,
-    "graphics": 8,
-    "rendering": 8,
-    "tooling": 7,
-    "infrastructure": 6,
-    "performance": 8
+  "category_weights": {
+    "interests": 0.25,
+    "preferred_domains": 0.15,
+    "strengths": 0.20,
+    "portfolio_projects": 0.15,
+    "location_preferences": 0.15,
+    "disliked_work": -0.20,
+    "exclusions": -0.80,
+    "positive_signals": 0.50,
+    "negative_signals": -0.50
   },
-  "negative_terms": {
-    "frontend": -8,
-    "react": -8,
-    "php": -10,
-    "wordpress": -12,
-    "salesforce": -12,
-    "senior": -16,
-    "lead": -14,
-    "principal": -18,
-    "staff": -16
-  },
-  "profile_positive_weight": 8,
-  "profile_negative_weight": -10,
   "no_signal_score": 20,
-  "positive_score_scale": 3,
-  "negative_score_scale": 4,
-  "strong_negative_threshold": -20,
+  "positive_score_scale": 80,
+  "negative_score_scale": 80,
+  "strong_negative_threshold": -0.20,
   "strong_negative_score_cap": 10
 }

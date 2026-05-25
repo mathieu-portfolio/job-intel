@@ -9,10 +9,21 @@ Fetch supports two modes:
 - Target mode: `--new-offers N` scans provider pages until N newly explored provider offers are processed.
 - Page scan mode: omit `--new-offers` and use `--pages` to scan a fixed number of pages for debugging.
 
+Fetch also supports exploration strategies:
+
+- `safe`: normal exploration; every provider row is checked against `explored_offers`.
+- `fast_backfill`: uses per-scope metadata to process new top results, skip a previously explored range, then resume normal deduplication for older history.
+
 Example:
 
 ```bash
 python -m app.cli fetch --source arbeitnow --new-offers 20 --max-pages 10
+```
+
+Fast backfill example:
+
+```bash
+python -m app.cli fetch --source arbeitnow --new-offers 20 --max-pages 10 --exploration-mode fast_backfill
 ```
 
 Stop conditions:
@@ -38,6 +49,57 @@ Tracked fields include:
 - optional reason such as `already_seen`, `missing_description`, or `rule_filter_failed`
 
 This prevents repeated parsing/filtering of the same irrelevant or duplicate provider results.
+
+## Exploration Scope Metadata
+
+Fast backfill stores minimal metadata in `exploration_scopes`, keyed by a stable hash of the source, profile, query, filters, and other parameters that define a result set.
+
+Tracked fields:
+
+- `newest_id`
+- `oldest_id`
+- `last_explored_page`
+- `updated_at`
+
+This metadata is an optimization only. `explored_offers` remains the correctness layer for deduplication. If metadata is missing or incomplete, fast backfill falls back to normal exploration.
+
+Clearing explored tracking also clears exploration scope metadata so stale skip ranges are not reused.
+
+## Scoring Profiles
+
+Candidate-specific scoring terms live in profile JSON files. The scorer reads `signals` categories:
+
+```json
+{
+  "signals": {
+    "interests": [
+      { "term": "systems", "weight": 1.0 },
+      { "term": "simulation", "weight": 0.8 }
+    ],
+    "disliked_work": [
+      { "term": "generic CRUD", "weight": 1.0 }
+    ]
+  }
+}
+```
+
+Category scores are normalized by total item weight:
+
+```text
+matched item weights / total item weights
+```
+
+Then category contribution is:
+
+```text
+category score * category weight
+```
+
+Category weights come from scoring presets or `config/rule_weights.example.json`; profile files own only item terms and item weights.
+
+The legacy profile fields (`interests`, `preferred_domains`, `positive_signals`, `negative_signals`, and similar) and the previous `{ "weight": ..., "items": [...] }` signal-category shape are still accepted and converted at load time, but new profiles should use `signals` as category-to-item-list mappings.
+
+`config/rule_weights.example.json` contains generic category-weight and score-calibration settings. User-specific terms should stay in profile JSON.
 
 ## Automatic Pruning
 

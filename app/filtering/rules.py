@@ -10,6 +10,18 @@ from app.models.evaluation import RuleEvaluation, WeightedTermMatch, recommendat
 from app.models.job import JobOffer
 from app.models.profile import CandidateProfile
 
+DEFAULT_CATEGORY_WEIGHTS: dict[str, float] = {
+    "interests": 0.25,
+    "preferred_domains": 0.15,
+    "strengths": 0.20,
+    "portfolio_projects": 0.15,
+    "location_preferences": 0.15,
+    "disliked_work": -0.20,
+    "exclusions": -0.80,
+    "positive_signals": 0.50,
+    "negative_signals": -0.50,
+}
+
 
 class RuleScoringConfig(BaseModel):
     positive_terms: dict[str, int] = Field(default_factory=dict)
@@ -89,7 +101,12 @@ def _profile_signal_matches(
     reasoning: list[str] = []
 
     for category_name, category in profile.signals.items():
-        category_weight = config.category_weights.get(category_name, category.weight)
+        category_weight = config.category_weights.get(
+            category_name,
+            DEFAULT_CATEGORY_WEIGHTS.get(category_name, 0.0),
+        )
+        if category_weight == 0:
+            continue
         total_item_weight = sum(abs(item.weight) for item in category.items if item.term.strip())
         if total_item_weight <= 0:
             continue

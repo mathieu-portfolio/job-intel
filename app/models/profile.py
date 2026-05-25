@@ -11,7 +11,6 @@ class ProfileSignalItem(BaseModel):
 
 
 class ProfileSignalCategory(BaseModel):
-    weight: float
     items: list[ProfileSignalItem] = Field(default_factory=list)
 
 
@@ -30,16 +29,16 @@ def _items_from_weight_map(weights: dict[str, int | float]) -> list[dict[str, fl
     ]
 
 
-def _legacy_signal_category_weight(
-    weights: dict[str, int | float],
-    *,
-    fallback: float,
-    sign: int,
-) -> float:
-    if not weights:
-        return fallback
-    scaled = max(abs(float(weight)) for weight in weights.values()) / 100
-    return sign * max(abs(fallback), scaled)
+def _normalize_signal_categories(raw_signals: dict[str, object]) -> dict[str, dict[str, object]]:
+    signals: dict[str, dict[str, object]] = {}
+    for name, value in raw_signals.items():
+        if isinstance(value, list):
+            signals[name] = {"items": value}
+            continue
+        if isinstance(value, dict):
+            items = value.get("items", [])
+            signals[name] = {"items": items}
+    return signals
 
 
 class CandidateProfile(BaseModel):
@@ -70,47 +69,35 @@ class CandidateProfile(BaseModel):
         if not isinstance(data, dict):
             return data
         if data.get("signals"):
-            return data
+            migrated = dict(data)
+            migrated["signals"] = _normalize_signal_categories(data.get("signals") or {})
+            return migrated
 
         signals: dict[str, dict[str, object]] = {}
         legacy_positive = data.get("positive_signals") or {}
         legacy_negative = data.get("negative_signals") or {}
 
-        legacy_lists: list[tuple[str, float, list[str]]] = [
-            ("interests", 0.25, data.get("interests") or []),
-            ("preferred_domains", 0.15, data.get("preferred_domains") or []),
-            ("strengths", 0.20, data.get("strengths") or []),
-            ("portfolio_projects", 0.15, data.get("portfolio_projects") or []),
-            ("location_preferences", 0.15, data.get("location_preferences") or []),
-            ("disliked_work", -0.20, data.get("disliked_work") or []),
-            ("exclusions", -0.80, data.get("exclusions") or []),
+        legacy_lists: list[tuple[str, list[str]]] = [
+            ("interests", data.get("interests") or []),
+            ("preferred_domains", data.get("preferred_domains") or []),
+            ("strengths", data.get("strengths") or []),
+            ("portfolio_projects", data.get("portfolio_projects") or []),
+            ("location_preferences", data.get("location_preferences") or []),
+            ("disliked_work", data.get("disliked_work") or []),
+            ("exclusions", data.get("exclusions") or []),
         ]
-        for name, category_weight, terms in legacy_lists:
+        for name, terms in legacy_lists:
             items = _items_from_terms([str(term) for term in terms])
             if items:
-                signals[name] = {"weight": category_weight, "items": items}
+                signals[name] = {"items": items}
 
         positive_items = _items_from_weight_map(legacy_positive)
         if positive_items:
-            signals["positive_signals"] = {
-                "weight": _legacy_signal_category_weight(
-                    legacy_positive,
-                    fallback=float(data.get("positive_signal_weight") or 8) / 100,
-                    sign=1,
-                ),
-                "items": positive_items,
-            }
+            signals["positive_signals"] = {"items": positive_items}
 
         negative_items = _items_from_weight_map(legacy_negative)
         if negative_items:
-            signals["negative_signals"] = {
-                "weight": _legacy_signal_category_weight(
-                    legacy_negative,
-                    fallback=float(data.get("negative_signal_weight") or -10) / 100,
-                    sign=-1,
-                ),
-                "items": negative_items,
-            }
+            signals["negative_signals"] = {"items": negative_items}
 
         migrated = dict(data)
         migrated["signals"] = signals

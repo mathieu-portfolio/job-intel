@@ -213,6 +213,24 @@ Use custom rule weights:
 python -m app.cli rank --weights-path config/rule_weights.example.json
 ```
 
+Profiles own candidate-specific scoring signals. The current profile format is JSON:
+
+```json
+{
+  "signals": {
+    "interests": [
+      { "term": "systems", "weight": 1.0 },
+      { "term": "simulation", "weight": 0.8 }
+    ],
+    "disliked_work": [
+      { "term": "generic CRUD", "weight": 1.0 }
+    ]
+  }
+}
+```
+
+Each category is normalized by its own total item weight, so adding more items does not automatically make that category dominate. Category weights and score calibration come from presets or `config/rule_weights.example.json`; profile JSON owns only item terms and item weights.
+
 Start the local review dashboard:
 
 ```bash
@@ -240,11 +258,19 @@ data/job_intel.sqlite
 ```
 
 SQLite is the source of truth. It contains `explored_offers`, `offers`, `ranking_runs`, and `rankings`.
+It also contains scoring preset and exploration metadata tables used by the screened-offer UI and fast backfill mode.
 
 The saved ranking rows include run metadata, job metadata, weighted rule scoring, raw AI evaluation when used, and the final policy-adjusted decision.
 
 The fetch command also prints the best rule matches in the terminal. The rank command prints an explainable shortlist sorted by final weighted score.
 
-## Current filtering logic
+## Current Filtering Logic
 
-Rule scoring uses weighted positive and negative term matches. The default weights are in code, and `config/rule_weights.example.json` shows the supported configuration shape.
+Rule scoring uses profile-owned signal categories. For each category, the scorer computes:
+
+```text
+category score = matched item weights / total item weights
+final contribution = category score * category weight
+```
+
+Built-in scoring presets are generic: they adjust category weights and score calibration, while item terms and item weights remain in profile JSON.

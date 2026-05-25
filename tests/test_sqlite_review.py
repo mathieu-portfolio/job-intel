@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from app.models.job import JobOffer
 from app.models.profile import CandidateProfile
-from app.filtering.rules import evaluate_job
+from app.filtering.rules import RuleScoringConfig, evaluate_job
 from app.storage.sqlite import (
     clear_data,
     clear_rankings,
@@ -121,30 +121,29 @@ class SqliteReviewTests(unittest.TestCase):
         profile = CandidateProfile.model_validate(
             {
                 "signals": {
-                    "small": {
-                        "weight": 0.25,
-                        "items": [{"term": "simulation", "weight": 1.0}],
-                    },
-                    "large": {
-                        "weight": 0.25,
-                        "items": [
-                            {"term": "simulation", "weight": 1.0},
-                            {"term": "missing one", "weight": 1.0},
-                            {"term": "missing two", "weight": 1.0},
-                        ],
-                    },
-                    "negative": {
-                        "weight": -0.20,
-                        "items": [{"term": "generic CRUD", "weight": 1.0}],
-                    },
+                    "small": [{"term": "simulation", "weight": 1.0}],
+                    "large": [
+                        {"term": "simulation", "weight": 1.0},
+                        {"term": "missing one", "weight": 1.0},
+                        {"term": "missing two", "weight": 1.0},
+                    ],
+                    "negative": [{"term": "generic CRUD", "weight": 1.0}],
                 }
             }
         )
 
-        positive = evaluate_job(_job("https://example.com/sim", "Simulation Engineer"), profile=profile)
+        config = RuleScoringConfig(
+            category_weights={"small": 0.25, "large": 0.25, "negative": -0.20}
+        )
+        positive = evaluate_job(
+            _job("https://example.com/sim", "Simulation Engineer"),
+            profile=profile,
+            config=config,
+        )
         negative = evaluate_job(
             _job("https://example.com/crud", "Generic CRUD Engineer"),
             profile=profile,
+            config=config,
         )
 
         self.assertGreater(positive.normalized_score, negative.normalized_score)
