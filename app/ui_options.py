@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from app.storage.files import discover_profiles as discover_profile_infos
+
 
 ADZUNA_MARKETS: list[dict[str, str]] = [
     {"label": "France", "value": "fr"},
@@ -30,11 +32,14 @@ def _readable_label(path: Path) -> str:
 
 
 def discover_profiles(profiles_dir: Path = Path("profiles")) -> list[dict[str, str]]:
-    profiles = _discover_json_options(profiles_dir)
-    default_value = str((profiles_dir / "default.json")).replace("\\", "/")
-    if any(profile["value"] == default_value for profile in profiles):
-        profiles.sort(key=lambda profile: (profile["value"] != default_value, profile["label"]))
-    return profiles or [{"label": "Default", "value": default_value}]
+    return [
+        {
+            "id": profile.profile_id,
+            "label": profile.label,
+            "value": str(profile.path).replace("\\", "/"),
+        }
+        for profile in discover_profile_infos(profiles_dir)
+    ]
 
 
 def _discover_json_options(directory: Path) -> list[dict[str, str]]:

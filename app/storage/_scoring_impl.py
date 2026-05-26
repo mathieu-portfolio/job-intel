@@ -9,21 +9,28 @@ def save_screening_result(
     db_path: Path = DEFAULT_DB_PATH,
     offer_id: int,
     profile_path: str,
+    profile_id: str | None = None,
     evaluation: RuleEvaluation,
     threshold: int,
     screened_at: str | None = None,
 ) -> int:
     init_db(db_path)
     screened_at = screened_at or _now_iso()
+    profile_id = profile_id or profile_id_from_path(profile_path)
     with _connect(db_path) as connection:
+        save_offer_scores_batch(
+            connection,
+            [(offer_id, profile_id, DEFAULT_SCORING_PRESET_ID, evaluation)],
+            scored_at=screened_at,
+        )
         save_screening_results_batch(
             connection,
-            [(offer_id, profile_path, evaluation, threshold)],
+            [(offer_id, profile_id, profile_path, evaluation, threshold)],
             screened_at=screened_at,
         )
         row = connection.execute(
             load_sql("screening_results/select_id.sql"),
-            (offer_id, profile_path),
+            (offer_id, profile_id),
         ).fetchone()
     return int(row["id"])
 
@@ -42,11 +49,12 @@ def save_offer_score(
     offer_id: int,
     preset_id: str,
     evaluation: RuleEvaluation,
+    profile_id: str = "default",
     scored_at: str | None = None,
 ) -> None:
     init_db(db_path)
     with _connect(db_path) as connection:
-        save_offer_scores_batch(connection, [(offer_id, preset_id, evaluation)], scored_at=scored_at)
+        save_offer_scores_batch(connection, [(offer_id, profile_id, preset_id, evaluation)], scored_at=scored_at)
 
 
 def save_offer_scores(
@@ -54,20 +62,21 @@ def save_offer_scores(
     db_path: Path = DEFAULT_DB_PATH,
     offer_id: int,
     evaluations: dict[str, RuleEvaluation],
+    profile_id: str = "default",
     scored_at: str | None = None,
 ) -> None:
     init_db(db_path)
     with _connect(db_path) as connection:
         save_offer_scores_batch(
             connection,
-            [(offer_id, preset_id, evaluation) for preset_id, evaluation in evaluations.items()],
+            [(offer_id, profile_id, preset_id, evaluation) for preset_id, evaluation in evaluations.items()],
             scored_at=scored_at,
         )
 
 
 def save_offer_scores_batch(
     connection: sqlite3.Connection,
-    rows: list[tuple[int, str, RuleEvaluation]],
+    rows: list[tuple[int, str, RuleEvaluation] | tuple[int, str, str, RuleEvaluation]],
     *,
     scored_at: str | None = None,
 ) -> None:
@@ -75,30 +84,34 @@ def save_offer_scores_batch(
     connection.executemany(
         """
         INSERT INTO offer_scores (
-            offer_id, preset_id, score, signals_json, scored_at
+            offer_id, profile_id, preset_id, score, signals_json, scored_at
         )
-        VALUES (?, ?, ?, ?, ?)
-        ON CONFLICT(offer_id, preset_id) DO UPDATE SET
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(offer_id, profile_id, preset_id) DO UPDATE SET
             score = excluded.score,
             signals_json = excluded.signals_json,
             scored_at = excluded.scored_at;
         """,
         [
             (
-                offer_id,
-                preset_id,
-                evaluation.normalized_score,
-                json.dumps(_signals_from_evaluation(evaluation), ensure_ascii=False),
+                row[0],
+                row[1] if len(row) == 4 else "default",
+                row[2] if len(row) == 4 else row[1],
+                (row[3] if len(row) == 4 else row[2]).normalized_score,
+                json.dumps(_signals_from_evaluation(row[3] if len(row) == 4 else row[2]), ensure_ascii=False),
                 scored_at,
             )
-            for offer_id, preset_id, evaluation in rows
+            for row in rows
         ],
     )
 
 
 def save_screening_results_batch(
     connection: sqlite3.Connection,
-    rows: list[tuple[int, str, RuleEvaluation, int]],
+    rows: list[
+        tuple[int, str, RuleEvaluation, int]
+        | tuple[int, str, str, RuleEvaluation, int]
+    ],
     *,
     screened_at: str | None = None,
 ) -> None:
@@ -107,23 +120,30 @@ def save_screening_results_batch(
         load_sql("screening_results/upsert.sql"),
         [
             (
-                offer_id,
-                profile_path,
-                evaluation.normalized_score,
-                evaluation.decision,
-                threshold,
-                1 if evaluation.normalized_score >= threshold else 0,
+                row[0],
+                row[1] if len(row) == 5 else profile_id_from_path(row[1]),
+                row[2] if len(row) == 5 else row[1],
+                (row[3] if len(row) == 5 else row[2]).normalized_score,
+                (row[3] if len(row) == 5 else row[2]).decision,
+                row[4] if len(row) == 5 else row[3],
+                1 if (row[3] if len(row) == 5 else row[2]).normalized_score >= (row[4] if len(row) == 5 else row[3]) else 0,
                 json.dumps(
                     {
-                        "positive": [match.model_dump(mode="json") for match in evaluation.matched_positive_terms],
-                        "negative": [match.model_dump(mode="json") for match in evaluation.matched_negative_terms],
+                        "positive": [
+                            match.model_dump(mode="json")
+                            for match in (row[3] if len(row) == 5 else row[2]).matched_positive_terms
+                        ],
+                        "negative": [
+                            match.model_dump(mode="json")
+                            for match in (row[3] if len(row) == 5 else row[2]).matched_negative_terms
+                        ],
                     },
                     ensure_ascii=False,
                 ),
-                json.dumps(evaluation.reasoning, ensure_ascii=False),
+                json.dumps((row[3] if len(row) == 5 else row[2]).reasoning, ensure_ascii=False),
                 screened_at,
             )
-            for offer_id, profile_path, evaluation, threshold in rows
+            for row in rows
         ],
     )
 
@@ -186,12 +206,14 @@ def find_screening_result_id(
     db_path: Path = DEFAULT_DB_PATH,
     offer_id: int,
     profile_path: str,
+    profile_id: str | None = None,
 ) -> int | None:
     init_db(db_path)
+    profile_id = profile_id or profile_id_from_path(profile_path)
     with _connect(db_path) as connection:
         row = connection.execute(
             load_sql("screening_results/select_id.sql"),
-            (offer_id, profile_path),
+            (offer_id, profile_id),
         ).fetchone()
     return int(row["id"]) if row is not None else None
 
@@ -202,18 +224,20 @@ def select_screened_offers(
     provider: str | None,
     model: str | None,
     profile_path: str,
+    profile_id: str | None = None,
     preset_id: str = DEFAULT_SCORING_PRESET_ID,
     min_score: int | None = None,
     limit: int,
     only_recent_days: int | None = None,
 ) -> list[StoredOffer]:
     init_db(db_path)
-    params: list[Any] = [preset_id]
+    profile_id = profile_id or profile_id_from_path(profile_path)
+    params: list[Any] = [preset_id, profile_id]
     min_score_clause = ""
     if min_score is not None:
         min_score_clause = "  AND offer_scores.score >= ?\n"
         params.append(min_score)
-    params.extend([provider, model, profile_path, preset_id])
+    params.extend([provider, model, profile_id, preset_id])
     recent_clause = ""
     if only_recent_days is not None:
         cutoff = (datetime.now() - timedelta(days=only_recent_days)).isoformat(timespec="seconds")
@@ -236,6 +260,7 @@ def list_screened_offers(
     *,
     db_path: Path = DEFAULT_DB_PATH,
     preset_id: str = DEFAULT_SCORING_PRESET_ID,
+    profile_id: str = "default",
     threshold: int = 40,
     show_all_matching_presets: bool = False,
     search: str | None = None,
@@ -246,6 +271,8 @@ def list_screened_offers(
     init_db(db_path)
     clauses: list[str] = ["offer_scores.score >= ?"]
     where_params: list[Any] = [threshold]
+    clauses.append("offer_scores.profile_id = ?")
+    where_params.append(profile_id)
     if not show_all_matching_presets:
         clauses.insert(0, "offer_scores.preset_id = ?")
         where_params.insert(0, preset_id)
@@ -269,7 +296,7 @@ def list_screened_offers(
         "source": "offers.source ASC, offer_scores.score DESC",
         "status": "offers.review_status ASC, offer_scores.score DESC",
     }.get(sort, "offer_scores.score DESC, offers.last_fetched_at DESC")
-    params = [preset_id, *where_params, limit]
+    params = [preset_id, profile_id, *where_params, limit]
     with _connect(db_path) as connection:
         rows = connection.execute(
             f"""
@@ -297,8 +324,9 @@ def list_screened_offers(
             JOIN offer_scores ON offer_scores.offer_id = offers.id
             JOIN scoring_presets ON scoring_presets.id = offer_scores.preset_id
             LEFT JOIN ai_reviews
-              ON ai_reviews.offer_id = offers.id
+             ON ai_reviews.offer_id = offers.id
              AND ai_reviews.preset_id = ?
+             AND ai_reviews.profile_id = ?
             WHERE {where_sql}
             ORDER BY {order_by}
             LIMIT ?;

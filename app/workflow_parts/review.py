@@ -32,6 +32,7 @@ def rank_offers(
     _emit(messages, progress, f"Loading profile {profile_path}.")
     _raise_if_cancelled(cancelled)
     candidate_profile = load_profile(profile_path)
+    profile_id = candidate_profile.profile_id or profile_id_from_path(profile_path)
     scoring_preset = get_scoring_preset(preset_id, db_path=db_path)
     rule_config = scoring_preset.weights
 
@@ -48,6 +49,7 @@ def rank_offers(
         provider=provider_name,
         model=model_name,
         profile_path=str(profile_path),
+        profile_id=profile_id,
         preset_id=scoring_preset.id,
         min_score=min_score if ranking_mode == "hybrid" else None,
         limit=limit,
@@ -114,6 +116,7 @@ def rank_offers(
         "rule_config": rule_config.model_dump(mode="json"),
         "preset_id": scoring_preset.id,
         "preset_name": scoring_preset.name,
+        "profile_id": profile_id,
     }
     run_id = create_ranking_run(
         db_path=db_path,
@@ -121,6 +124,7 @@ def rank_offers(
         algorithm=ranking_mode,
         model=model_name,
         profile_path=str(profile_path),
+        profile_id=profile_id,
         config=config_payload,
     )
 
@@ -141,6 +145,7 @@ def rank_offers(
                 algorithm=ranking_mode,
                 model=model_name,
                 profile_path=str(profile_path),
+                profile_id=profile_id,
                 score=final_decision.final_score,
                 recommendation=final_decision.recommendation,
                 summary="Rule-only ranking.",
@@ -204,6 +209,7 @@ def rank_offers(
             futures = {}
             for index, (stored_offer, rule_evaluation) in enumerate(candidates, start=1):
                 _raise_if_cancelled(cancelled)
+                _emit(messages, progress, f"AI task {index}/{len(candidates)} started: {stored_offer.job.title}")
                 _emit(messages, progress, f"Evaluating {index}/{len(candidates)}: {stored_offer.job.title}")
                 futures[executor.submit(evaluate_candidate, index, stored_offer, rule_evaluation)] = (
                     index,
@@ -235,6 +241,7 @@ def rank_offers(
 
                 _raise_if_cancelled(cancelled)
                 completed_ai += 1
+                _emit(messages, progress, f"AI task {index}/{len(candidates)} completed: {stored_offer.job.title}")
                 _emit(messages, progress, f"Model response parsed in {elapsed:.1f}s.")
                 result_payload = ranking_result_payload(
                     stored_offer=stored_offer,
@@ -249,6 +256,7 @@ def rank_offers(
                     algorithm=ranking_mode,
                     model=model_name,
                     profile_path=str(profile_path),
+                    profile_id=profile_id,
                     score=final_decision.final_score,
                     recommendation=final_decision.recommendation,
                     summary=ai_evaluation.summary,
@@ -260,11 +268,14 @@ def rank_offers(
                         db_path=db_path,
                         offer_id=stored_offer.id,
                         profile_path=str(profile_path),
+                        profile_id=profile_id,
                     ),
                     offer_id=stored_offer.id,
                     provider=provider_name,
                     model=model_name,
                     profile_path=str(profile_path),
+                    profile_id=profile_id,
+                    preset_id=scoring_preset.id,
                     score=final_decision.final_score,
                     recommendation=final_decision.recommendation,
                     summary=ai_evaluation.summary,

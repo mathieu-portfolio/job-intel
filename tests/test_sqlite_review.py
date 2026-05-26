@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from unittest.mock import patch
 
-from app.models.evaluation import AiJobEvaluation
+from app.models.evaluation import AiJobEvaluation, RuleEvaluation
 from app.models.job import JobOffer
 from app.models.profile import CandidateProfile
 from app.filtering.rules import RuleScoringConfig, evaluate_job
@@ -28,9 +28,10 @@ from app.storage.reviews import (
     list_ranked_offers,
     list_screening_results,
     list_unranked_review_offers,
+    save_ai_review,
     save_ranking,
 )
-from app.storage.scoring import save_offer_score, save_screening_result
+from app.storage.scoring import list_screened_offers, save_offer_score, save_screening_result
 from app.workflows import WorkflowCancelled, _exploration_scope_key, _exploration_scope_payload
 from app.workflows import fetch_offers, rank_offers
 
@@ -66,6 +67,15 @@ def _result(raw_ai: object | None) -> dict[str, object]:
         "raw_ai_evaluation": raw_ai,
         "final_decision": {"final_score": 50, "recommendation": "low"},
     }
+
+
+def _evaluation(score: int) -> RuleEvaluation:
+    return RuleEvaluation(
+        score=score,
+        normalized_score=score,
+        decision="high" if score >= 75 else "low",
+        reasoning=[f"score {score}"],
+    )
 
 
 class SqliteReviewTests(unittest.TestCase):
@@ -137,6 +147,119 @@ class SqliteReviewTests(unittest.TestCase):
             threshold=0,
         )
         return int(offer_id)
+
+    def test_same_offer_can_have_different_scores_per_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            db_path = Path(directory) / "jobs.sqlite"
+            init_db(db_path)
+            job = _job("https://example.com/profile-score", "Profile Score")
+            upsert_offers([job], db_path=db_path)
+            offer_id = find_existing_offer_id(job, db_path=db_path)
+            self.assertIsNotNone(offer_id)
+
+            save_offer_score(
+                db_path=db_path,
+                offer_id=int(offer_id),
+                profile_id="profile_a",
+                preset_id="balanced",
+                evaluation=_evaluation(90),
+            )
+            save_offer_score(
+                db_path=db_path,
+                offer_id=int(offer_id),
+                profile_id="profile_b",
+                preset_id="balanced",
+                evaluation=_evaluation(45),
+            )
+
+            profile_a = list_screened_offers(db_path=db_path, profile_id="profile_a", threshold=0)
+            profile_b = list_screened_offers(db_path=db_path, profile_id="profile_b", threshold=0)
+
+            self.assertEqual(profile_a[0]["fast_score"], 90)
+            self.assertEqual(profile_b[0]["fast_score"], 45)
+
+    def test_same_offer_can_have_different_ai_reviews_per_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            db_path = Path(directory) / "jobs.sqlite"
+            init_db(db_path)
+            job = _job("https://example.com/profile-review", "Profile Review")
+            upsert_offers([job], db_path=db_path)
+            offer_id = find_existing_offer_id(job, db_path=db_path)
+            self.assertIsNotNone(offer_id)
+
+            save_ai_review(
+                db_path=db_path,
+                screening_result_id=None,
+                offer_id=int(offer_id),
+                provider="mock",
+                model="test",
+                profile_id="profile_a",
+                profile_path="profiles/profile_a.json",
+                preset_id="balanced",
+                score=88,
+                recommendation="high",
+                summary="profile A",
+                result=_result({"summary": "profile A"}),
+            )
+            save_ai_review(
+                db_path=db_path,
+                screening_result_id=None,
+                offer_id=int(offer_id),
+                provider="mock",
+                model="test",
+                profile_id="profile_b",
+                profile_path="profiles/profile_b.json",
+                preset_id="balanced",
+                score=42,
+                recommendation="low",
+                summary="profile B",
+                result=_result({"summary": "profile B"}),
+            )
+
+            reviews = sorted(list_ai_reviews(db_path=db_path), key=lambda row: row["profile_id"])
+            self.assertEqual([review["profile_id"] for review in reviews], ["profile_a", "profile_b"])
+            self.assertEqual([review["score"] for review in reviews], [88, 42])
+
+    def test_profile_actions_do_not_overwrite_other_profile_data(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            db_path = Path(directory) / "jobs.sqlite"
+            init_db(db_path)
+            job = _job("https://example.com/profile-isolation", "Profile Isolation")
+            upsert_offers([job], db_path=db_path)
+            offer_id = find_existing_offer_id(job, db_path=db_path)
+            self.assertIsNotNone(offer_id)
+
+            for profile_id, score in (("profile_a", 81), ("profile_b", 52)):
+                run_id = create_ranking_run(
+                    db_path=db_path,
+                    started_at="2026-05-27T12:00:00",
+                    algorithm="ai",
+                    model="test",
+                    profile_id=profile_id,
+                    profile_path=f"profiles/{profile_id}.json",
+                    config={},
+                )
+                save_ranking(
+                    db_path=db_path,
+                    run_id=run_id,
+                    offer_id=int(offer_id),
+                    algorithm="ai",
+                    model="test",
+                    profile_id=profile_id,
+                    profile_path=f"profiles/{profile_id}.json",
+                    score=score,
+                    recommendation="high" if score >= 75 else "low",
+                    summary=profile_id,
+                    result=_result({"summary": profile_id}),
+                )
+
+            profile_a = list_ranked_offers(db_path=db_path, profile_id="profile_a")
+            profile_b = list_ranked_offers(db_path=db_path, profile_id="profile_b")
+
+            self.assertEqual(len(profile_a), 1)
+            self.assertEqual(len(profile_b), 1)
+            self.assertEqual(profile_a[0]["score"], 81)
+            self.assertEqual(profile_b[0]["score"], 52)
 
     def test_profile_signal_categories_are_normalized_by_item_weight_totals(self) -> None:
         profile = CandidateProfile.model_validate(
@@ -1227,6 +1350,45 @@ class SqliteReviewTests(unittest.TestCase):
             self.assertLessEqual(max_active, 2)
             self.assertGreater(max_active, 1)
 
+    def test_fetch_new_offers_parallel_pages_are_faster_than_serial(self) -> None:
+        def fetch_page(*, page: int) -> list[JobOffer]:
+            time.sleep(0.2)
+            return [_source_job(f"page-{page}", f"https://example.com/page-{page}", f"Page {page}")]
+
+        with tempfile.TemporaryDirectory() as serial_dir, tempfile.TemporaryDirectory() as parallel_dir:
+            serial_db = Path(serial_dir) / "jobs.sqlite"
+            parallel_db = Path(parallel_dir) / "jobs.sqlite"
+
+            with patch("app.workflow_parts.fetch.fetch_arbeitnow", side_effect=fetch_page):
+                started_at = time.perf_counter()
+                serial_result = fetch_offers(
+                    source="arbeitnow",
+                    db_path=serial_db,
+                    new_offers=6,
+                    max_pages=6,
+                    min_score=0,
+                    fetch_concurrency=1,
+                )
+                serial_elapsed = time.perf_counter() - started_at
+
+            with patch("app.workflow_parts.fetch.fetch_arbeitnow", side_effect=fetch_page):
+                started_at = time.perf_counter()
+                parallel_result = fetch_offers(
+                    source="arbeitnow",
+                    db_path=parallel_db,
+                    new_offers=6,
+                    max_pages=6,
+                    min_score=0,
+                    fetch_concurrency=3,
+                )
+                parallel_elapsed = time.perf_counter() - started_at
+
+            self.assertEqual(serial_result.stats.inserted, 6)
+            self.assertEqual(parallel_result.stats.inserted, 6)
+            self.assertLess(parallel_elapsed, serial_elapsed * 0.85)
+            self.assertTrue(any("page 2 started" in message for message in parallel_result.messages))
+            self.assertTrue(any("page 1 completed" in message for message in parallel_result.messages))
+
     def test_fetch_page_failure_does_not_drop_successful_pages(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "jobs.sqlite"
@@ -1453,6 +1615,67 @@ class SqliteReviewTests(unittest.TestCase):
             self.assertEqual(len(list_ai_reviews(db_path)), 4)
             self.assertLessEqual(max_active, 2)
             self.assertGreater(max_active, 1)
+
+    def test_ai_ranking_parallel_reviews_are_faster_than_serial(self) -> None:
+        def seed_case(base_path: Path) -> tuple[Path, Path]:
+            db_path = base_path / "jobs.sqlite"
+            profile_path = base_path / "profile.json"
+            self._write_profile(profile_path, positive_signals={"systems": 50}, threshold=0)
+            for index in range(4):
+                self._seed_screened_offer(
+                    db_path,
+                    profile_path,
+                    _source_job(f"ai-{index}", f"https://example.com/ai-{index}", f"AI Job {index}"),
+                )
+            return db_path, profile_path
+
+        def evaluate(*args, **kwargs) -> AiJobEvaluation:
+            time.sleep(0.5)
+            return AiJobEvaluation(
+                fit_score=75,
+                technical_fit_score=75,
+                domain_fit_score=75,
+                role_interest_score=75,
+                learning_potential_score=75,
+                posting_quality_score=75,
+                portfolio_alignment_score=75,
+                summary="ok",
+                recommendation="high",
+            )
+
+        with tempfile.TemporaryDirectory() as serial_dir, tempfile.TemporaryDirectory() as parallel_dir:
+            serial_db, serial_profile = seed_case(Path(serial_dir))
+            parallel_db, parallel_profile = seed_case(Path(parallel_dir))
+
+            with patch("app.workflow_parts.review.evaluate_job_with_ai", side_effect=evaluate):
+                started_at = time.perf_counter()
+                serial_result = rank_offers(
+                    profile_path=serial_profile,
+                    db_path=serial_db,
+                    ranking_mode="ai",
+                    provider="mock",
+                    limit=4,
+                    ai_concurrency=1,
+                )
+                serial_elapsed = time.perf_counter() - started_at
+
+            with patch("app.workflow_parts.review.evaluate_job_with_ai", side_effect=evaluate):
+                started_at = time.perf_counter()
+                parallel_result = rank_offers(
+                    profile_path=parallel_profile,
+                    db_path=parallel_db,
+                    ranking_mode="ai",
+                    provider="mock",
+                    limit=4,
+                    ai_concurrency=2,
+                )
+                parallel_elapsed = time.perf_counter() - started_at
+
+            self.assertEqual(serial_result.saved_count, 4)
+            self.assertEqual(parallel_result.saved_count, 4)
+            self.assertLess(parallel_elapsed, serial_elapsed * 0.85)
+            self.assertTrue(any("AI task 2/4 started" in message for message in parallel_result.messages))
+            self.assertTrue(any("AI task" in message and "completed" in message for message in parallel_result.messages))
 
     def test_ai_ranking_failure_keeps_successful_results(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

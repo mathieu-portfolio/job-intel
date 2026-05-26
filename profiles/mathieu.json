@@ -3,14 +3,12 @@
     "en": [
       "C++ developer",
       "software engineer",
-      "systems engineer",
-      "simulation engineer"
+      "systems engineer"
     ],
     "fr": [
       "développeur C++",
       "ingénieur logiciel",
-      "ingénieur systèmes",
-      "ingénieur simulation"
+      "ingénieur systèmes"
     ]
   },
   "must_match": {
@@ -103,22 +101,6 @@
         "aliases": {
           "en": ["defense", "defence"],
           "fr": ["defense"]
-        }
-      },
-      {
-        "term": "engineering software",
-        "weight": 1.0,
-        "aliases": {
-          "en": ["engineering software", "scientific software", "technical software"],
-          "fr": ["logiciel d ingénierie", "logiciel scientifique", "logiciel technique"]
-        }
-      },
-      {
-        "term": "infrastructure",
-        "weight": 1.0,
-        "aliases": {
-          "en": ["infrastructure", "platform"],
-          "fr": ["infrastructure", "plateforme"]
         }
       }
     ],

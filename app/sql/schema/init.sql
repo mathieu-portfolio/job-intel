@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS ranking_runs (
     started_at TEXT NOT NULL,
     algorithm TEXT NOT NULL,
     model TEXT,
+    profile_id TEXT NOT NULL DEFAULT 'default',
     profile_path TEXT NOT NULL,
     config_json TEXT NOT NULL
 );
@@ -68,6 +69,7 @@ CREATE TABLE IF NOT EXISTS rankings (
     offer_id INTEGER NOT NULL,
     algorithm TEXT NOT NULL,
     model TEXT,
+    profile_id TEXT NOT NULL DEFAULT 'default',
     profile_path TEXT NOT NULL,
     score INTEGER NOT NULL,
     recommendation TEXT NOT NULL,
@@ -81,6 +83,7 @@ CREATE TABLE IF NOT EXISTS rankings (
 CREATE TABLE IF NOT EXISTS screening_results (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     offer_id INTEGER NOT NULL,
+    profile_id TEXT NOT NULL DEFAULT 'default',
     profile_path TEXT NOT NULL,
     score INTEGER NOT NULL,
     recommendation TEXT NOT NULL,
@@ -94,11 +97,12 @@ CREATE TABLE IF NOT EXISTS screening_results (
 
 CREATE TABLE IF NOT EXISTS offer_scores (
     offer_id INTEGER NOT NULL,
+    profile_id TEXT NOT NULL DEFAULT 'default',
     preset_id TEXT NOT NULL,
     score INTEGER NOT NULL,
     signals_json TEXT,
     scored_at TEXT NOT NULL,
-    PRIMARY KEY (offer_id, preset_id),
+    PRIMARY KEY (offer_id, profile_id, preset_id),
     FOREIGN KEY(offer_id) REFERENCES offers(id) ON DELETE CASCADE,
     FOREIGN KEY(preset_id) REFERENCES scoring_presets(id) ON DELETE CASCADE
 );
@@ -109,7 +113,9 @@ CREATE TABLE IF NOT EXISTS ai_reviews (
     offer_id INTEGER NOT NULL,
     provider TEXT,
     model TEXT,
+    profile_id TEXT NOT NULL DEFAULT 'default',
     profile_path TEXT NOT NULL,
+    preset_id TEXT NOT NULL DEFAULT 'balanced',
     score INTEGER NOT NULL,
     recommendation TEXT NOT NULL,
     summary TEXT NOT NULL,
@@ -132,15 +138,3 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_explored_offers_provider_canonical_url
     WHERE canonical_url IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_explored_offers_last_seen
     ON explored_offers(last_seen_at DESC);
-CREATE INDEX IF NOT EXISTS idx_rankings_lookup
-    ON rankings(algorithm, model, profile_path);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_rankings_unique_offer_algorithm_model_profile
-    ON rankings(offer_id, algorithm, COALESCE(model, ''), profile_path);
-CREATE INDEX IF NOT EXISTS idx_screening_results_lookup
-    ON screening_results(profile_path, passed, score DESC);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_screening_results_unique_offer_profile
-    ON screening_results(offer_id, profile_path);
-CREATE INDEX IF NOT EXISTS idx_ai_reviews_lookup
-    ON ai_reviews(profile_path, provider, model, score DESC);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_reviews_unique_offer_provider_model_profile
-    ON ai_reviews(offer_id, COALESCE(provider, ''), COALESCE(model, ''), profile_path);

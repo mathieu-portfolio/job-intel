@@ -10,6 +10,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
 from app.storage.connection import DEFAULT_DB_PATH
+from app.storage.files import profile_id_from_path
 from app.storage.maintenance import (
     DEFAULT_EXPLORED_CAPACITY,
     DEFAULT_RANKED_CAPACITY,
@@ -70,6 +71,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
         source: str | None = None,
         location: str | None = None,
         ranking_mode: str | None = None,
+        profile: str = "profiles/default.json",
         recency: str | None = None,
         ai_only: bool = False,
         sort: str = "score_desc",
@@ -83,6 +85,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
             source=source or None,
             location=location or None,
             ranking_mode=ranking_mode or None,
+            profile_path=profile,
             only_recent_days=recency_days,
             ai_only=ai_only,
             sort=sort,
@@ -98,7 +101,9 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                     "status": status or "",
                     "source": source or "",
                     "location": location or "",
-                "recency": recency_days,
+                    "ranking_mode": ranking_mode or "",
+                    "profile": profile,
+                    "recency": recency_days,
                     "ai_only": ai_only,
                     "sort": sort,
                     "limit": limit,
@@ -161,6 +166,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
         request: Request,
         q: str | None = None,
         source: str | None = None,
+        profile: str = "profiles/default.json",
         preset: str = "balanced",
         threshold: int = 40,
         show_all_presets: bool = False,
@@ -170,6 +176,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
         offers = list_screened_offers(
             db_path=request.app.state.db_path,
             preset_id=preset,
+            profile_id=profile_id_from_path(profile),
             threshold=threshold,
             show_all_matching_presets=show_all_presets,
             search=q or None,
@@ -186,6 +193,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 "filters": {
                     "q": q or "",
                     "source": source or "",
+                    "profile": profile,
                     "preset": preset,
                     "threshold": threshold,
                     "show_all_presets": show_all_presets,

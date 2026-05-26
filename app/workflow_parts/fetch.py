@@ -55,6 +55,7 @@ def fetch_offers(
         name="provider retry",
     )
     candidate_profile = load_profile(profile_path)
+    profile_id = candidate_profile.profile_id or profile_id_from_path(profile_path)
     search_requests = iter_profile_search_requests(
         candidate_profile,
         source,
@@ -85,14 +86,14 @@ def fetch_offers(
         aggregate_summaries: list[FetchRequestSummary] = []
         aggregate_provider_keys: set[tuple[str, str]] = set()
         duplicate_provider_rows_across_requests = 0
-        for search_request in search_requests:
-            remaining_new_offers = (
-                None
-                if new_offers is None
-                else max(0, new_offers - aggregate_stats.newly_explored)
+        search_results: list[FetchWorkflowResult] = []
+
+        def fetch_search_request(search_request: ProviderSearchRequest, remaining_new_offers: int | None) -> FetchWorkflowResult:
+            _emit(
+                messages,
+                progress,
+                f"Provider {source} search started: {_format_search_request(search_request)}.",
             )
-            if remaining_new_offers == 0:
-                break
             result = fetch_offers(
                 source=source,
                 page=page,
@@ -117,6 +118,64 @@ def fetch_offers(
                 progress=progress,
                 cancelled=cancelled,
             )
+            _emit(
+                messages,
+                progress,
+                f"Provider {source} search completed: {_format_search_request(search_request)}.",
+            )
+            return result
+
+        if new_offers is None and fetch_concurrency > 1:
+            _emit(
+                messages,
+                progress,
+                f"Starting {len(search_requests)} provider search requests with concurrency {fetch_concurrency}.",
+            )
+            with ThreadPoolExecutor(max_workers=min(fetch_concurrency, len(search_requests))) as executor:
+                futures = {
+                    executor.submit(fetch_search_request, search_request, None): index
+                    for index, search_request in enumerate(search_requests)
+                }
+                indexed_results: dict[int, FetchWorkflowResult] = {}
+                for future in as_completed(futures):
+                    _raise_if_cancelled(cancelled)
+                    index = futures[future]
+                    try:
+                        indexed_results[index] = future.result()
+                    except Exception as error:
+                        aggregate_stats = UpsertStats(
+                            fetched=aggregate_stats.fetched,
+                            inserted=aggregate_stats.inserted,
+                            updated=aggregate_stats.updated,
+                            skipped_existing=aggregate_stats.skipped_existing,
+                            pages_scanned=aggregate_stats.pages_scanned,
+                            explored=aggregate_stats.explored,
+                            newly_explored=aggregate_stats.newly_explored,
+                            already_seen=aggregate_stats.already_seen,
+                            filtered_out=aggregate_stats.filtered_out,
+                            errors=aggregate_stats.errors + 1,
+                        )
+                        _emit(messages, progress, f"Provider search request failed: {error}")
+                search_results = [indexed_results[index] for index in sorted(indexed_results)]
+        else:
+            for search_request in search_requests:
+                remaining_new_offers = (
+                    None
+                    if new_offers is None
+                    else max(0, new_offers - aggregate_stats.newly_explored)
+                )
+                if remaining_new_offers == 0:
+                    break
+                search_results.append(fetch_search_request(search_request, remaining_new_offers))
+
+        for result in search_results:
+            remaining_new_offers = (
+                None
+                if new_offers is None
+                else max(0, new_offers - aggregate_stats.newly_explored)
+            )
+            if remaining_new_offers == 0:
+                break
             request_duplicate_keys = aggregate_provider_keys.intersection(result.provider_keys)
             duplicate_provider_rows_across_requests += len(request_duplicate_keys)
             aggregate_provider_keys.update(result.provider_keys)
@@ -324,8 +383,8 @@ def fetch_offers(
             )
             timing["explored_lookup"] += time.perf_counter() - lookup_started_at
 
-            score_rows: list[tuple[int, str, RuleEvaluation]] = []
-            screening_rows: list[tuple[int, str, RuleEvaluation, int]] = []
+            score_rows: list[tuple[int, str, str, RuleEvaluation]] = []
+            screening_rows: list[tuple[int, str, str, RuleEvaluation, int]] = []
             upsert_jobs: list[JobOffer] = []
             evaluations_by_url: dict[str, dict[str, RuleEvaluation]] = {}
             selected_evaluation_by_url: dict[str, RuleEvaluation] = {}
@@ -346,11 +405,11 @@ def fetch_offers(
                     existing_offer_id = existing_offer_ids.get(canonical_url)
                     if existing_offer_id is not None:
                         score_rows.extend(
-                            (existing_offer_id, preset_id, preset_evaluation)
+                            (existing_offer_id, profile_id, preset_id, preset_evaluation)
                             for preset_id, preset_evaluation in preset_evaluations.items()
                         )
                         screening_rows.append(
-                            (existing_offer_id, str(profile_path), evaluation, screening_threshold)
+                            (existing_offer_id, profile_id, str(profile_path), evaluation, screening_threshold)
                         )
                         if canonical_url in existing_url_ids:
                             upsert_jobs.append(job)
@@ -385,10 +444,10 @@ def fetch_offers(
                 preset_evaluations = evaluations_by_url[canonical_url]
                 evaluation = selected_evaluation_by_url[canonical_url]
                 score_rows.extend(
-                    (offer_id, preset_id, preset_evaluation)
+                    (offer_id, profile_id, preset_id, preset_evaluation)
                     for preset_id, preset_evaluation in preset_evaluations.items()
                 )
-                screening_rows.append((offer_id, str(profile_path), evaluation, screening_threshold))
+                screening_rows.append((offer_id, profile_id, str(profile_path), evaluation, screening_threshold))
                 if canonical_url not in existing_offer_ids:
                     matches.append((job, evaluation))
 
@@ -414,20 +473,20 @@ def fetch_offers(
         )
         return stop_after_page
 
-    if target_new_offers is None and not fast_backfill_active and fetch_concurrency > 1:
+    if not fast_backfill_active and fetch_concurrency > 1:
         page_numbers = list(range(page, page + page_limit))
         page_results: dict[int, list[JobOffer]] = {}
         failed_pages: set[int] = set()
         _emit(
             messages,
             progress,
-            f"Fetching provider pages with concurrency {fetch_concurrency}.",
+            f"Provider {source} starting {len(page_numbers)} page tasks with fetch concurrency {fetch_concurrency}.",
         )
         with ThreadPoolExecutor(max_workers=fetch_concurrency) as executor:
-            futures = {
-                executor.submit(fetch_provider_page, fetch_page): fetch_page
-                for fetch_page in page_numbers
-            }
+            futures = {}
+            for fetch_page in page_numbers:
+                _emit(messages, progress, f"Provider {source} page {fetch_page} started.")
+                futures[executor.submit(fetch_provider_page, fetch_page)] = fetch_page
             for future in as_completed(futures):
                 _raise_if_cancelled(cancelled)
                 completed_page = futures[future]
@@ -438,7 +497,10 @@ def fetch_offers(
                     _emit(
                         messages,
                         progress,
-                        f"Fetched provider page {completed_page}: {len(page_results[completed_page])} offers.",
+                        (
+                            f"Provider {source} page {completed_page} completed: "
+                            f"{len(page_results[completed_page])} offers in {page_elapsed:.2f}s."
+                        ),
                     )
                 except Exception as error:
                     errors += 1
@@ -471,7 +533,7 @@ def fetch_offers(
             last_seen_identity = _offer_exploration_id(jobs[-1])
 
             page_counts = {"already_seen": 0, "newly_explored": 0}
-            process_jobs_batch(jobs, page_counts=page_counts)
+            stop_after_page = process_jobs_batch(jobs, page_counts=page_counts)
             if page_counts["already_seen"] == len(jobs) and page_counts["newly_explored"] == 0:
                 consecutive_seen_pages += 1
                 if consecutive_seen_pages >= max_seen_pages:
@@ -483,9 +545,12 @@ def fetch_offers(
                     break
             else:
                 consecutive_seen_pages = 0
+            if stop_after_page or (target_new_offers is not None and newly_explored >= target_new_offers):
+                _emit(messages, progress, f"Processed {newly_explored} newly explored offers.")
+                break
 
     while pages_scanned < page_limit and not (
-        target_new_offers is None and not fast_backfill_active and fetch_concurrency > 1
+        not fast_backfill_active and fetch_concurrency > 1
     ):
         _raise_if_cancelled(cancelled)
         try:
