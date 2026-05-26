@@ -1,6 +1,6 @@
 """Focused import surface for offers storage helpers."""
 
-from app.storage._sqlite_impl import (
+from app.storage._offers_impl import (
     upsert_offers,
     upsert_offers_batch,
     find_existing_offer_id,

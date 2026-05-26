@@ -1,6 +1,6 @@
 """Focused import surface for models storage helpers."""
 
-from app.storage._sqlite_impl import (
+from app.storage._common import (
     StoredOffer,
     UpsertStats,
     ExploredOfferRecord,

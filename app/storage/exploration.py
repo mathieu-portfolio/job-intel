@@ -1,6 +1,6 @@
 """Focused import surface for exploration storage helpers."""
 
-from app.storage._sqlite_impl import (
+from app.storage._exploration_impl import (
     has_explored_offer,
     has_explored_offers_batch,
     record_explored_offer,

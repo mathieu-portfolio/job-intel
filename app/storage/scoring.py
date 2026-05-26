@@ -1,6 +1,6 @@
 """Focused import surface for scoring storage helpers."""
 
-from app.storage._sqlite_impl import (
+from app.storage._scoring_impl import (
     list_scoring_presets,
     get_scoring_preset,
     save_offer_score,

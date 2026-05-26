@@ -1,6 +1,6 @@
 """Focused import surface for maintenance storage helpers."""
 
-from app.storage._sqlite_impl import (
+from app.storage._maintenance_impl import (
     DEFAULT_EXPLORED_CAPACITY,
     DEFAULT_RANKED_CAPACITY,
     DEFAULT_UNRANKED_CAPACITY,
