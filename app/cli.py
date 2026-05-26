@@ -13,15 +13,15 @@ from rich.table import Table
 from app.llm.factory import ProviderName
 from app.models.evaluation import AiJobEvaluation, FinalDecision, RuleEvaluation, WeightedTermMatch
 from app.models.job import JobOffer
-from app.storage.sqlite import (
-    DEFAULT_DB_PATH,
+from app.storage.connection import DEFAULT_DB_PATH
+from app.storage.maintenance import (
     DEFAULT_EXPLORED_CAPACITY,
     DEFAULT_RANKED_CAPACITY,
     DEFAULT_UNRANKED_CAPACITY,
-    VALID_CLEAR_SCOPES,
     clear_data,
     get_clear_plan,
 )
+from app.storage.models import VALID_CLEAR_SCOPES
 from app.workflows import (
     FetchSource,
     RankingMode,

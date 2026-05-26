@@ -15,7 +15,8 @@ from app.models.job import JobOffer
 from app.sources.adzuna import fetch_adzuna
 from app.sources.arbeitnow import fetch_arbeitnow
 from app.storage.files import load_profile
-from app.storage.sqlite import DEFAULT_DB_PATH, init_db, list_scoring_presets
+from app.storage.connection import DEFAULT_DB_PATH, init_db
+from app.storage.scoring import list_scoring_presets
 
 
 @dataclass(frozen=True)

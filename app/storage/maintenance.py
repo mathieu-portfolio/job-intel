@@ -1,6 +1,9 @@
 """Focused import surface for maintenance storage helpers."""
 
 from app.storage._sqlite_impl import (
+    DEFAULT_EXPLORED_CAPACITY,
+    DEFAULT_RANKED_CAPACITY,
+    DEFAULT_UNRANKED_CAPACITY,
     get_storage_counts,
     prune_storage,
     get_clear_plan,
@@ -8,6 +11,9 @@ from app.storage._sqlite_impl import (
 )
 
 __all__ = [
+    "DEFAULT_EXPLORED_CAPACITY",
+    "DEFAULT_RANKED_CAPACITY",
+    "DEFAULT_UNRANKED_CAPACITY",
     "get_storage_counts",
     "prune_storage",
     "get_clear_plan",

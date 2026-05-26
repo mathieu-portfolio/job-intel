@@ -14,17 +14,13 @@ if str(ROOT) not in sys.path:
 from app.filtering.rules import evaluate_job, precompute_rule_matching
 from app.models.job import JobOffer
 from app.storage.files import load_profile
-from app.storage.sqlite import (
-    DEFAULT_DB_PATH,
-    find_existing_offer_ids_batch,
-    has_explored_offers_batch,
-    init_db,
+from app.storage.connection import DEFAULT_DB_PATH, init_db, open_connection
+from app.storage.exploration import has_explored_offers_batch, record_explored_jobs_batch
+from app.storage.offers import find_existing_offer_ids_batch, upsert_offers_batch
+from app.storage.scoring import (
     list_scoring_presets,
-    open_connection,
-    record_explored_jobs_batch,
     save_offer_scores_batch,
     save_screening_results_batch,
-    upsert_offers_batch,
 )
 
 
