@@ -11,6 +11,8 @@ __all__ = [
     "ProviderSearchRequest",
     "RankWorkflowResult",
     "WorkflowCancelled",
+    "_exploration_scope_key",
+    "_exploration_scope_payload",
     "fetch_offers",
     "format_timeout",
     "iter_profile_search_requests",

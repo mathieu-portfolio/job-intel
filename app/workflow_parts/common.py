@@ -73,6 +73,7 @@ def _raise_if_cancelled(cancelled: CancellationCheck | None) -> None:
         raise WorkflowCancelled("Workflow cancelled.")
 
 
+@dataclass(frozen=True)
 class FetchWorkflowResult:
     source: FetchSource
     db_path: Path
@@ -85,6 +86,7 @@ class FetchWorkflowResult:
     provider_keys: frozenset[tuple[str, str]] = field(default_factory=frozenset)
 
 
+@dataclass(frozen=True)
 class RankWorkflowResult:
     profile_path: Path
     db_path: Path
@@ -102,11 +104,13 @@ class RankWorkflowResult:
     messages: list[str] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
 class ProviderSearchRequest:
     query: str
     where: str | None = None
 
 
+@dataclass(frozen=True)
 class FetchRequestSummary:
     query: str
     where: str | None
@@ -262,3 +266,8 @@ def iter_profile_search_requests(
         for search_query in queries
         for search_where in locations
     ]
+
+
+# Split workflow modules intentionally use `from app.workflow_parts.common import *`.
+# Include underscored helpers so the split keeps the old monolith's private wiring.
+__all__ = [name for name in globals() if not name.startswith("__")]

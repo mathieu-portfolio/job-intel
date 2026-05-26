@@ -24,6 +24,7 @@ DEFAULT_UNRANKED_CAPACITY = 1_000
 DEFAULT_RANKED_CAPACITY = 300
 ClearScope = Literal["rankings", "offers", "explored", "all"]
 VALID_CLEAR_SCOPES: set[str] = {"rankings", "offers", "explored", "all"}
+VALID_REVIEW_STATUSES: set[str] = {"new", "saved", "skipped", "applied"}
 
 
 @dataclass(frozen=True)

@@ -256,7 +256,6 @@ def rank(
     only_recent_days: int | None = typer.Option(None, min=1, help="Only rank offers seen or published in the last N days."),
     dry_run: bool = typer.Option(False, help="Print jobs that would be evaluated without calling an LLM."),
     min_score: int = typer.Option(40, help="Minimum calibrated rule score before AI evaluation."),
-    weights_path: Path | None = typer.Option(None, help="Optional rule scoring weights JSON path."),
     ranking_mode: RankingMode = typer.Option(
         "hybrid",
         "--ranking-mode",
@@ -280,7 +279,6 @@ def rank(
             only_recent_days=only_recent_days,
             dry_run=dry_run,
             min_score=min_score,
-            weights_path=weights_path,
             ranking_mode=ranking_mode,
             provider=provider,
             preset_id=preset,

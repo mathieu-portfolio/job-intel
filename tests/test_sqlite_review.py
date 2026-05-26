@@ -17,7 +17,7 @@ from app.storage.exploration import (
     save_exploration_metadata,
 )
 from app.storage.maintenance import clear_data, get_clear_plan, get_storage_counts, prune_storage
-from app.storage.offers import exclude_existing_offers, update_offer_status, upsert_offers
+from app.storage.offers import exclude_existing_offers, find_existing_offer_id, update_offer_status, upsert_offers
 from app.storage.reviews import (
     clear_rankings,
     create_ranking_run,
@@ -27,6 +27,7 @@ from app.storage.reviews import (
     list_unranked_review_offers,
     save_ranking,
 )
+from app.storage.scoring import save_offer_score, save_screening_result
 from app.workflows import WorkflowCancelled, _exploration_scope_key, _exploration_scope_payload
 from app.workflows import fetch_offers, rank_offers
 
@@ -833,7 +834,7 @@ class SqliteReviewTests(unittest.TestCase):
                 db_path=db_path,
             )
 
-            with patch("app.workflows.fetch_arbeitnow", return_value=[existing, new]):
+            with patch("app.workflow_parts.fetch.fetch_arbeitnow", return_value=[existing, new]):
                 result = fetch_offers(
                     source="arbeitnow",
                     db_path=db_path,
@@ -856,7 +857,7 @@ class SqliteReviewTests(unittest.TestCase):
             for job in seen_jobs:
                 record_explored_job(job, status="inserted", db_path=db_path)
 
-            with patch("app.workflows.fetch_arbeitnow", side_effect=[seen_jobs, [new]]) as fetch_mock:
+            with patch("app.workflow_parts.fetch.fetch_arbeitnow", side_effect=[seen_jobs, [new]]) as fetch_mock:
                 result = fetch_offers(
                     source="arbeitnow",
                     db_path=db_path,
@@ -878,7 +879,7 @@ class SqliteReviewTests(unittest.TestCase):
             new = _source_job("new", "https://example.com/new", "C++ Simulation")
             record_explored_job(seen, status="filtered_out", db_path=db_path)
 
-            with patch("app.workflows.fetch_arbeitnow", side_effect=[[seen], [new]]):
+            with patch("app.workflow_parts.fetch.fetch_arbeitnow", side_effect=[[seen], [new]]):
                 result = fetch_offers(
                     source="arbeitnow",
                     db_path=db_path,
@@ -898,7 +899,7 @@ class SqliteReviewTests(unittest.TestCase):
             first = _source_job("source-1", "https://example.com/one", "C++ Simulation One")
             second = _source_job("source-2", "https://example.com/two", "C++ Simulation Two")
 
-            with patch("app.workflows.fetch_arbeitnow", side_effect=[[first], [second]]):
+            with patch("app.workflow_parts.fetch.fetch_arbeitnow", side_effect=[[first], [second]]):
                 result = fetch_offers(
                     source="arbeitnow",
                     db_path=db_path,
@@ -919,7 +920,7 @@ class SqliteReviewTests(unittest.TestCase):
             inserted = _source_job("inserted", "https://example.com/inserted", "C++ Simulation")
             extra = _source_job("extra", "https://example.com/extra", "C++ Simulation Extra")
 
-            with patch("app.workflows.fetch_arbeitnow", side_effect=[[filtered, inserted], [extra]]) as fetch_mock:
+            with patch("app.workflow_parts.fetch.fetch_arbeitnow", side_effect=[[filtered, inserted], [extra]]) as fetch_mock:
                 result = fetch_offers(
                     source="arbeitnow",
                     db_path=db_path,
@@ -940,7 +941,7 @@ class SqliteReviewTests(unittest.TestCase):
             first = _source_job("source-1", "https://example.com/one", "C++ Simulation One")
             second = _source_job("source-2", "https://example.com/two", "C++ Simulation Two")
 
-            with patch("app.workflows.fetch_arbeitnow", side_effect=[[first], [second]]):
+            with patch("app.workflow_parts.fetch.fetch_arbeitnow", side_effect=[[first], [second]]):
                 result = fetch_offers(
                     source="arbeitnow",
                     db_path=db_path,
@@ -963,7 +964,7 @@ class SqliteReviewTests(unittest.TestCase):
             for job in [seen_one, seen_two]:
                 record_explored_job(job, status="inserted", db_path=db_path)
 
-            with patch("app.workflows.fetch_arbeitnow", side_effect=[[seen_one], [seen_two], [new]]):
+            with patch("app.workflow_parts.fetch.fetch_arbeitnow", side_effect=[[seen_one], [seen_two], [new]]):
                 result = fetch_offers(
                     source="arbeitnow",
                     db_path=db_path,
@@ -984,7 +985,7 @@ class SqliteReviewTests(unittest.TestCase):
             filtered = _source_job("source-1", "https://example.com/filtered", "No Description")
             filtered.description = ""
 
-            with patch("app.workflows.fetch_arbeitnow", return_value=[filtered]):
+            with patch("app.workflow_parts.fetch.fetch_arbeitnow", return_value=[filtered]):
                 result = fetch_offers(
                     source="arbeitnow",
                     db_path=db_path,
@@ -1032,7 +1033,7 @@ class SqliteReviewTests(unittest.TestCase):
             db_path = Path(temp_dir) / "jobs.sqlite"
             new = _source_job("new", "https://example.com/new", "C++ Simulation")
 
-            with patch("app.workflows.fetch_arbeitnow", return_value=[new]):
+            with patch("app.workflow_parts.fetch.fetch_arbeitnow", return_value=[new]):
                 result = fetch_offers(
                     source="arbeitnow",
                     db_path=db_path,
@@ -1057,7 +1058,7 @@ class SqliteReviewTests(unittest.TestCase):
             previous_newest = _source_job("previous-newest", "https://example.com/previous-newest", "Previous")
             previous_oldest = _source_job("previous-oldest", "https://example.com/previous-oldest", "Previous Oldest")
 
-            with patch("app.workflows.fetch_arbeitnow", side_effect=[[new_top, previous_newest], [previous_oldest]]):
+            with patch("app.workflow_parts.fetch.fetch_arbeitnow", side_effect=[[new_top, previous_newest], [previous_oldest]]):
                 result = fetch_offers(
                     source="arbeitnow",
                     db_path=db_path,
@@ -1080,7 +1081,7 @@ class SqliteReviewTests(unittest.TestCase):
             )
             previous_newest = _source_job("previous-newest", "https://example.com/previous-newest", "Previous")
 
-            with patch("app.workflows.fetch_arbeitnow", side_effect=[[previous_newest], []]) as fetch_mock:
+            with patch("app.workflow_parts.fetch.fetch_arbeitnow", side_effect=[[previous_newest], []]) as fetch_mock:
                 fetch_offers(
                     source="arbeitnow",
                     db_path=db_path,
@@ -1105,7 +1106,7 @@ class SqliteReviewTests(unittest.TestCase):
             previous_oldest = _source_job("previous-oldest", "https://example.com/previous-oldest", "Previous Oldest")
             older = _source_job("older", "https://example.com/older", "C++ Simulation Older")
 
-            with patch("app.workflows.fetch_arbeitnow", side_effect=[[previous_newest], [skipped], [previous_oldest, older]]):
+            with patch("app.workflow_parts.fetch.fetch_arbeitnow", side_effect=[[previous_newest], [skipped], [previous_oldest, older]]):
                 result = fetch_offers(
                     source="arbeitnow",
                     db_path=db_path,
@@ -1133,7 +1134,7 @@ class SqliteReviewTests(unittest.TestCase):
             already_seen = _source_job("already-seen", "https://example.com/already-seen", "Already Seen")
             record_explored_job(already_seen, status="inserted", db_path=db_path)
 
-            with patch("app.workflows.fetch_arbeitnow", side_effect=[[previous_newest], [previous_oldest, already_seen]]):
+            with patch("app.workflow_parts.fetch.fetch_arbeitnow", side_effect=[[previous_newest], [previous_oldest, already_seen]]):
                 result = fetch_offers(
                     source="arbeitnow",
                     db_path=db_path,
@@ -1153,7 +1154,7 @@ class SqliteReviewTests(unittest.TestCase):
             self._write_profile(profile_path, positive_signals={"simulation": 50}, threshold=40)
             matching = _source_job("source-1", "https://example.com/match", "Simulation Engineer")
 
-            with patch("app.workflows.fetch_arbeitnow", return_value=[matching]):
+            with patch("app.workflow_parts.fetch.fetch_arbeitnow", return_value=[matching]):
                 result = fetch_offers(
                     source="arbeitnow",
                     db_path=db_path,
@@ -1178,7 +1179,7 @@ class SqliteReviewTests(unittest.TestCase):
             self._write_profile(profile_path, positive_signals={"python": 50}, threshold=40)
             old_global_match = _source_job("source-1", "https://example.com/cpp", "C++ Simulation Engineer")
 
-            with patch("app.workflows.fetch_arbeitnow", return_value=[old_global_match]):
+            with patch("app.workflow_parts.fetch.fetch_arbeitnow", return_value=[old_global_match]):
                 result = fetch_offers(
                     source="arbeitnow",
                     db_path=db_path,
@@ -1211,7 +1212,7 @@ class SqliteReviewTests(unittest.TestCase):
             first = _source_job("adzuna-1", "https://example.com/adzuna-1", "Systems Engineer")
             second = _source_job("adzuna-2", "https://example.com/adzuna-2", "Simulation Engineer")
 
-            with patch("app.workflows.fetch_adzuna", side_effect=[[first], [second]]) as fetch_mock:
+            with patch("app.workflow_parts.fetch.fetch_adzuna", side_effect=[[first], [second]]) as fetch_mock:
                 result = fetch_offers(
                     source="adzuna",
                     db_path=db_path,
@@ -1228,7 +1229,7 @@ class SqliteReviewTests(unittest.TestCase):
                 [call.kwargs["query"] for call in fetch_mock.call_args_list],
                 ["systems engineer", "ingénieur simulation"],
             )
-            self.assertTrue(any("Using 2 profile search requests" in message for message in result.messages))
+            self.assertTrue(any("Fetch plan: 2 profile search requests" in message for message in result.messages))
 
     def test_adzuna_manual_query_overrides_profile_search_queries(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1241,7 +1242,7 @@ class SqliteReviewTests(unittest.TestCase):
             )
             offer = _source_job("manual", "https://example.com/manual", "Manual Query Engineer")
 
-            with patch("app.workflows.fetch_adzuna", return_value=[offer]) as fetch_mock:
+            with patch("app.workflow_parts.fetch.fetch_adzuna", return_value=[offer]) as fetch_mock:
                 result = fetch_offers(
                     source="adzuna",
                     db_path=db_path,
@@ -1275,7 +1276,7 @@ class SqliteReviewTests(unittest.TestCase):
             )
             duplicate = _source_job("same-offer", "https://example.com/same", "Systems Engineer")
 
-            with patch("app.workflows.fetch_adzuna", side_effect=[[duplicate], [duplicate]]):
+            with patch("app.workflow_parts.fetch.fetch_adzuna", side_effect=[[duplicate], [duplicate]]):
                 result = fetch_offers(
                     source="adzuna",
                     db_path=db_path,
@@ -1299,7 +1300,7 @@ class SqliteReviewTests(unittest.TestCase):
             self._write_profile(profile_path, positive_signals={"simulation": 50}, threshold=40)
             matching = _source_job("source-1", "https://example.com/match", "Simulation Engineer")
 
-            with patch("app.workflows.fetch_arbeitnow", return_value=[matching]):
+            with patch("app.workflow_parts.fetch.fetch_arbeitnow", return_value=[matching]):
                 fetch_offers(
                     source="arbeitnow",
                     db_path=db_path,
@@ -1506,9 +1507,23 @@ class SqliteReviewTests(unittest.TestCase):
 """.strip(),
                 encoding="utf-8",
             )
-            upsert_offers(
-                [_job("https://example.com/rules", "C++ Simulation Engineer", "Berlin")],
+            job = _job("https://example.com/rules", "C++ Simulation Engineer", "Berlin")
+            upsert_offers([job], db_path=db_path)
+            offer_id = find_existing_offer_id(job, db_path=db_path)
+            self.assertIsNotNone(offer_id)
+            evaluation = evaluate_job(job)
+            save_offer_score(
                 db_path=db_path,
+                offer_id=offer_id,
+                preset_id="balanced",
+                evaluation=evaluation,
+            )
+            save_screening_result(
+                db_path=db_path,
+                offer_id=offer_id,
+                profile_path=str(profile_path),
+                evaluation=evaluation,
+                threshold=0,
             )
 
             result = rank_offers(

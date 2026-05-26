@@ -27,7 +27,7 @@ from app.storage.reviews import (
     list_unranked_review_offers,
 )
 from app.storage.scoring import list_scoring_presets, list_screened_offers
-from app.ui_options import ADZUNA_MARKETS, discover_profiles, discover_weight_files
+from app.ui_options import ADZUNA_MARKETS, discover_profiles
 from app.workflows import WorkflowCancelled, fetch_offers, rank_offers
 
 
@@ -54,11 +54,6 @@ def _optional_positive_int(value: str | None) -> int | None:
         return None
     parsed = _positive_int(cleaned, 0)
     return parsed or None
-
-
-def _optional_path(value: str | None) -> Path | None:
-    cleaned = (value or "").strip()
-    return Path(cleaned) if cleaned else None
 
 
 def _workflow_notice(kind: str, title: str, summary: dict[str, object], messages: list[str] | None = None) -> dict[str, object]:
@@ -208,7 +203,6 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 "options": get_review_filter_options(request.app.state.db_path),
                 "scoring_presets": list_scoring_presets(request.app.state.db_path, enabled_only=True),
                 "profiles": discover_profiles(),
-                "weight_files": discover_weight_files(),
                 "location_suggestions": list_offer_locations(request.app.state.db_path),
                 "db_path": request.app.state.db_path,
                 "workflow_notice": _consume_workflow_notice(request),
@@ -414,7 +408,6 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
         cancellation = _cancellation_event(request, token)
         progress = lambda message: _record_workflow_progress(request, token, message)
         try:
-            weights_path = _optional_path(form.get("weights_path"))
             result = await run_in_threadpool(
                 rank_offers,
                 profile_path=Path(form.get("profile") or "profiles/default.json"),
@@ -422,7 +415,6 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 limit=_positive_int(form.get("limit"), 10),
                 only_recent_days=_optional_positive_int(form.get("only_recent_days")),
                 min_score=_positive_int(form.get("min_score"), 40),
-                weights_path=weights_path,
                 ranking_mode="ai",
                 provider=((form.get("provider") or "").strip() or None),  # type: ignore[arg-type]
                 model=(form.get("model") or "").strip() or None,

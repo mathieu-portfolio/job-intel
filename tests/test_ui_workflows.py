@@ -3,22 +3,24 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
 from app.models.job import JobOffer
 from app.storage.exploration import record_explored_job
 from app.storage.maintenance import get_storage_counts
-from app.storage.offers import upsert_offers
+from app.storage.offers import find_existing_offer_id, upsert_offers
 from app.storage.reviews import (
     create_ranking_run,
     list_ranked_offers,
     list_unranked_review_offers,
     save_ranking,
 )
-from app.storage.scoring import save_offer_score
+from app.storage.scoring import save_offer_score, save_screening_result
 from app.filtering.rules import evaluate_job
 from app.ui import create_app
+from app.workflows import ProviderSearchRequest
 
 
 def _job(
@@ -39,6 +41,12 @@ def _job(
 
 
 class UiWorkflowTests(unittest.TestCase):
+    def test_provider_search_request_accepts_real_arguments(self) -> None:
+        request = ProviderSearchRequest(query="C++ developer", where="Paris")
+
+        self.assertEqual(request.query, "C++ developer")
+        self.assertEqual(request.where, "Paris")
+
     def assert_confirm_happens_before_loading_state(self, html: str) -> None:
         confirm_index = html.find("confirm(message)")
         disabled_index = html.find("button.disabled = true")
@@ -169,6 +177,45 @@ class UiWorkflowTests(unittest.TestCase):
             self.assertIn("Market is required when fetching from Adzuna.", response.text)
             self.assertNotIn("Preparing workflow", response.text)
 
+    def test_fetch_action_runs_with_mocked_provider_and_renders_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base_path = Path(temp_dir)
+            db_path = base_path / "jobs.sqlite"
+            profile_path = base_path / "profile.json"
+            profile_path.write_text(
+                """
+{
+  "interests": ["C++", "simulation", "systems"],
+  "preferred_domains": ["simulation"],
+  "strengths": ["C++"],
+  "location_preferences": ["Paris"],
+  "target_seniority": "mid"
+}
+""".strip(),
+                encoding="utf-8",
+            )
+            job = _job("https://example.com/fetched-workflow", "C++ Simulation Engineer", "Paris")
+            client = TestClient(create_app(db_path))
+
+            with patch("app.workflow_parts.fetch.fetch_arbeitnow", return_value=[job]):
+                response = client.post(
+                    "/workflows/fetch",
+                    data={
+                        "source": "arbeitnow",
+                        "profile": str(profile_path),
+                        "new_offers": "1",
+                        "max_pages": "1",
+                        "min_score": "0",
+                    },
+                    follow_redirects=True,
+                )
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("Fetch complete", response.text)
+            self.assertIn("C++ Simulation Engineer", response.text)
+            self.assertNotIn("ProviderSearchRequest() takes no arguments", response.text)
+            self.assertNotIn("Preparing workflow", response.text)
+
     def test_clear_fetched_action_clears_offers_and_redirects_to_fetched_page(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "jobs.sqlite"
@@ -288,9 +335,23 @@ class UiWorkflowTests(unittest.TestCase):
 """.strip(),
                 encoding="utf-8",
             )
-            upsert_offers(
-                [_job("https://example.com/rules", "C++ Simulation Engineer", "Berlin")],
+            job = _job("https://example.com/rules", "C++ Simulation Engineer", "Berlin")
+            upsert_offers([job], db_path=db_path)
+            offer_id = find_existing_offer_id(job, db_path=db_path)
+            self.assertIsNotNone(offer_id)
+            evaluation = evaluate_job(job)
+            save_offer_score(
                 db_path=db_path,
+                offer_id=offer_id,
+                preset_id="balanced",
+                evaluation=evaluation,
+            )
+            save_screening_result(
+                db_path=db_path,
+                offer_id=offer_id,
+                profile_path=str(profile_path),
+                evaluation=evaluation,
+                threshold=0,
             )
 
             client = TestClient(create_app(db_path))
@@ -308,6 +369,8 @@ class UiWorkflowTests(unittest.TestCase):
             self.assertIn("Rank complete", response.text)
             self.assertIn("Saved AI reviews", response.text)
             self.assertIn("C++ Simulation Engineer", response.text)
+            self.assertNotIn("name &#39;_emit&#39; is not defined", response.text)
+            self.assertNotIn("name '_emit' is not defined", response.text)
             self.assertNotIn("Preparing workflow", response.text)
 
     def test_fetched_offers_page_lists_unranked_offers_with_search(self) -> None:

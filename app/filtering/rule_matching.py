@@ -9,11 +9,13 @@ from functools import lru_cache
 from app.models.profile import CandidateProfile, ProfileSignalItem
 from app.filtering.rule_config import RuleScoringConfig
 
+@dataclass(frozen=True)
 class Alias:
     text: str
     language: str | None = None
 
 
+@dataclass(frozen=True)
 class MatchResult:
     canonical_term: str
     matched_alias: str

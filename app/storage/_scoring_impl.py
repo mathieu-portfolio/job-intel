@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from app.storage._common import *  # noqa: F401,F403
 from app.storage._offers_impl import _job_from_offer_row
-from app.storage._reviews_impl import _main_signal_terms
+from app.storage._reviews_impl import _main_signal_terms, _like_pattern
 
 def save_screening_result(
     *,

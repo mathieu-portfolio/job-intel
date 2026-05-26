@@ -10,6 +10,7 @@ from app.storage._common import (
     ExplorationMetadata,
     ClearScope,
     VALID_CLEAR_SCOPES,
+    VALID_REVIEW_STATUSES,
 )
 
 __all__ = [
@@ -22,4 +23,5 @@ __all__ = [
     "ExplorationMetadata",
     "ClearScope",
     "VALID_CLEAR_SCOPES",
+    "VALID_REVIEW_STATUSES",
 ]
