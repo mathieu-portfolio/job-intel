@@ -81,6 +81,8 @@ class FetchWorkflowResult:
     matched_count: int
     matches: list[tuple[JobOffer, RuleEvaluation]]
     messages: list[str] = field(default_factory=list)
+    request_summaries: list[FetchRequestSummary] = field(default_factory=list)
+    provider_keys: frozenset[tuple[str, str]] = field(default_factory=frozenset)
 
 
 @dataclass(frozen=True)
@@ -105,6 +107,20 @@ class RankWorkflowResult:
 class ProviderSearchRequest:
     query: str
     where: str | None = None
+
+
+@dataclass(frozen=True)
+class FetchRequestSummary:
+    query: str
+    where: str | None
+    pages_scanned: int
+    provider_rows: int
+    unique_provider_rows: int
+    duplicate_provider_rows: int
+    newly_explored: int
+    already_seen: int
+    filtered_out: int
+    screened: int
 
 
 def _emit(messages: list[str], progress: ProgressCallback | None, message: str) -> None:
@@ -162,6 +178,15 @@ def ranking_result_payload(
 
 def _offer_exploration_id(job: JobOffer) -> str:
     return job.source_id or str(job.url)
+
+
+def _offer_provider_key(job: JobOffer) -> tuple[str, str]:
+    return (job.source, _offer_exploration_id(job))
+
+
+def _format_search_request(request: ProviderSearchRequest) -> str:
+    query = request.query or "<broad>"
+    return f"{query}{f' @ {request.where}' if request.where else ''}"
 
 
 def _exploration_scope_payload(
@@ -294,15 +319,15 @@ def fetch_offers(
         use_profile_queries=use_profile_queries,
     )
     if len(search_requests) > 1:
+        planned_pages_per_request = max_pages if new_offers is not None and max_pages is not None else pages
         _emit(
             messages,
             progress,
             (
-                f"Using {len(search_requests)} profile search requests for {source}: "
-                + "; ".join(
-                    f"{request.query}{f' @ {request.where}' if request.where else ''}"
-                    for request in search_requests[:8]
-                )
+                f"Fetch plan: {len(search_requests)} profile search requests for {source}; "
+                f"up to {planned_pages_per_request} pages/request; "
+                f"up to {len(search_requests) * planned_pages_per_request} provider page requests. "
+                + "; ".join(_format_search_request(request) for request in search_requests[:8])
                 + ("; ..." if len(search_requests) > 8 else "")
             ),
         )
@@ -313,6 +338,9 @@ def fetch_offers(
         aggregate_deleted_explored = 0
         aggregate_deleted_unranked = 0
         aggregate_deleted_ranked = 0
+        aggregate_summaries: list[FetchRequestSummary] = []
+        aggregate_provider_keys: set[tuple[str, str]] = set()
+        duplicate_provider_rows_across_requests = 0
         for search_request in search_requests:
             remaining_new_offers = (
                 None
@@ -342,6 +370,10 @@ def fetch_offers(
                 progress=progress,
                 cancelled=cancelled,
             )
+            request_duplicate_keys = aggregate_provider_keys.intersection(result.provider_keys)
+            duplicate_provider_rows_across_requests += len(request_duplicate_keys)
+            aggregate_provider_keys.update(result.provider_keys)
+            aggregate_summaries.extend(result.request_summaries)
             aggregate_stats = UpsertStats(
                 fetched=aggregate_stats.fetched + result.stats.fetched,
                 inserted=aggregate_stats.inserted + result.stats.inserted,
@@ -375,6 +407,19 @@ def fetch_offers(
             before=aggregate_prune.before,
             after=aggregate_prune.after,
         )
+        screened_total = aggregate_stats.inserted + aggregate_stats.updated
+        requests_count = max(len(aggregate_summaries), 1)
+        _emit(
+            aggregate_messages,
+            progress,
+            (
+                "Fetch plan summary: "
+                f"requests {len(aggregate_summaries)}; pages {aggregate_stats.pages_scanned}; "
+                f"provider rows {aggregate_stats.fetched}; unique provider rows {len(aggregate_provider_keys)}; "
+                f"cross-query duplicates {duplicate_provider_rows_across_requests}; "
+                f"screened {screened_total}; screened/request {screened_total / requests_count:.1f}."
+            ),
+        )
         return FetchWorkflowResult(
             source=source,
             db_path=db_path,
@@ -383,6 +428,8 @@ def fetch_offers(
             matched_count=len(aggregate_matches),
             matches=aggregate_matches,
             messages=aggregate_messages,
+            request_summaries=aggregate_summaries,
+            provider_keys=frozenset(aggregate_provider_keys),
         )
 
     query = search_requests[0].query
@@ -413,6 +460,8 @@ def fetch_offers(
     pages_scanned = 0
     consecutive_seen_pages = 0
     matches: list[tuple[JobOffer, RuleEvaluation]] = []
+    provider_keys: set[tuple[str, str]] = set()
+    duplicate_provider_rows = 0
     screening_threshold = min_score if min_score is not None else candidate_profile.screening_threshold
     init_db(db_path)
     enabled_presets = list_scoring_presets(db_path, enabled_only=True)
@@ -624,6 +673,11 @@ def fetch_offers(
         pages_scanned += 1
         last_scanned_page = current_page
         fetched += len(jobs)
+        for job in jobs:
+            provider_key = _offer_provider_key(job)
+            if provider_key in provider_keys:
+                duplicate_provider_rows += 1
+            provider_keys.add(provider_key)
         _emit(messages, progress, f"Scanned page {current_page}: {len(jobs)} offers.")
         if not jobs:
             _emit(messages, progress, "Provider returned no more offers.")
@@ -708,6 +762,30 @@ def fetch_offers(
             f"updated {stats.updated}; errors {stats.errors}."
         ),
     )
+    request_summary = FetchRequestSummary(
+        query=query,
+        where=where,
+        pages_scanned=stats.pages_scanned,
+        provider_rows=stats.fetched,
+        unique_provider_rows=len(provider_keys),
+        duplicate_provider_rows=duplicate_provider_rows,
+        newly_explored=stats.newly_explored,
+        already_seen=stats.already_seen,
+        filtered_out=stats.filtered_out,
+        screened=stats.inserted + stats.updated,
+    )
+    _emit(
+        messages,
+        progress,
+        (
+            "Fetch request summary: "
+            f"query={request_summary.query or '<broad>'}; "
+            f"where={request_summary.where or '<any>'}; "
+            f"pages={request_summary.pages_scanned}; rows={request_summary.provider_rows}; "
+            f"unique={request_summary.unique_provider_rows}; duplicate_rows={request_summary.duplicate_provider_rows}; "
+            f"new={request_summary.newly_explored}; screened={request_summary.screened}."
+        ),
+    )
     total_elapsed = max(time.perf_counter() - total_started_at, 0.001)
     _emit(
         messages,
@@ -765,6 +843,8 @@ def fetch_offers(
         matched_count=len(matches),
         matches=matches,
         messages=messages,
+        request_summaries=[request_summary],
+        provider_keys=frozenset(provider_keys),
     )
 
 

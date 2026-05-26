@@ -7,6 +7,7 @@ from app._workflows_impl import *  # noqa: F401,F403
 
 __all__ = [
     "FetchWorkflowResult",
+    "FetchRequestSummary",
     "ProviderSearchRequest",
     "RankWorkflowResult",
     "WorkflowCancelled",

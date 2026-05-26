@@ -2,6 +2,7 @@
 
 from app._workflows_impl import (
     FetchWorkflowResult,
+    FetchRequestSummary,
     ProviderSearchRequest,
     fetch_offers,
     iter_profile_search_requests,
@@ -12,6 +13,7 @@ from app._workflows_impl import (
 
 __all__ = [
     "FetchWorkflowResult",
+    "FetchRequestSummary",
     "ProviderSearchRequest",
     "fetch_offers",
     "iter_profile_search_requests",
