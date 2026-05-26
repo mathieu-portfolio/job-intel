@@ -217,6 +217,9 @@ Profiles own candidate-specific scoring signals. The current profile format is J
 
 ```json
 {
+  "must_match": {
+    "any": ["systems", "simulation", "C++"]
+  },
   "signals": {
     "interests": [
       { "term": "systems", "weight": 1.0 },
@@ -228,6 +231,8 @@ Profiles own candidate-specific scoring signals. The current profile format is J
   }
 }
 ```
+
+When `must_match.any` contains terms, an offer is rejected before normal scoring unless at least one term appears in the title, company, location, description, or tags. Presets under `config/scoring_presets/` can also define `weights.must_match.any` for generic preset-level gates.
 
 Each category is normalized by its own total item weight, so adding more items does not automatically make that category dominate. Category weights and score calibration come from JSON scoring presets under `config/scoring_presets/`; profile JSON owns only item terms and item weights.
 

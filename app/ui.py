@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+from threading import Event
 from pathlib import Path
 from urllib.parse import parse_qs
+from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.concurrency import run_in_threadpool
 
 from app.storage.sqlite import (
     DEFAULT_DB_PATH,
@@ -25,7 +28,7 @@ from app.storage.sqlite import (
     update_offer_status,
 )
 from app.ui_options import ADZUNA_MARKETS, discover_profiles, discover_weight_files
-from app.workflows import fetch_offers, rank_offers
+from app.workflows import WorkflowCancelled, fetch_offers, rank_offers
 
 
 UI_DIR = Path(__file__).parent / "ui"
@@ -79,10 +82,26 @@ def _consume_workflow_notice(request: Request) -> dict[str, object] | None:
     return notice
 
 
+def _workflow_token(request: Request) -> str:
+    token = request.headers.get("x-workflow-token", "").strip()
+    return token or uuid4().hex
+
+
+def _cancellation_event(request: Request, token: str) -> Event:
+    event = Event()
+    request.app.state.workflow_cancellations[token] = event
+    return event
+
+
+def _clear_cancellation_event(request: Request, token: str) -> None:
+    request.app.state.workflow_cancellations.pop(token, None)
+
+
 def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
     app = FastAPI(title="Job Intel Review")
     app.state.db_path = db_path
     app.state.workflow_notice = None
+    app.state.workflow_cancellations = {}
     app.mount("/static", StaticFiles(directory=str(UI_DIR / "static")), name="static")
 
     @app.get("/", response_class=HTMLResponse)
@@ -255,13 +274,16 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
     @app.post("/workflows/fetch")
     async def run_fetch(request: Request):
         form = await _form_data(request)
+        token = _workflow_token(request)
+        cancellation = _cancellation_event(request, token)
         try:
             preview_limit = _positive_int(form.get("limit"), 20)
             source = form.get("source") or "arbeitnow"
             country = (form.get("country") or "").strip()
             if source == "adzuna" and not country:
                 raise ValueError("Market is required when fetching from Adzuna.")
-            result = fetch_offers(
+            result = await run_in_threadpool(
+                fetch_offers,
                 source=source,  # type: ignore[arg-type]
                 page=_positive_int(form.get("page"), 1),
                 new_offers=_positive_int(form.get("new_offers"), 20),
@@ -277,6 +299,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 unranked_capacity=_positive_int(form.get("unranked_capacity"), DEFAULT_UNRANKED_CAPACITY),
                 ranked_capacity=_positive_int(form.get("ranked_capacity"), DEFAULT_RANKED_CAPACITY),
                 exploration_mode=(form.get("exploration_mode") or "safe"),  # type: ignore[arg-type]
+                cancelled=cancellation.is_set,
             )
             request.app.state.workflow_notice = _workflow_notice(
                 "success",
@@ -303,20 +326,31 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                     for job, evaluation in result.matches[:preview_limit]
                 ],
             )
+        except WorkflowCancelled:
+            request.app.state.workflow_notice = _workflow_notice(
+                "error",
+                "Fetch cancelled",
+                {"Status": "Cancelled by user"},
+            )
         except Exception as error:
             request.app.state.workflow_notice = _workflow_notice(
                 "error",
                 "Fetch failed",
                 {"Error": str(error)},
             )
+        finally:
+            _clear_cancellation_event(request, token)
         return RedirectResponse("/explore", status_code=303)
 
     @app.post("/workflows/rank")
     async def run_rank(request: Request):
         form = await _form_data(request)
+        token = _workflow_token(request)
+        cancellation = _cancellation_event(request, token)
         try:
             weights_path = _optional_path(form.get("weights_path"))
-            result = rank_offers(
+            result = await run_in_threadpool(
+                rank_offers,
                 profile_path=Path(form.get("profile") or "profiles/default.json"),
                 db_path=request.app.state.db_path,
                 limit=_positive_int(form.get("limit"), 10),
@@ -327,6 +361,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 provider=((form.get("provider") or "").strip() or None),  # type: ignore[arg-type]
                 model=(form.get("model") or "").strip() or None,
                 preset_id=(form.get("preset") or "balanced").strip() or "balanced",
+                cancelled=cancellation.is_set,
             )
             request.app.state.workflow_notice = _workflow_notice(
                 "success",
@@ -341,13 +376,30 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 },
                 result.messages,
             )
+        except WorkflowCancelled:
+            request.app.state.workflow_notice = _workflow_notice(
+                "error",
+                "Rank cancelled",
+                {"Status": "Cancelled by user"},
+            )
         except Exception as error:
             request.app.state.workflow_notice = _workflow_notice(
                 "error",
                 "Rank failed",
                 {"Error": str(error)},
             )
+        finally:
+            _clear_cancellation_event(request, token)
         return RedirectResponse("/", status_code=303)
+
+    @app.post("/workflows/cancel")
+    async def cancel_workflow(request: Request):
+        form = await _form_data(request)
+        token = (form.get("token") or request.headers.get("x-workflow-token") or "").strip()
+        event = request.app.state.workflow_cancellations.get(token)
+        if event is not None:
+            event.set()
+        return {"cancelled": event is not None}
 
     @app.post("/offers/{offer_id}/status/{status}", response_model=None)
     def set_offer_status(request: Request, offer_id: int, status: str):

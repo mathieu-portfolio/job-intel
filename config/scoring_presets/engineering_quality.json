@@ -8,6 +8,9 @@
   "weights": {
     "positive_terms": {},
     "negative_terms": {},
+    "must_match": {
+      "any": []
+    },
     "category_weights": {
       "strengths": 0.30,
       "portfolio_projects": 0.25,

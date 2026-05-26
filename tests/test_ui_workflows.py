@@ -112,6 +112,7 @@ class UiWorkflowTests(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             self.assertIn("Clear complete", response.text)
             self.assertIn("Deleted AI reviews", response.text)
+            self.assertNotIn("Preparing workflow", response.text)
             self.assertEqual(len(list_ranked_offers(db_path=db_path)), 0)
 
     def test_fetched_page_renders_fetch_workflow_and_clear_fetched_action(self) -> None:
@@ -160,6 +161,7 @@ class UiWorkflowTests(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             self.assertIn("Fetch failed", response.text)
             self.assertIn("Market is required when fetching from Adzuna.", response.text)
+            self.assertNotIn("Preparing workflow", response.text)
 
     def test_clear_fetched_action_clears_offers_and_redirects_to_fetched_page(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -301,6 +303,7 @@ class UiWorkflowTests(unittest.TestCase):
             self.assertIn("Rank complete", response.text)
             self.assertIn("Saved AI reviews", response.text)
             self.assertIn("C++ Simulation Engineer", response.text)
+            self.assertNotIn("Preparing workflow", response.text)
 
     def test_fetched_offers_page_lists_unranked_offers_with_search(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

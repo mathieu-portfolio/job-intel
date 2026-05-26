@@ -8,6 +8,9 @@
   "weights": {
     "positive_terms": {},
     "negative_terms": {},
+    "must_match": {
+      "any": []
+    },
     "category_weights": {
       "interests": 0.20,
       "preferred_domains": 0.15,

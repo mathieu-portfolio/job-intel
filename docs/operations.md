@@ -71,6 +71,9 @@ Candidate-specific scoring terms live in profile JSON files. The scorer reads `s
 
 ```json
 {
+  "must_match": {
+    "any": ["systems", "simulation", "C++"]
+  },
   "signals": {
     "interests": [
       { "term": "systems", "weight": 1.0 },
@@ -82,6 +85,8 @@ Candidate-specific scoring terms live in profile JSON files. The scorer reads `s
   }
 }
 ```
+
+If `must_match.any` is present and non-empty in either the profile or the selected preset's `weights`, an offer must match at least one listed term before normal scoring runs. Otherwise it is assigned a skip decision with a zero fast score.
 
 Category scores are normalized by total item weight:
 

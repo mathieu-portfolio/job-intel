@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from app.models.evaluation import RuleEvaluation, WeightedTermMatch, recommendation_from_score
 from app.models.job import JobOffer
-from app.models.profile import CandidateProfile
+from app.models.profile import CandidateProfile, MustMatchRule
 
 DEFAULT_RULE_CONFIG_PATH = (
     Path(__file__).resolve().parents[2] / "config" / "scoring_presets" / "balanced.json"
@@ -18,6 +18,7 @@ DEFAULT_RULE_CONFIG_PATH = (
 class RuleScoringConfig(BaseModel):
     positive_terms: dict[str, int] = Field(default_factory=dict)
     negative_terms: dict[str, int] = Field(default_factory=dict)
+    must_match: MustMatchRule = Field(default_factory=MustMatchRule)
     category_weights: dict[str, float]
     no_signal_score: int
     positive_score_scale: float
@@ -50,6 +51,32 @@ def parse_rule_scoring_config(raw_config: object, *, source: str = "rule scoring
 def _contains_term(text: str, term: str) -> bool:
     escaped = re.escape(term.lower())
     return re.search(rf"(?<!\w){escaped}(?!\w)", text) is not None
+
+
+def _must_match_terms(
+    *,
+    config: RuleScoringConfig,
+    profile: CandidateProfile | None,
+) -> list[str]:
+    terms: list[str] = []
+    terms.extend(term for term in config.must_match.any if term.strip())
+    if profile is not None:
+        terms.extend(term for term in profile.must_match.any if term.strip())
+    return terms
+
+
+def _must_match_failure(
+    *,
+    text: str,
+    config: RuleScoringConfig,
+    profile: CandidateProfile | None,
+) -> str | None:
+    terms = _must_match_terms(config=config, profile=profile)
+    if not terms:
+        return None
+    if any(_contains_term(text, term) for term in terms):
+        return None
+    return f"Rejected because none of the must_match.any terms matched: {', '.join(terms)}."
 
 
 def _normalized_score(
@@ -158,6 +185,17 @@ def evaluate_job(
             " ".join(job.tags),
         ]
     ).lower()
+
+    must_match_failure = _must_match_failure(text=text, config=config, profile=profile)
+    if must_match_failure:
+        return RuleEvaluation(
+            score=0,
+            normalized_score=0,
+            matched_positive_terms=[],
+            matched_negative_terms=[],
+            decision="skip",
+            reasoning=[must_match_failure],
+        )
 
     configured_positives = _configured_term_matches(text=text, terms=config.positive_terms)
     configured_negatives = _configured_term_matches(text=text, terms=config.negative_terms)

@@ -30,7 +30,7 @@ from app.storage.sqlite import (
     update_offer_status,
     upsert_offers,
 )
-from app.workflows import _exploration_scope_key, _exploration_scope_payload
+from app.workflows import WorkflowCancelled, _exploration_scope_key, _exploration_scope_payload
 from app.workflows import fetch_offers, rank_offers
 
 
@@ -168,6 +168,70 @@ class SqliteReviewTests(unittest.TestCase):
         self.assertIn("positive_signals", profile.signals)
         self.assertIn("negative_signals", profile.signals)
         self.assertEqual(profile.signals["interests"].items[0].term, "simulation")
+
+    def test_fetch_workflow_honors_cancellation_before_loading_profile(self) -> None:
+        with self.assertRaises(WorkflowCancelled):
+            fetch_offers(cancelled=lambda: True)
+
+    def test_rank_workflow_honors_cancellation_before_loading_profile(self) -> None:
+        with self.assertRaises(WorkflowCancelled):
+            rank_offers(cancelled=lambda: True)
+
+    def test_profile_must_match_rejects_when_no_any_term_matches(self) -> None:
+        profile = CandidateProfile.model_validate(
+            {
+                "must_match": {"any": ["simulation"]},
+                "signals": {
+                    "interests": [{"term": "python", "weight": 1.0}],
+                },
+            }
+        )
+        config = RuleScoringConfig(
+            must_match={"any": []},
+            category_weights={"interests": 0.50},
+            no_signal_score=20,
+            positive_score_scale=80,
+            negative_score_scale=80,
+            strong_negative_threshold=-0.20,
+            strong_negative_score_cap=10,
+        )
+
+        evaluation = evaluate_job(
+            _job("https://example.com/python", "Python Developer"),
+            profile=profile,
+            config=config,
+        )
+
+        self.assertEqual(evaluation.normalized_score, 0)
+        self.assertEqual(evaluation.decision, "skip")
+        self.assertTrue(any("must_match.any" in reason for reason in evaluation.reasoning))
+
+    def test_preset_must_match_allows_scoring_when_any_term_matches(self) -> None:
+        profile = CandidateProfile.model_validate(
+            {
+                "signals": {
+                    "interests": [{"term": "simulation", "weight": 1.0}],
+                },
+            }
+        )
+        config = RuleScoringConfig(
+            must_match={"any": ["simulation", "aerospace"]},
+            category_weights={"interests": 0.50},
+            no_signal_score=20,
+            positive_score_scale=80,
+            negative_score_scale=80,
+            strong_negative_threshold=-0.20,
+            strong_negative_score_cap=10,
+        )
+
+        evaluation = evaluate_job(
+            _job("https://example.com/simulation", "Simulation Engineer"),
+            profile=profile,
+            config=config,
+        )
+
+        self.assertGreater(evaluation.normalized_score, 0)
+        self.assertNotEqual(evaluation.decision, "skip")
 
     def test_clear_scope_rankings_keeps_offers_and_explored(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

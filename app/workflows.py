@@ -56,7 +56,17 @@ FetchSource = Literal["arbeitnow", "adzuna"]
 ExplorationMode = Literal["safe", "normal", "fast_backfill"]
 RankedResult = tuple[StoredOffer, RuleEvaluation, AiJobEvaluation | None, FinalDecision]
 ProgressCallback = Callable[[str], None]
+CancellationCheck = Callable[[], bool]
 FAST_BACKFILL_SKIP_PAGE_LIMIT = 5
+
+
+class WorkflowCancelled(RuntimeError):
+    pass
+
+
+def _raise_if_cancelled(cancelled: CancellationCheck | None) -> None:
+    if cancelled is not None and cancelled():
+        raise WorkflowCancelled("Workflow cancelled.")
 
 
 @dataclass(frozen=True)
@@ -187,6 +197,7 @@ def fetch_offers(
     ranked_capacity: int = DEFAULT_RANKED_CAPACITY,
     exploration_mode: ExplorationMode = "safe",
     progress: ProgressCallback | None = None,
+    cancelled: CancellationCheck | None = None,
 ) -> FetchWorkflowResult:
     messages: list[str] = []
     if pages < 1:
@@ -213,6 +224,7 @@ def fetch_offers(
             f"target {target_new_offers or 'page scan'} newly explored offers; max pages {page_limit}."
         ),
     )
+    _raise_if_cancelled(cancelled)
 
     fetched = 0
     inserted = 0
@@ -279,6 +291,7 @@ def fetch_offers(
         canonical_url = str(job.url)
         counted_as_new = False
         try:
+            _raise_if_cancelled(cancelled)
             if has_explored_offer(
                 provider=job.source,
                 external_id=job.source_id,
@@ -388,6 +401,7 @@ def fetch_offers(
             return target_new_offers is not None and newly_explored >= target_new_offers
 
     while pages_scanned < page_limit:
+        _raise_if_cancelled(cancelled)
         try:
             if source == "arbeitnow":
                 jobs = fetch_arbeitnow(page=current_page)
@@ -413,6 +427,7 @@ def fetch_offers(
         page_counts = {"already_seen": 0, "newly_explored": 0}
         jump_page: int | None = None
         for index, job in enumerate(jobs):
+            _raise_if_cancelled(cancelled)
             identity = _offer_exploration_id(job)
             if fast_phase == "top" and identity == previous_newest_id:
                 jump_page = max(1, int(previous_last_explored_page or 1) - 1)
@@ -485,6 +500,7 @@ def fetch_offers(
         ),
     )
     if first_seen_identity and last_seen_identity and last_scanned_page is not None:
+        _raise_if_cancelled(cancelled)
         save_exploration_metadata(
             db_path=db_path,
             scope_key=scope_key,
@@ -494,6 +510,7 @@ def fetch_offers(
             oldest_id=last_seen_identity,
             last_explored_page=last_scanned_page,
         )
+    _raise_if_cancelled(cancelled)
     prune_stats = prune_storage(
         db_path,
         explored_capacity=explored_capacity,
@@ -540,9 +557,11 @@ def rank_offers(
     preset_id: str = "balanced",
     debug_prompt: bool = False,
     progress: ProgressCallback | None = None,
+    cancelled: CancellationCheck | None = None,
 ) -> RankWorkflowResult:
     messages: list[str] = []
     _emit(messages, progress, f"Loading profile {profile_path}.")
+    _raise_if_cancelled(cancelled)
     candidate_profile = load_profile(profile_path)
     scoring_preset = get_scoring_preset(preset_id, db_path=db_path)
     rule_config = load_rule_scoring_config(weights_path) if weights_path else scoring_preset.weights
@@ -575,11 +594,14 @@ def rank_offers(
             only_recent_days=only_recent_days,
         )
     _emit(messages, progress, f"Selected {len(selected_offers)} screened offers.")
+    _raise_if_cancelled(cancelled)
 
-    evaluated_jobs = [
-        (stored_offer, evaluate_job(stored_offer.job, profile=candidate_profile, config=rule_config))
-        for stored_offer in selected_offers
-    ]
+    evaluated_jobs: list[tuple[StoredOffer, RuleEvaluation]] = []
+    for stored_offer in selected_offers:
+        _raise_if_cancelled(cancelled)
+        evaluated_jobs.append(
+            (stored_offer, evaluate_job(stored_offer.job, profile=candidate_profile, config=rule_config))
+        )
     if ranking_mode == "hybrid":
         candidates = [
             (stored_offer, evaluation)
@@ -645,6 +667,7 @@ def rank_offers(
 
     if ranking_mode == "rules":
         for stored_offer, rule_evaluation in candidates:
+            _raise_if_cancelled(cancelled)
             final_decision = make_final_decision(rule_evaluation=rule_evaluation)
             result_payload = ranking_result_payload(
                 stored_offer=stored_offer,
@@ -678,9 +701,11 @@ def rank_offers(
         )
         if isinstance(llm_provider, OllamaLlmProvider):
             _emit(messages, progress, "Checking Ollama health and model.")
+            _raise_if_cancelled(cancelled)
             llm_provider.check_ready()
 
         for index, (stored_offer, rule_evaluation) in enumerate(candidates, start=1):
+            _raise_if_cancelled(cancelled)
             job = stored_offer.job
             _emit(messages, progress, f"Evaluating {index}/{len(candidates)}: {job.title}")
             system_prompt, user_prompt = build_job_evaluation_prompts(job, candidate_profile)
@@ -699,6 +724,7 @@ def rank_offers(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
             )
+            _raise_if_cancelled(cancelled)
             elapsed = time.perf_counter() - started_at
             _emit(messages, progress, f"Model response parsed in {elapsed:.1f}s.")
             final_decision = make_final_decision(

@@ -8,6 +8,9 @@
   "weights": {
     "positive_terms": {},
     "negative_terms": {},
+    "must_match": {
+      "any": []
+    },
     "category_weights": {
       "compensation": 0.45,
       "interests": 0.10,

@@ -14,6 +14,10 @@ class ProfileSignalCategory(BaseModel):
     items: list[ProfileSignalItem] = Field(default_factory=list)
 
 
+class MustMatchRule(BaseModel):
+    any: list[str] = Field(default_factory=list)
+
+
 def _items_from_terms(terms: list[str], *, weight: float = 1.0) -> list[dict[str, float | str]]:
     return [{"term": term, "weight": weight} for term in terms if term.strip()]
 
@@ -43,6 +47,7 @@ def _normalize_signal_categories(raw_signals: dict[str, object]) -> dict[str, di
 
 class CandidateProfile(BaseModel):
     name: str | None = None
+    must_match: MustMatchRule = Field(default_factory=MustMatchRule)
     signals: dict[str, ProfileSignalCategory] = Field(default_factory=dict)
     interests: list[str] = Field(default_factory=list)
     preferred_domains: list[str] = Field(default_factory=list)
