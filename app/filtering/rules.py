@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
+from dataclasses import dataclass
 from pathlib import Path
 
 from pydantic import BaseModel, Field, ValidationError
 
 from app.models.evaluation import RuleEvaluation, WeightedTermMatch, recommendation_from_score
 from app.models.job import JobOffer
-from app.models.profile import CandidateProfile, MustMatchRule
+from app.models.profile import CandidateProfile, MustMatchRule, ProfileSignalItem
 
 DEFAULT_RULE_CONFIG_PATH = (
     Path(__file__).resolve().parents[2] / "config" / "scoring_presets" / "balanced.json"
@@ -25,6 +27,19 @@ class RuleScoringConfig(BaseModel):
     negative_score_scale: float
     strong_negative_threshold: float
     strong_negative_score_cap: int
+
+
+@dataclass(frozen=True)
+class Alias:
+    text: str
+    language: str | None = None
+
+
+@dataclass(frozen=True)
+class MatchResult:
+    canonical_term: str
+    matched_alias: str
+    language: str | None = None
 
 
 def load_rule_scoring_config(path: Path | None = None) -> RuleScoringConfig:
@@ -48,20 +63,54 @@ def parse_rule_scoring_config(raw_config: object, *, source: str = "rule scoring
         raise RuntimeError(f"Rule weights config has invalid fields: {source}") from error
 
 
+def normalize_text(text: str) -> str:
+    decomposed = unicodedata.normalize("NFKD", text.lower())
+    without_accents = "".join(character for character in decomposed if not unicodedata.combining(character))
+    punctuation_spaced = re.sub(r"[^\w\s+#]", " ", without_accents)
+    return re.sub(r"\s+", " ", punctuation_spaced).strip()
+
+
+def _contains_normalized_term(normalized_text: str, normalized_term: str) -> bool:
+    if not normalized_term:
+        return False
+    escaped = re.escape(normalized_term)
+    return re.search(rf"(?<![\w+#]){escaped}(?![\w+#])", normalized_text) is not None
+
+
 def _contains_term(text: str, term: str) -> bool:
-    escaped = re.escape(term.lower())
-    return re.search(rf"(?<!\w){escaped}(?!\w)", text) is not None
+    return _contains_normalized_term(normalize_text(text), normalize_text(term))
+
+
+def iter_item_aliases(item: ProfileSignalItem) -> list[Alias]:
+    aliases: list[Alias] = []
+    for language, values in item.aliases.items():
+        aliases.extend(Alias(text=alias, language=language) for alias in values if alias.strip())
+    if not aliases:
+        aliases.append(Alias(text=item.term))
+    return aliases
+
+
+def match_signal_item(text: str, item: ProfileSignalItem) -> MatchResult | None:
+    normalized_text = normalize_text(text)
+    for alias in iter_item_aliases(item):
+        if _contains_normalized_term(normalized_text, normalize_text(alias.text)):
+            return MatchResult(
+                canonical_term=item.term,
+                matched_alias=alias.text,
+                language=alias.language,
+            )
+    return None
 
 
 def _must_match_terms(
     *,
     config: RuleScoringConfig,
     profile: CandidateProfile | None,
-) -> list[str]:
-    terms: list[str] = []
-    terms.extend(term for term in config.must_match.any if term.strip())
+) -> list[ProfileSignalItem]:
+    terms: list[ProfileSignalItem] = []
+    terms.extend(term for term in config.must_match.any if term.term.strip())
     if profile is not None:
-        terms.extend(term for term in profile.must_match.any if term.strip())
+        terms.extend(term for term in profile.must_match.any if term.term.strip())
     return terms
 
 
@@ -74,9 +123,10 @@ def _must_match_failure(
     terms = _must_match_terms(config=config, profile=profile)
     if not terms:
         return None
-    if any(_contains_term(text, term) for term in terms):
+    if any(match_signal_item(text, term) for term in terms):
         return None
-    return f"Rejected because none of the must_match.any terms matched: {', '.join(terms)}."
+    canonical_terms = ", ".join(term.term for term in terms)
+    return f"Rejected because none of the must_match.any terms matched: {canonical_terms}."
 
 
 def _normalized_score(
@@ -102,7 +152,14 @@ def _configured_term_matches(
     terms: dict[str, int],
 ) -> list[WeightedTermMatch]:
     return [
-        WeightedTermMatch(term=term.lower(), weight=float(weight))
+        WeightedTermMatch(
+            category="configured",
+            term=term,
+            matched_alias=term,
+            language=None,
+            weight=float(weight),
+            contribution=float(weight),
+        )
         for term, weight in terms.items()
         if _contains_term(text, term)
     ]
@@ -131,24 +188,40 @@ def _profile_signal_matches(
         if total_item_weight <= 0:
             continue
         matched_items = [
-            item
+            (item, match)
             for item in category.items
-            if item.term.strip() and _contains_term(text, item.term)
+            if item.term.strip()
+            for match in [match_signal_item(text, item)]
+            if match is not None
         ]
-        matched_weight = sum(abs(item.weight) for item in matched_items)
+        matched_weight = sum(abs(item.weight) for item, _ in matched_items)
         category_score = matched_weight / total_item_weight
         contribution = category_score * category_weight
         if category_weight >= 0:
             positive_score += contribution
             positives.extend(
-                WeightedTermMatch(term=item.term.lower(), weight=contribution * 100)
-                for item in matched_items
+                WeightedTermMatch(
+                    category=category_name,
+                    term=item.term,
+                    matched_alias=match.matched_alias,
+                    language=match.language,
+                    weight=contribution * 100,
+                    contribution=contribution,
+                )
+                for item, match in matched_items
             )
         else:
             negative_score += contribution
             negatives.extend(
-                WeightedTermMatch(term=item.term.lower(), weight=contribution * 100)
-                for item in matched_items
+                WeightedTermMatch(
+                    category=category_name,
+                    term=item.term,
+                    matched_alias=match.matched_alias,
+                    language=match.language,
+                    weight=contribution * 100,
+                    contribution=contribution,
+                )
+                for item, match in matched_items
             )
         if matched_items:
             reasoning.append(

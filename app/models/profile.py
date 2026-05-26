@@ -8,6 +8,14 @@ from pydantic import BaseModel, Field, model_validator
 class ProfileSignalItem(BaseModel):
     term: str
     weight: float = 1.0
+    aliases: dict[str, list[str]] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_legacy_item(cls, data: Any) -> Any:
+        if isinstance(data, str):
+            return {"term": data}
+        return data
 
 
 class ProfileSignalCategory(BaseModel):
@@ -15,7 +23,7 @@ class ProfileSignalCategory(BaseModel):
 
 
 class MustMatchRule(BaseModel):
-    any: list[str] = Field(default_factory=list)
+    any: list[ProfileSignalItem] = Field(default_factory=list)
 
 
 def _items_from_terms(terms: list[str], *, weight: float = 1.0) -> list[dict[str, float | str]]:

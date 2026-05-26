@@ -37,7 +37,13 @@ console = Console()
 def _format_term_matches(matches: list[WeightedTermMatch]) -> str:
     if not matches:
         return "none"
-    return ", ".join(f"{match.term} ({match.weight:+g})" for match in matches)
+    formatted: list[str] = []
+    for match in matches:
+        alias = match.matched_alias or match.term
+        language = f"/{match.language}" if match.language else ""
+        alias_note = f" via {alias}{language}" if alias != match.term or match.language else ""
+        formatted.append(f"{match.term}{alias_note} ({match.weight:+g})")
+    return ", ".join(formatted)
 
 
 def _print_clear_plan(scope: str, db: Path) -> None:

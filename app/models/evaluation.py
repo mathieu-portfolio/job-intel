@@ -21,6 +21,10 @@ def recommendation_from_score(score: int) -> Recommendation:
 class WeightedTermMatch(BaseModel):
     term: str
     weight: float
+    category: str | None = None
+    matched_alias: str | None = None
+    language: str | None = None
+    contribution: float | None = None
 
 
 class RuleEvaluation(BaseModel):

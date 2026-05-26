@@ -6,11 +6,6 @@
   "is_builtin": true,
   "enabled": true,
   "weights": {
-    "positive_terms": {},
-    "negative_terms": {},
-    "must_match": {
-      "any": []
-    },
     "category_weights": {
       "fast_apply": 0.35,
       "location_preferences": 0.20,

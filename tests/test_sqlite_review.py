@@ -233,6 +233,223 @@ class SqliteReviewTests(unittest.TestCase):
         self.assertGreater(evaluation.normalized_score, 0)
         self.assertNotEqual(evaluation.decision, "skip")
 
+    def test_fast_rule_scoring_matches_english_alias(self) -> None:
+        profile = CandidateProfile.model_validate(
+            {
+                "signals": {
+                    "interests": [
+                        {
+                            "term": "systems",
+                            "weight": 1.0,
+                            "aliases": {"en": ["system programming"], "fr": ["programmation systeme"]},
+                        }
+                    ]
+                }
+            }
+        )
+        config = RuleScoringConfig(
+            category_weights={"interests": 0.50},
+            no_signal_score=20,
+            positive_score_scale=80,
+            negative_score_scale=80,
+            strong_negative_threshold=-0.20,
+            strong_negative_score_cap=10,
+        )
+
+        evaluation = evaluate_job(
+            JobOffer(
+                source="test",
+                title="Runtime Engineer",
+                company="Example",
+                url="https://example.com/runtime",
+                description="Work on low-level system programming.",
+                raw_json={},
+            ),
+            profile=profile,
+            config=config,
+        )
+
+        match = evaluation.matched_positive_terms[0]
+        self.assertEqual(match.category, "interests")
+        self.assertEqual(match.term, "systems")
+        self.assertEqual(match.matched_alias, "system programming")
+        self.assertEqual(match.language, "en")
+        self.assertGreater(evaluation.normalized_score, 20)
+
+    def test_fast_rule_scoring_matches_french_alias(self) -> None:
+        profile = CandidateProfile.model_validate(
+            {
+                "signals": {
+                    "interests": [
+                        {
+                            "term": "systems",
+                            "aliases": {"fr": ["programmation systeme"]},
+                        }
+                    ]
+                }
+            }
+        )
+        config = RuleScoringConfig(
+            category_weights={"interests": 0.50},
+            no_signal_score=20,
+            positive_score_scale=80,
+            negative_score_scale=80,
+            strong_negative_threshold=-0.20,
+            strong_negative_score_cap=10,
+        )
+
+        evaluation = evaluate_job(
+            JobOffer(
+                source="test",
+                title="Ingenieur logiciel",
+                company="Example",
+                url="https://example.com/fr",
+                description="Developpement en programmation systeme.",
+                raw_json={},
+            ),
+            profile=profile,
+            config=config,
+        )
+
+        self.assertEqual(evaluation.matched_positive_terms[0].matched_alias, "programmation systeme")
+        self.assertEqual(evaluation.matched_positive_terms[0].language, "fr")
+
+    def test_fast_rule_scoring_is_accent_insensitive(self) -> None:
+        profile = CandidateProfile.model_validate(
+            {
+                "signals": {
+                    "interests": [
+                        {
+                            "term": "systems",
+                            "aliases": {"fr": ["programmation système"]},
+                        }
+                    ]
+                }
+            }
+        )
+        config = RuleScoringConfig(
+            category_weights={"interests": 0.50},
+            no_signal_score=20,
+            positive_score_scale=80,
+            negative_score_scale=80,
+            strong_negative_threshold=-0.20,
+            strong_negative_score_cap=10,
+        )
+
+        evaluation = evaluate_job(
+            JobOffer(
+                source="test",
+                title="Ingenieur logiciel",
+                company="Example",
+                url="https://example.com/accent",
+                description="Programmation systeme embarquee.",
+                raw_json={},
+            ),
+            profile=profile,
+            config=config,
+        )
+
+        self.assertEqual(evaluation.matched_positive_terms[0].matched_alias, "programmation système")
+
+    def test_fast_rule_scoring_falls_back_to_canonical_term(self) -> None:
+        profile = CandidateProfile.model_validate(
+            {"signals": {"interests": [{"term": "simulation", "weight": 1.0}]}}
+        )
+        config = RuleScoringConfig(
+            category_weights={"interests": 0.50},
+            no_signal_score=20,
+            positive_score_scale=80,
+            negative_score_scale=80,
+            strong_negative_threshold=-0.20,
+            strong_negative_score_cap=10,
+        )
+
+        evaluation = evaluate_job(_job("https://example.com/sim", "Simulation Engineer"), profile=profile, config=config)
+
+        self.assertEqual(evaluation.matched_positive_terms[0].term, "simulation")
+        self.assertEqual(evaluation.matched_positive_terms[0].matched_alias, "simulation")
+
+    def test_fast_rule_scoring_matches_disliked_work_negative_alias(self) -> None:
+        profile = CandidateProfile.model_validate(
+            {
+                "signals": {
+                    "disliked_work": [
+                        {
+                            "term": "generic CRUD",
+                            "aliases": {"fr": ["formulaires metier"]},
+                        }
+                    ]
+                }
+            }
+        )
+        config = RuleScoringConfig(
+            category_weights={"disliked_work": -0.50},
+            no_signal_score=50,
+            positive_score_scale=80,
+            negative_score_scale=80,
+            strong_negative_threshold=-0.20,
+            strong_negative_score_cap=10,
+        )
+
+        evaluation = evaluate_job(
+            JobOffer(
+                source="test",
+                title="Developpeur",
+                company="Example",
+                url="https://example.com/crud-fr",
+                description="Maintenance de formulaires metier et back-office.",
+                raw_json={},
+            ),
+            profile=profile,
+            config=config,
+        )
+
+        match = evaluation.matched_negative_terms[0]
+        self.assertEqual(match.category, "disliked_work")
+        self.assertEqual(match.term, "generic CRUD")
+        self.assertEqual(match.matched_alias, "formulaires metier")
+        self.assertLess(evaluation.normalized_score, 50)
+
+    def test_must_match_uses_aliases(self) -> None:
+        profile = CandidateProfile.model_validate(
+            {
+                "must_match": {
+                    "any": [
+                        {
+                            "term": "software",
+                            "aliases": {"fr": ["logiciel"]},
+                        }
+                    ]
+                },
+                "signals": {"interests": [{"term": "simulation"}]},
+            }
+        )
+        config = RuleScoringConfig(
+            must_match={"any": []},
+            category_weights={"interests": 0.50},
+            no_signal_score=20,
+            positive_score_scale=80,
+            negative_score_scale=80,
+            strong_negative_threshold=-0.20,
+            strong_negative_score_cap=10,
+        )
+
+        evaluation = evaluate_job(
+            JobOffer(
+                source="test",
+                title="Ingenieur logiciel simulation",
+                company="Example",
+                url="https://example.com/must-match-fr",
+                description="Simulation numerique.",
+                raw_json={},
+            ),
+            profile=profile,
+            config=config,
+        )
+
+        self.assertNotEqual(evaluation.decision, "skip")
+        self.assertGreater(evaluation.normalized_score, 0)
+
     def test_clear_scope_rankings_keeps_offers_and_explored(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "jobs.sqlite"

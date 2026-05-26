@@ -211,7 +211,13 @@
                   <h4>Positive terms</h4>
                   <ul>
                     {% for item in rule.get("matched_positive_terms") or [] %}
-                      <li>{{ item.term }} <span>{{ "%+g"|format(item.weight) }}</span></li>
+                      <li>
+                        {{ item.term }}
+                        {% if item.matched_alias and (item.matched_alias != item.term or item.language) %}
+                          <small>via {{ item.matched_alias }}{% if item.language %} / {{ item.language }}{% endif %}</small>
+                        {% endif %}
+                        <span>{{ "%+g"|format(item.weight) }}</span>
+                      </li>
                     {% else %}
                       <li>none</li>
                     {% endfor %}
@@ -219,7 +225,13 @@
                   <h4>Negative terms</h4>
                   <ul>
                     {% for item in rule.get("matched_negative_terms") or [] %}
-                      <li>{{ item.term }} <span>{{ "%+g"|format(item.weight) }}</span></li>
+                      <li>
+                        {{ item.term }}
+                        {% if item.matched_alias and (item.matched_alias != item.term or item.language) %}
+                          <small>via {{ item.matched_alias }}{% if item.language %} / {{ item.language }}{% endif %}</small>
+                        {% endif %}
+                        <span>{{ "%+g"|format(item.weight) }}</span>
+                      </li>
                     {% else %}
                       <li>none</li>
                     {% endfor %}
