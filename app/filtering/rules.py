@@ -83,15 +83,6 @@ def _contains_term(text: str, term: str) -> bool:
     return _contains_normalized_term(normalize_text(text), normalize_text(term))
 
 
-def iter_item_aliases(item: ProfileSignalItem) -> list[Alias]:
-    aliases: list[Alias] = []
-    for language, values in item.aliases.items():
-        aliases.extend(Alias(text=alias, language=language) for alias in values if alias.strip())
-    if not aliases:
-        aliases.append(Alias(text=item.term))
-    return aliases
-
-
 def _alias_cache_key(item: ProfileSignalItem) -> str:
     return json.dumps(item.aliases, sort_keys=True, ensure_ascii=False)
 
@@ -340,18 +331,3 @@ def evaluate_job(
         reasoning=reasoning,
         seniority=seniority_evaluation,
     )
-
-
-def filter_jobs(
-    jobs: list[JobOffer],
-    min_score: int = 40,
-    profile: CandidateProfile | None = None,
-    config: RuleScoringConfig | None = None,
-) -> list[tuple[JobOffer, RuleEvaluation]]:
-    evaluated = [(job, evaluate_job(job, profile=profile, config=config)) for job in jobs]
-    matches = [
-        (job, evaluation)
-        for job, evaluation in evaluated
-        if evaluation.normalized_score >= min_score
-    ]
-    return sorted(matches, key=lambda item: item[1].normalized_score, reverse=True)

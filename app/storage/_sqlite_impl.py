@@ -1249,30 +1249,8 @@ def select_screened_offers(
         params.append(cutoff)
     params.append(limit)
 
+    sql = load_sql("screening_results/select_screened_offers.sql").replace("/*RECENT_FILTER*/", recent_clause)
     with _connect(db_path) as connection:
-        sql = f"""
-            SELECT offers.*
-            FROM offers
-            JOIN offer_scores ON offer_scores.offer_id = offers.id
-            WHERE offer_scores.preset_id = ?
-              AND offer_scores.score >= ?
-              AND NOT EXISTS (
-                  SELECT 1
-                  FROM ai_reviews
-                  WHERE ai_reviews.offer_id = offers.id
-                    AND ai_reviews.provider IS ?
-                    AND ai_reviews.model IS ?
-                    AND ai_reviews.profile_path = ?
-                    AND ai_reviews.preset_id = ?
-              )
-              {recent_clause}
-            ORDER BY
-                offer_scores.score DESC,
-                CASE WHEN offers.published_at IS NULL THEN 1 ELSE 0 END,
-                offers.published_at DESC,
-                offers.first_seen_at DESC
-            LIMIT ?;
-        """
         rows = connection.execute(sql, params).fetchall()
 
     return [StoredOffer(id=row["id"], job=_job_from_offer_row(row)) for row in rows]

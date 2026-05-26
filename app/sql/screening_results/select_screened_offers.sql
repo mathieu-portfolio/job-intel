@@ -1,8 +1,8 @@
 SELECT offers.*
 FROM offers
-JOIN screening_results ON screening_results.offer_id = offers.id
-WHERE screening_results.passed = 1
-  AND screening_results.profile_path = ?
+JOIN offer_scores ON offer_scores.offer_id = offers.id
+WHERE offer_scores.preset_id = ?
+  AND offer_scores.score >= ?
   AND NOT EXISTS (
       SELECT 1
       FROM ai_reviews
@@ -10,10 +10,11 @@ WHERE screening_results.passed = 1
         AND ai_reviews.provider IS ?
         AND ai_reviews.model IS ?
         AND ai_reviews.profile_path = ?
+        AND ai_reviews.preset_id = ?
   )
 /*RECENT_FILTER*/
 ORDER BY
-    screening_results.score DESC,
+    offer_scores.score DESC,
     CASE WHEN offers.published_at IS NULL THEN 1 ELSE 0 END,
     offers.published_at DESC,
     offers.first_seen_at DESC

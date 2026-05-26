@@ -58,10 +58,3 @@ def load_builtin_scoring_presets(directory: Path = SCORING_PRESET_DIR) -> tuple[
 
 
 BUILTIN_SCORING_PRESETS: tuple[ScoringPreset, ...] = load_builtin_scoring_presets()
-
-
-def builtin_preset_by_id(preset_id: str) -> ScoringPreset:
-    for preset in BUILTIN_SCORING_PRESETS:
-        if preset.id == preset_id:
-            return preset
-    raise ValueError(f"Unknown scoring preset: {preset_id}")
