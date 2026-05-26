@@ -8,14 +8,15 @@ from app.models.job import JobOffer
 from app.models.profile import CandidateProfile
 
 
-SYSTEM_PROMPT = """You evaluate job offers for a junior technical candidate.
-Return practical, evidence-based judgments. Penalize vague buzzword-heavy posts,
-senior-only roles, unclear engineering substance, and poor portfolio alignment.
-Use scores from 0 to 100 where higher is better, except wording_risk_score where
-higher means more vague or bullshit wording risk.
+SYSTEM_PROMPT = """You evaluate the semantic and qualitative fit of job offers.
+Do not evaluate seniority, location eligibility, contract eligibility, or other structured
+hard filters. Those are handled by deterministic rules outside the model.
+Focus on whether the posting describes relevant hands-on work, credible technical substance,
+domain alignment, portfolio/story alignment, learning value, and posting quality.
+Use scores from 0 to 100 where higher is better.
 Use recommendation values exactly as: high, medium, low, skip.
-Keep recommendation consistent with scores and reasoning. A poor seniority fit
-must not receive high or medium. Use suggested_positioning as null for poor matches."""
+Keep recommendation consistent with semantic scores and reasoning. Use suggested_positioning
+as null for poor matches."""
 
 
 def _job_payload(job: JobOffer) -> dict[str, object]:
@@ -45,11 +46,12 @@ def build_job_evaluation_prompts(
             "candidate_profile": _profile_payload(profile),
             "job": _job_payload(job),
             "instructions": {
-                "fit_score": "Overall suitability for this candidate.",
-                "technical_fit_score": "Match to technical interests and strengths.",
-                "seniority_fit_score": "Fit between the role seniority and the candidate target seniority.",
+                "fit_score": "Overall semantic suitability, excluding seniority and hard eligibility rules.",
+                "technical_fit_score": "Whether the role is genuinely aligned with the candidate's technical interests and strengths.",
+                "domain_fit_score": "Match with preferred domains and problem spaces.",
+                "role_interest_score": "How interesting and hands-on the responsibilities appear for this candidate.",
                 "learning_potential_score": "How much useful growth the role may offer.",
-                "wording_risk_score": "Higher means vaguer, buzzword-heavy, or less trustworthy.",
+                "posting_quality_score": "Specificity, clarity, and trustworthiness of the posting. Higher is better.",
                 "portfolio_alignment_score": "Fit with portfolio/project positioning.",
                 "summary": "One short sentence summarizing the evaluation.",
                 "recommendation": "One of: high, medium, low, skip. Must match the scores and reasoning.",

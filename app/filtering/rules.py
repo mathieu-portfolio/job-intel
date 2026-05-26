@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field, ValidationError
 from app.models.evaluation import RuleEvaluation, WeightedTermMatch, recommendation_from_score
 from app.models.job import JobOffer
 from app.models.profile import CandidateProfile, MustMatchRule, ProfileSignalItem
+from app.filtering.seniority import evaluate_seniority
 
 DEFAULT_RULE_CONFIG_PATH = (
     Path(__file__).resolve().parents[2] / "config" / "scoring_presets" / "balanced.json"
@@ -292,6 +293,7 @@ def evaluate_job(
             " ".join(job.tags),
         ]
     ).lower()
+    seniority_evaluation = evaluate_seniority(job, profile)
 
     must_match_failure = _must_match_failure(text=text, config=config, profile=profile)
     if must_match_failure:
@@ -301,7 +303,8 @@ def evaluate_job(
             matched_positive_terms=[],
             matched_negative_terms=[],
             decision="skip",
-            reasoning=[must_match_failure],
+            reasoning=[must_match_failure, *seniority_evaluation.reasoning],
+            seniority=seniority_evaluation,
         )
 
     configured_positives = _configured_term_matches(text=text, terms=config.positive_terms)
@@ -324,6 +327,7 @@ def evaluate_job(
         f"Matched {len(positives)} positive weighted terms for {positive_score:+.2f}.",
         f"Matched {len(negatives)} negative weighted terms for {negative_score:+.2f}.",
         *profile_reasoning,
+        *seniority_evaluation.reasoning,
         f"Calibrated raw score {score:+.2f} to {normalized_score}/100.",
     ]
 
@@ -334,6 +338,7 @@ def evaluate_job(
         matched_negative_terms=negatives,
         decision=recommendation_from_score(normalized_score),
         reasoning=reasoning,
+        seniority=seniority_evaluation,
     )
 
 

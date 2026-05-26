@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 
 Recommendation = Literal["high", "medium", "low", "skip"]
+SeniorityLevel = Literal["internship", "junior", "mid", "senior", "lead", "unknown"]
 
 
 def recommendation_from_score(score: int) -> Recommendation:
@@ -27,6 +28,14 @@ class WeightedTermMatch(BaseModel):
     contribution: float | None = None
 
 
+class SeniorityEvaluation(BaseModel):
+    target_seniority: SeniorityLevel = "unknown"
+    offer_seniority: SeniorityLevel = "unknown"
+    score: int = Field(ge=0, le=100)
+    confidence: int = Field(ge=0, le=100)
+    reasoning: list[str] = Field(default_factory=list)
+
+
 class RuleEvaluation(BaseModel):
     score: int
     normalized_score: int = Field(ge=0, le=100)
@@ -34,14 +43,16 @@ class RuleEvaluation(BaseModel):
     matched_negative_terms: list[WeightedTermMatch] = Field(default_factory=list)
     decision: Recommendation
     reasoning: list[str] = Field(default_factory=list)
+    seniority: SeniorityEvaluation = Field(default_factory=lambda: SeniorityEvaluation(score=70, confidence=0))
 
 
 class AiJobEvaluation(BaseModel):
     fit_score: int = Field(ge=0, le=100)
     technical_fit_score: int = Field(ge=0, le=100)
-    seniority_fit_score: int = Field(ge=0, le=100)
+    domain_fit_score: int = Field(ge=0, le=100)
+    role_interest_score: int = Field(ge=0, le=100)
     learning_potential_score: int = Field(ge=0, le=100)
-    wording_risk_score: int = Field(ge=0, le=100)
+    posting_quality_score: int = Field(ge=0, le=100)
     portfolio_alignment_score: int = Field(ge=0, le=100)
     summary: str
     recommendation: Recommendation
@@ -55,6 +66,8 @@ class FinalDecision(BaseModel):
     recommendation: Recommendation
     rule_component: int = Field(ge=0, le=100)
     ai_component: int | None = Field(default=None, ge=0, le=100)
+    posting_quality_component: int | None = Field(default=None, ge=0, le=100)
+    seniority_component: int = Field(ge=0, le=100)
     penalty_component: int = Field(ge=0, le=100)
     seniority_mismatch_penalty: int = Field(ge=0, le=100)
     policy_adjustments: list[str] = Field(default_factory=list)

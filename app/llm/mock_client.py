@@ -22,23 +22,22 @@ class MockLlmProvider:
         job = payload.get("job", {})
         title = str(job.get("title", "Unknown role"))
         description = str(job.get("description", "")).lower()
-        title_text = title.lower()
 
-        risk = 70 if any(term in description for term in ["rockstar", "ninja", "fast-paced"]) else 25
-        seniority = 35 if any(term in title_text for term in ["senior", "lead", "principal", "staff"]) else 75
+        posting_quality = 35 if any(term in description for term in ["rockstar", "ninja", "fast-paced"]) else 75
         technical = 80 if any(term in description for term in ["c++", "simulation", "systems"]) else 55
-        fit = round((technical + seniority + 70 + (100 - risk)) / 4)
+        domain = 75 if any(term in description for term in ["aerospace", "spatial", "defense", "simulation"]) else 55
+        role_interest = 75 if any(term in description for term in ["develop", "build", "engineering", "software"]) else 55
+        fit = round((technical + domain + role_interest + 70 + posting_quality) / 5)
         recommendation = "high" if fit >= 75 else "medium" if fit >= 60 else "low" if fit >= 40 else "skip"
-        if seniority < 35:
-            recommendation = "skip"
 
         return response_model.model_validate(
             {
                 "fit_score": fit,
                 "technical_fit_score": technical,
-                "seniority_fit_score": seniority,
+                "domain_fit_score": domain,
+                "role_interest_score": role_interest,
                 "learning_potential_score": 70,
-                "wording_risk_score": risk,
+                "posting_quality_score": posting_quality,
                 "portfolio_alignment_score": 65,
                 "summary": f"Mock evaluation for {title}.",
                 "recommendation": recommendation,

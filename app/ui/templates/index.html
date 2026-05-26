@@ -208,6 +208,12 @@
                   <h3>Rule scoring</h3>
                   <p>Weighted score: {{ rule.get("score") }} ({{ rule.get("normalized_score") }}/100)</p>
                   <p>Recommendation: {{ rule.get("decision") }}</p>
+                  {% set seniority = rule.get("seniority") or {} %}
+                  <p>
+                    Seniority: {{ seniority.get("offer_seniority", "unknown") }} offer vs
+                    {{ seniority.get("target_seniority", "unknown") }} target
+                    ({{ seniority.get("score", 70) }}/100)
+                  </p>
                   <h4>Positive terms</h4>
                   <ul>
                     {% for item in rule.get("matched_positive_terms") or [] %}
@@ -242,7 +248,11 @@
                   <h3>AI evaluation</h3>
                   {% if ai %}
                     <p>{{ ai.summary }}</p>
-                    <p>Fit {{ ai.fit_score }} | Technical {{ ai.technical_fit_score }} | Seniority {{ ai.seniority_fit_score }}</p>
+                    <p>
+                      Fit {{ ai.fit_score }} | Technical {{ ai.technical_fit_score }}
+                      | Domain {{ ai.domain_fit_score }} | Role interest {{ ai.role_interest_score }}
+                      | Posting quality {{ ai.posting_quality_score }}
+                    </p>
                     <ul>
                       {% for reason in ai.reasoning %}
                         <li>{{ reason }}</li>

@@ -174,7 +174,7 @@ def _print_ranked_job(
         score_table.add_row(
             f"[bold]AI[/bold] {final_decision.ai_component}",
             f"[bold]Penalties[/bold] {final_decision.penalty_component}",
-            f"[bold]Seniority penalty[/bold] {final_decision.seniority_mismatch_penalty}",
+            f"[bold]Seniority[/bold] {final_decision.seniority_component}",
         )
 
     body_lines = [
@@ -188,6 +188,12 @@ def _print_ranked_job(
         f"Rule recommendation: {rule_evaluation.decision}",
         f"Positive terms: {_format_term_matches(rule_evaluation.matched_positive_terms)}",
         f"Negative terms: {_format_term_matches(rule_evaluation.matched_negative_terms)}",
+        (
+            "Seniority: "
+            f"{rule_evaluation.seniority.offer_seniority} offer vs "
+            f"{rule_evaluation.seniority.target_seniority} target "
+            f"({rule_evaluation.seniority.score}/100)"
+        ),
         "",
     ]
     body_lines.extend(f"- {reason}" for reason in rule_evaluation.reasoning)
@@ -200,10 +206,11 @@ def _print_ranked_job(
             "Scores: "
             f"fit {ai_evaluation.fit_score}, "
             f"technical {ai_evaluation.technical_fit_score}, "
-            f"seniority {ai_evaluation.seniority_fit_score}, "
+            f"domain {ai_evaluation.domain_fit_score}, "
+            f"role interest {ai_evaluation.role_interest_score}, "
             f"learning {ai_evaluation.learning_potential_score}, "
             f"portfolio {ai_evaluation.portfolio_alignment_score}, "
-            f"wording risk {ai_evaluation.wording_risk_score}"
+            f"posting quality {ai_evaluation.posting_quality_score}"
         )
         body_lines.append(f"AI recommendation: {ai_evaluation.recommendation}")
         body_lines.extend(f"[green]-[/green] {reason}" for reason in ai_evaluation.reasoning)
