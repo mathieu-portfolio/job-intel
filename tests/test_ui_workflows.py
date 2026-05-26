@@ -66,7 +66,7 @@ class UiWorkflowTests(unittest.TestCase):
             self.assertIn("Saving reviews", response.text)
             self.assertIn("Default", response.text)
             self.assertIn("Mathieu", response.text)
-            self.assertIn("Default weights", response.text)
+            self.assertNotIn("Default weights", response.text)
             self.assertIn("Balanced", response.text)
             self.assertIn('value="Berlin"', response.text)
             self.assertIn("Clear AI reviews", response.text)
@@ -299,7 +299,6 @@ class UiWorkflowTests(unittest.TestCase):
                 data={
                     "profile": str(profile_path),
                     "limit": "1",
-                    "min_score": "40",
                     "provider": "mock",
                 },
                 follow_redirects=True,

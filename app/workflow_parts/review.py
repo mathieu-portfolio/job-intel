@@ -9,8 +9,7 @@ def rank_offers(
     limit: int = 10,
     only_recent_days: int | None = None,
     dry_run: bool = False,
-    min_score: int = 40,
-    weights_path: Path | None = None,
+    min_score: int | None = 40,
     ranking_mode: RankingMode = "hybrid",
     provider: ProviderName | None = None,
     model: str | None = None,
@@ -24,7 +23,7 @@ def rank_offers(
     _raise_if_cancelled(cancelled)
     candidate_profile = load_profile(profile_path)
     scoring_preset = get_scoring_preset(preset_id, db_path=db_path)
-    rule_config = load_rule_scoring_config(weights_path) if weights_path else scoring_preset.weights
+    rule_config = scoring_preset.weights
 
     provider_name: str | None = None
     model_name: str | None = None
@@ -40,20 +39,11 @@ def rank_offers(
         model=model_name,
         profile_path=str(profile_path),
         preset_id=scoring_preset.id,
-        min_score=min_score,
+        min_score=min_score if ranking_mode == "hybrid" else None,
         limit=limit,
         only_recent_days=only_recent_days,
     )
-    if not selected_offers:
-        selected_offers = select_unranked_offers(
-            db_path=db_path,
-            algorithm=ranking_mode,
-            model=model_name,
-            profile_path=str(profile_path),
-            limit=limit,
-            only_recent_days=only_recent_days,
-        )
-    _emit(messages, progress, f"Selected {len(selected_offers)} screened offers.")
+    _emit(messages, progress, f"Selected {len(selected_offers)} scored offers for preset {scoring_preset.id}.")
     _raise_if_cancelled(cancelled)
 
     evaluated_jobs: list[tuple[StoredOffer, RuleEvaluation]] = []
@@ -66,7 +56,7 @@ def rank_offers(
         candidates = [
             (stored_offer, evaluation)
             for stored_offer, evaluation in evaluated_jobs
-            if evaluation.normalized_score >= min_score
+            if min_score is None or evaluation.normalized_score >= min_score
         ]
         prefiltered_count = len(candidates)
         skipped_count = len(evaluated_jobs) - prefiltered_count
@@ -111,7 +101,6 @@ def rank_offers(
         "min_score": min_score,
         "limit": limit,
         "only_recent_days": only_recent_days,
-        "weights_path": str(weights_path) if weights_path else None,
         "rule_config": rule_config.model_dump(mode="json"),
         "preset_id": scoring_preset.id,
         "preset_name": scoring_preset.name,

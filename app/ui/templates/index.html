@@ -90,19 +90,6 @@
                 <input name="only_recent_days" type="number" min="1" placeholder="Any">
               </label>
 
-              <label>
-                Min score
-                <input name="min_score" type="number" min="0" max="100" value="40">
-              </label>
-
-              <label>
-                Weights file
-                <select name="weights_path">
-                  {% for weights in weight_files %}
-                    <option value="{{ weights.value }}">{{ weights.label }}</option>
-                  {% endfor %}
-                </select>
-              </label>
             </div>
           </details>
 </form>

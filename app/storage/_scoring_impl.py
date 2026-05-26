@@ -203,12 +203,17 @@ def select_screened_offers(
     model: str | None,
     profile_path: str,
     preset_id: str = DEFAULT_SCORING_PRESET_ID,
-    min_score: int = 40,
+    min_score: int | None = None,
     limit: int,
     only_recent_days: int | None = None,
 ) -> list[StoredOffer]:
     init_db(db_path)
-    params: list[Any] = [preset_id, min_score, provider, model, profile_path, preset_id]
+    params: list[Any] = [preset_id]
+    min_score_clause = ""
+    if min_score is not None:
+        min_score_clause = "  AND offer_scores.score >= ?\n"
+        params.append(min_score)
+    params.extend([provider, model, profile_path, preset_id])
     recent_clause = ""
     if only_recent_days is not None:
         cutoff = (datetime.now() - timedelta(days=only_recent_days)).isoformat(timespec="seconds")
@@ -216,7 +221,11 @@ def select_screened_offers(
         params.append(cutoff)
     params.append(limit)
 
-    sql = load_sql("screening_results/select_screened_offers.sql").replace("/*RECENT_FILTER*/", recent_clause)
+    sql = (
+        load_sql("screening_results/select_screened_offers.sql")
+        .replace("/*MIN_SCORE_FILTER*/", min_score_clause)
+        .replace("/*RECENT_FILTER*/", recent_clause)
+    )
     with _connect(db_path) as connection:
         rows = connection.execute(sql, params).fetchall()
 

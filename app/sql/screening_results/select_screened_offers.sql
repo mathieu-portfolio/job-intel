@@ -2,8 +2,7 @@ SELECT offers.*
 FROM offers
 JOIN offer_scores ON offer_scores.offer_id = offers.id
 WHERE offer_scores.preset_id = ?
-  AND offer_scores.score >= ?
-  AND NOT EXISTS (
+/*MIN_SCORE_FILTER*/  AND NOT EXISTS (
       SELECT 1
       FROM ai_reviews
       WHERE ai_reviews.offer_id = offers.id
