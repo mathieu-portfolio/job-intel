@@ -18,6 +18,7 @@ from app.sql import load_sql
 
 
 DEFAULT_DB_PATH = Path("data/job_intel.sqlite")
+DEFAULT_SCORING_PRESET_ID = "balanced"
 DEFAULT_EXPLORED_CAPACITY = 10_000
 DEFAULT_UNRANKED_CAPACITY = 1_000
 DEFAULT_RANKED_CAPACITY = 300
@@ -26,12 +27,12 @@ VALID_CLEAR_SCOPES: set[str] = {"rankings", "offers", "explored", "all"}
 
 
 @dataclass(frozen=True)
-
 class StoredOffer:
     id: int
     job: JobOffer
 
 
+@dataclass(frozen=True)
 class UpsertStats:
     fetched: int
     inserted: int
@@ -45,6 +46,7 @@ class UpsertStats:
     errors: int = 0
 
 
+@dataclass(frozen=True)
 class ExploredOfferRecord:
     provider: str
     external_id: str | None
@@ -53,12 +55,14 @@ class ExploredOfferRecord:
     reason: str | None = None
 
 
+@dataclass(frozen=True)
 class StorageCounts:
     explored: int
     unranked: int
     ranked: int
 
 
+@dataclass(frozen=True)
 class PruneStats:
     deleted_explored: int
     deleted_unranked: int
@@ -67,6 +71,7 @@ class PruneStats:
     after: StorageCounts
 
 
+@dataclass(frozen=True)
 class ClearPlan:
     scope: ClearScope
     explored: int = 0
@@ -75,6 +80,7 @@ class ClearPlan:
     ranking_runs: int = 0
 
 
+@dataclass(frozen=True)
 class ExplorationMetadata:
     scope_key: str
     newest_id: str | None
@@ -87,6 +93,7 @@ def _now_iso() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
 
+@contextmanager
 def _connect(db_path: Path) -> Iterator[sqlite3.Connection]:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(db_path)
@@ -279,3 +286,8 @@ def _backfill_balanced_scores(connection: sqlite3.Connection) -> None:
         FROM screening_results;
         """
     )
+
+
+# Private implementation modules intentionally use `from app.storage._common import *`.
+# Include underscored helpers in star imports so split modules keep the old monolith behavior.
+__all__ = [name for name in globals() if not name.startswith("__")]
