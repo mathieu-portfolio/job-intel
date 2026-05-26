@@ -10,10 +10,13 @@ from pathlib import Path
 from typing import Callable
 
 import requests
+from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+load_dotenv(ROOT / ".env")
 
 from app.sources.adzuna import API_URL_TEMPLATE as ADZUNA_API_URL_TEMPLATE
 from app.sources.adzuna import fetch_adzuna
