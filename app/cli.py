@@ -90,6 +90,9 @@ def fetch(
         "--profile-queries/--broad-exploration",
         help="Use profile-owned provider search queries when supported, or disable them for broad exploration.",
     ),
+    fetch_concurrency: int = typer.Option(1, min=1, help="Maximum provider pages to fetch in parallel for safe page scans."),
+    provider_retry_attempts: int = typer.Option(1, min=1, help="Provider fetch retry attempts per page."),
+    provider_retry_backoff: float = typer.Option(0.0, min=0.0, help="Provider retry backoff seconds, multiplied by attempt."),
 ) -> None:
     """Fetch jobs from one source, track newly explored offers, and print a shortlist."""
 
@@ -112,6 +115,9 @@ def fetch(
             ranked_capacity=ranked_capacity,
             exploration_mode=exploration_mode,  # type: ignore[arg-type]
             use_profile_queries=use_profile_queries,
+            fetch_concurrency=fetch_concurrency,
+            provider_retry_attempts=provider_retry_attempts,
+            provider_retry_backoff=provider_retry_backoff,
         )
     except requests.RequestException as error:
         console.print(f"[red]Network/API error:[/red] {error}")
@@ -268,6 +274,10 @@ def rank(
     preset: str = typer.Option("balanced", help="Scoring preset for selecting and reviewing screened offers."),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Print detailed evaluation progress."),
     debug_prompt: bool = typer.Option(False, "--debug-prompt", help="Write evaluation prompts into debug/."),
+    ai_concurrency: int = typer.Option(1, min=1, help="Maximum AI reviews to evaluate in parallel."),
+    ai_retry_attempts: int = typer.Option(1, min=1, help="AI evaluation retry attempts per offer."),
+    ai_retry_backoff: float = typer.Option(0.0, min=0.0, help="AI retry backoff seconds, multiplied by attempt."),
+    ai_abort_on_error: bool = typer.Option(False, help="Abort ranking when one AI evaluation fails."),
 ) -> None:
     """Rank unranked SQLite offers against a candidate profile."""
 
@@ -283,6 +293,10 @@ def rank(
             provider=provider,
             preset_id=preset,
             debug_prompt=debug_prompt,
+            ai_concurrency=ai_concurrency,
+            ai_retry_attempts=ai_retry_attempts,
+            ai_retry_backoff=ai_retry_backoff,
+            ai_abort_on_error=ai_abort_on_error,
             progress=console.print if verbose else None,
         )
     except FileNotFoundError as error:

@@ -56,6 +56,14 @@ def _optional_positive_int(value: str | None) -> int | None:
     return parsed or None
 
 
+def _nonnegative_float(value: str | None, default: float) -> float:
+    try:
+        parsed = float(value or "")
+    except ValueError:
+        return default
+    return parsed if parsed >= 0 else default
+
+
 def _workflow_notice(kind: str, title: str, summary: dict[str, object], messages: list[str] | None = None) -> dict[str, object]:
     return {
         "kind": kind,
@@ -108,6 +116,17 @@ def _record_workflow_progress(request: Request, token: str, message: str) -> Non
             progress["current"] = current
             progress["total"] = total
             progress["remaining"] = max(total - current + 1, 0)
+        except ValueError:
+            pass
+    elif message.startswith("Completed ") and "/" in message and " AI evaluations" in message:
+        prefix = message.removeprefix("Completed ").split(" AI evaluations", 1)[0]
+        try:
+            current_text, total_text = prefix.split("/", 1)
+            current = int(current_text)
+            total = int(total_text)
+            progress["current"] = current
+            progress["total"] = total
+            progress["remaining"] = max(total - current, 0)
         except ValueError:
             pass
     elif message.startswith("Model response parsed") and total is not None and current is not None:
@@ -356,6 +375,9 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 ranked_capacity=_positive_int(form.get("ranked_capacity"), DEFAULT_RANKED_CAPACITY),
                 exploration_mode=(form.get("exploration_mode") or "safe"),  # type: ignore[arg-type]
                 use_profile_queries=form.get("use_profile_queries") == "true",
+                fetch_concurrency=_positive_int(form.get("fetch_concurrency"), 1),
+                provider_retry_attempts=_positive_int(form.get("provider_retry_attempts"), 1),
+                provider_retry_backoff=_nonnegative_float(form.get("provider_retry_backoff"), 0.0),
                 progress=progress,
                 cancelled=cancellation.is_set,
             )
@@ -419,6 +441,10 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 provider=((form.get("provider") or "").strip() or None),  # type: ignore[arg-type]
                 model=(form.get("model") or "").strip() or None,
                 preset_id=(form.get("preset") or "balanced").strip() or "balanced",
+                ai_concurrency=_positive_int(form.get("ai_concurrency"), 1),
+                ai_retry_attempts=_positive_int(form.get("ai_retry_attempts"), 1),
+                ai_retry_backoff=_nonnegative_float(form.get("ai_retry_backoff"), 0.0),
+                ai_abort_on_error=form.get("ai_abort_on_error") == "true",
                 progress=progress,
                 cancelled=cancellation.is_set,
             )

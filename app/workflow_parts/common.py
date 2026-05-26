@@ -4,6 +4,7 @@ import re
 import time
 import hashlib
 import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -61,6 +62,8 @@ RankedResult = tuple[StoredOffer, RuleEvaluation, AiJobEvaluation | None, FinalD
 ProgressCallback = Callable[[str], None]
 CancellationCheck = Callable[[], bool]
 FAST_BACKFILL_SKIP_PAGE_LIMIT = 5
+DEFAULT_FETCH_CONCURRENCY = 1
+DEFAULT_AI_RANKING_CONCURRENCY = 1
 
 
 
@@ -122,6 +125,46 @@ class FetchRequestSummary:
     already_seen: int
     filtered_out: int
     screened: int
+
+
+@dataclass(frozen=True)
+class RetryConfig:
+    attempts: int = 1
+    backoff_seconds: float = 0.0
+
+
+def _validate_concurrency(value: int, *, name: str) -> int:
+    if value < 1:
+        raise ValueError(f"{name} must be at least 1.")
+    return value
+
+
+def _validate_retry_config(attempts: int, backoff_seconds: float, *, name: str) -> RetryConfig:
+    if attempts < 1:
+        raise ValueError(f"{name} attempts must be at least 1.")
+    if backoff_seconds < 0:
+        raise ValueError(f"{name} backoff must be zero or greater.")
+    return RetryConfig(attempts=attempts, backoff_seconds=backoff_seconds)
+
+
+def _run_with_retries(
+    operation: Callable[[], object],
+    *,
+    retry_config: RetryConfig,
+) -> object:
+    last_error: Exception | None = None
+    for attempt in range(1, retry_config.attempts + 1):
+        try:
+            return operation()
+        except Exception as error:
+            last_error = error
+            if attempt >= retry_config.attempts:
+                break
+            if retry_config.backoff_seconds > 0:
+                time.sleep(retry_config.backoff_seconds * attempt)
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("Retry operation failed without raising an error.")
 
 
 def _emit(messages: list[str], progress: ProgressCallback | None, message: str) -> None:

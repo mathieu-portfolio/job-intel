@@ -33,6 +33,7 @@ from app.ui.state import (
     _clear_workflow_progress,
     _consume_workflow_notice,
     _form_data,
+    _nonnegative_float,
     _optional_positive_int,
     _positive_int,
     _record_workflow_progress,
@@ -258,6 +259,9 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 ranked_capacity=_positive_int(form.get("ranked_capacity"), DEFAULT_RANKED_CAPACITY),
                 exploration_mode=(form.get("exploration_mode") or "safe"),  # type: ignore[arg-type]
                 use_profile_queries=form.get("use_profile_queries") == "true",
+                fetch_concurrency=_positive_int(form.get("fetch_concurrency"), 1),
+                provider_retry_attempts=_positive_int(form.get("provider_retry_attempts"), 1),
+                provider_retry_backoff=_nonnegative_float(form.get("provider_retry_backoff"), 0.0),
                 progress=progress,
                 cancelled=cancellation.is_set,
             )
@@ -320,6 +324,10 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 provider=((form.get("provider") or "").strip() or None),  # type: ignore[arg-type]
                 model=(form.get("model") or "").strip() or None,
                 preset_id=(form.get("preset") or "balanced").strip() or "balanced",
+                ai_concurrency=_positive_int(form.get("ai_concurrency"), 1),
+                ai_retry_attempts=_positive_int(form.get("ai_retry_attempts"), 1),
+                ai_retry_backoff=_nonnegative_float(form.get("ai_retry_backoff"), 0.0),
+                ai_abort_on_error=form.get("ai_abort_on_error") == "true",
                 progress=progress,
                 cancelled=cancellation.is_set,
             )

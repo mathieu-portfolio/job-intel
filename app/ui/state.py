@@ -21,6 +21,13 @@ def _optional_positive_int(value: str | None) -> int | None:
     parsed = _positive_int(cleaned, 0)
     return parsed or None
 
+def _nonnegative_float(value: str | None, default: float) -> float:
+    try:
+        parsed = float(value or "")
+    except ValueError:
+        return default
+    return parsed if parsed >= 0 else default
+
 def _optional_path(value: str | None) -> Path | None:
     cleaned = (value or "").strip()
     return Path(cleaned) if cleaned else None
@@ -71,6 +78,17 @@ def _record_workflow_progress(request: Request, token: str, message: str) -> Non
             progress["current"] = current
             progress["total"] = total
             progress["remaining"] = max(total - current + 1, 0)
+        except ValueError:
+            pass
+    elif message.startswith("Completed ") and "/" in message and " AI evaluations" in message:
+        prefix = message.removeprefix("Completed ").split(" AI evaluations", 1)[0]
+        try:
+            current_text, total_text = prefix.split("/", 1)
+            current = int(current_text)
+            total = int(total_text)
+            progress["current"] = current
+            progress["total"] = total
+            progress["remaining"] = max(total - current, 0)
         except ValueError:
             pass
     elif message.startswith("Model response parsed") and total is not None and current is not None:

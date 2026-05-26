@@ -4,9 +4,12 @@ import tempfile
 import unittest
 import json
 import sqlite3
+import threading
+import time
 from pathlib import Path
 from unittest.mock import patch
 
+from app.models.evaluation import AiJobEvaluation
 from app.models.job import JobOffer
 from app.models.profile import CandidateProfile
 from app.filtering.rules import RuleScoringConfig, evaluate_job
@@ -114,6 +117,26 @@ class SqliteReviewTests(unittest.TestCase):
             result=_result(None),
         )
         return run_id
+
+    def _seed_screened_offer(self, db_path: Path, profile_path: Path, job: JobOffer) -> int:
+        upsert_offers([job], db_path=db_path)
+        offer_id = find_existing_offer_id(job, db_path=db_path)
+        self.assertIsNotNone(offer_id)
+        evaluation = evaluate_job(job)
+        save_offer_score(
+            db_path=db_path,
+            offer_id=offer_id,
+            preset_id="balanced",
+            evaluation=evaluation,
+        )
+        save_screening_result(
+            db_path=db_path,
+            offer_id=offer_id,
+            profile_path=str(profile_path),
+            evaluation=evaluation,
+            threshold=0,
+        )
+        return int(offer_id)
 
     def test_profile_signal_categories_are_normalized_by_item_weight_totals(self) -> None:
         profile = CandidateProfile.model_validate(
@@ -1171,6 +1194,61 @@ class SqliteReviewTests(unittest.TestCase):
             self.assertEqual(screenings[0]["passed"], 1)
             self.assertTrue(any("Fetch timing:" in message for message in result.messages))
 
+    def test_fetch_page_concurrency_limit_is_respected(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "jobs.sqlite"
+            active = 0
+            max_active = 0
+            lock = threading.Lock()
+
+            def fetch_page(*, page: int) -> list[JobOffer]:
+                nonlocal active, max_active
+                with lock:
+                    active += 1
+                    max_active = max(max_active, active)
+                try:
+                    time.sleep(0.05)
+                    return [_source_job(f"page-{page}", f"https://example.com/page-{page}", f"Page {page}")]
+                finally:
+                    with lock:
+                        active -= 1
+
+            with patch("app.workflow_parts.fetch.fetch_arbeitnow", side_effect=fetch_page):
+                result = fetch_offers(
+                    source="arbeitnow",
+                    db_path=db_path,
+                    pages=4,
+                    min_score=0,
+                    fetch_concurrency=2,
+                )
+
+            self.assertEqual(result.stats.errors, 0)
+            self.assertEqual(result.stats.inserted, 4)
+            self.assertLessEqual(max_active, 2)
+            self.assertGreater(max_active, 1)
+
+    def test_fetch_page_failure_does_not_drop_successful_pages(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "jobs.sqlite"
+
+            def fetch_page(*, page: int) -> list[JobOffer]:
+                if page == 2:
+                    raise RuntimeError("provider down")
+                return [_source_job(f"page-{page}", f"https://example.com/page-{page}", f"Page {page}")]
+
+            with patch("app.workflow_parts.fetch.fetch_arbeitnow", side_effect=fetch_page):
+                result = fetch_offers(
+                    source="arbeitnow",
+                    db_path=db_path,
+                    pages=3,
+                    min_score=0,
+                    fetch_concurrency=2,
+                )
+
+            self.assertEqual(result.stats.errors, 1)
+            self.assertEqual(result.stats.inserted, 2)
+            self.assertEqual(len(list_screening_results(db_path)), 2)
+
     def test_fetch_workflow_uses_profile_signals_not_hardcoded_terms(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             base_path = Path(temp_dir)
@@ -1322,6 +1400,103 @@ class SqliteReviewTests(unittest.TestCase):
             self.assertEqual(reviews[0]["title"], "Simulation Engineer")
             self.assertIsNotNone(reviews[0]["screening_result_id"])
             self.assertEqual(reviews[0]["provider"], "mock")
+
+    def test_ai_ranking_concurrency_limit_is_respected(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base_path = Path(temp_dir)
+            db_path = base_path / "jobs.sqlite"
+            profile_path = base_path / "profile.json"
+            self._write_profile(profile_path, positive_signals={"systems": 50}, threshold=0)
+            for index in range(4):
+                self._seed_screened_offer(
+                    db_path,
+                    profile_path,
+                    _source_job(f"ai-{index}", f"https://example.com/ai-{index}", f"AI Job {index}"),
+                )
+            active = 0
+            max_active = 0
+            lock = threading.Lock()
+
+            def evaluate(*args, **kwargs) -> AiJobEvaluation:
+                nonlocal active, max_active
+                with lock:
+                    active += 1
+                    max_active = max(max_active, active)
+                try:
+                    time.sleep(0.05)
+                    return AiJobEvaluation(
+                        fit_score=75,
+                        technical_fit_score=75,
+                        domain_fit_score=75,
+                        role_interest_score=75,
+                        learning_potential_score=75,
+                        posting_quality_score=75,
+                        portfolio_alignment_score=75,
+                        summary="ok",
+                        recommendation="high",
+                    )
+                finally:
+                    with lock:
+                        active -= 1
+
+            with patch("app.workflow_parts.review.evaluate_job_with_ai", side_effect=evaluate):
+                result = rank_offers(
+                    profile_path=profile_path,
+                    db_path=db_path,
+                    ranking_mode="ai",
+                    provider="mock",
+                    limit=4,
+                    ai_concurrency=2,
+                )
+
+            self.assertEqual(result.saved_count, 4)
+            self.assertEqual(len(list_ai_reviews(db_path)), 4)
+            self.assertLessEqual(max_active, 2)
+            self.assertGreater(max_active, 1)
+
+    def test_ai_ranking_failure_keeps_successful_results(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base_path = Path(temp_dir)
+            db_path = base_path / "jobs.sqlite"
+            profile_path = base_path / "profile.json"
+            self._write_profile(profile_path, positive_signals={"systems": 50}, threshold=0)
+            for title in ["Good One", "Fail Me", "Good Two"]:
+                self._seed_screened_offer(
+                    db_path,
+                    profile_path,
+                    _source_job(title.lower().replace(" ", "-"), f"https://example.com/{title}", title),
+                )
+
+            def evaluate(job: JobOffer, *args, **kwargs) -> AiJobEvaluation:
+                if job.title == "Fail Me":
+                    raise RuntimeError("model failed")
+                return AiJobEvaluation(
+                    fit_score=75,
+                    technical_fit_score=75,
+                    domain_fit_score=75,
+                    role_interest_score=75,
+                    learning_potential_score=75,
+                    posting_quality_score=75,
+                    portfolio_alignment_score=75,
+                    summary=f"ok {job.title}",
+                    recommendation="high",
+                )
+
+            with patch("app.workflow_parts.review.evaluate_job_with_ai", side_effect=evaluate):
+                result = rank_offers(
+                    profile_path=profile_path,
+                    db_path=db_path,
+                    ranking_mode="ai",
+                    provider="mock",
+                    limit=3,
+                    ai_concurrency=2,
+                )
+
+            reviews = list_ai_reviews(db_path)
+            self.assertEqual(result.saved_count, 2)
+            self.assertEqual(result.skipped_count, 1)
+            self.assertEqual(len(reviews), 2)
+            self.assertTrue(any("AI evaluation failed" in message for message in result.messages))
 
     def test_ai_only_filter_excludes_rule_only_hybrid_results(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

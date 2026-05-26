@@ -21,6 +21,9 @@ def fetch_offers(
     ranked_capacity: int = DEFAULT_RANKED_CAPACITY,
     exploration_mode: ExplorationMode = "safe",
     use_profile_queries: bool = True,
+    fetch_concurrency: int = DEFAULT_FETCH_CONCURRENCY,
+    provider_retry_attempts: int = 1,
+    provider_retry_backoff: float = 0.0,
     progress: ProgressCallback | None = None,
     cancelled: CancellationCheck | None = None,
 ) -> FetchWorkflowResult:
@@ -45,6 +48,12 @@ def fetch_offers(
         raise ValueError("max_seen_pages must be at least 1.")
     if exploration_mode not in {"safe", "normal", "fast_backfill"}:
         raise ValueError("exploration_mode must be safe, normal, or fast_backfill.")
+    fetch_concurrency = _validate_concurrency(fetch_concurrency, name="fetch_concurrency")
+    provider_retry_config = _validate_retry_config(
+        provider_retry_attempts,
+        provider_retry_backoff,
+        name="provider retry",
+    )
     candidate_profile = load_profile(profile_path)
     search_requests = iter_profile_search_requests(
         candidate_profile,
@@ -102,6 +111,9 @@ def fetch_offers(
                 ranked_capacity=ranked_capacity,
                 exploration_mode=exploration_mode,
                 use_profile_queries=False,
+                fetch_concurrency=fetch_concurrency,
+                provider_retry_attempts=provider_retry_attempts,
+                provider_retry_backoff=provider_retry_backoff,
                 progress=progress,
                 cancelled=cancelled,
             )
@@ -242,6 +254,17 @@ def fetch_offers(
     current_page = 1 if fast_backfill_active else page
     fast_phase = "top" if fast_backfill_active else "normal"
     skip_pages_scanned = 0
+
+    def fetch_provider_page(fetch_page: int) -> tuple[list[JobOffer], float]:
+        def operation() -> object:
+            started_at = time.perf_counter()
+            if source == "arbeitnow":
+                return fetch_arbeitnow(page=fetch_page), time.perf_counter() - started_at
+            if source == "adzuna":
+                return fetch_adzuna(query=query, country=country, where=where, page=fetch_page), time.perf_counter() - started_at
+            raise ValueError(f"Unsupported source: {source}")
+
+        return _run_with_retries(operation, retry_config=provider_retry_config)  # type: ignore[return-value]
 
     def process_jobs_batch(jobs: list[JobOffer], *, page_counts: dict[str, int]) -> bool:
         nonlocal inserted
@@ -391,19 +414,89 @@ def fetch_offers(
         )
         return stop_after_page
 
-    while pages_scanned < page_limit:
+    if target_new_offers is None and not fast_backfill_active and fetch_concurrency > 1:
+        page_numbers = list(range(page, page + page_limit))
+        page_results: dict[int, list[JobOffer]] = {}
+        failed_pages: set[int] = set()
+        _emit(
+            messages,
+            progress,
+            f"Fetching provider pages with concurrency {fetch_concurrency}.",
+        )
+        with ThreadPoolExecutor(max_workers=fetch_concurrency) as executor:
+            futures = {
+                executor.submit(fetch_provider_page, fetch_page): fetch_page
+                for fetch_page in page_numbers
+            }
+            for future in as_completed(futures):
+                _raise_if_cancelled(cancelled)
+                completed_page = futures[future]
+                try:
+                    page_jobs, page_elapsed = future.result()
+                    page_results[completed_page] = page_jobs
+                    timing["provider_fetch"] += page_elapsed
+                    _emit(
+                        messages,
+                        progress,
+                        f"Fetched provider page {completed_page}: {len(page_results[completed_page])} offers.",
+                    )
+                except Exception as error:
+                    errors += 1
+                    failed_pages.add(completed_page)
+                    page_results[completed_page] = []
+                    _emit(messages, progress, f"Provider page {completed_page} failed: {error}")
+
+        for fetched_page in page_numbers:
+            _raise_if_cancelled(cancelled)
+            jobs = page_results.get(fetched_page, [])
+            if fetched_page in failed_pages:
+                pages_scanned += 1
+                continue
+
+            pages_scanned += 1
+            last_scanned_page = fetched_page
+            fetched += len(jobs)
+            for job in jobs:
+                provider_key = _offer_provider_key(job)
+                if provider_key in provider_keys:
+                    duplicate_provider_rows += 1
+                provider_keys.add(provider_key)
+            _emit(messages, progress, f"Scanned page {fetched_page}: {len(jobs)} offers.")
+            if not jobs:
+                _emit(messages, progress, "Provider returned no more offers.")
+                break
+
+            if first_seen_identity is None:
+                first_seen_identity = _offer_exploration_id(jobs[0])
+            last_seen_identity = _offer_exploration_id(jobs[-1])
+
+            page_counts = {"already_seen": 0, "newly_explored": 0}
+            process_jobs_batch(jobs, page_counts=page_counts)
+            if page_counts["already_seen"] == len(jobs) and page_counts["newly_explored"] == 0:
+                consecutive_seen_pages += 1
+                if consecutive_seen_pages >= max_seen_pages:
+                    _emit(
+                        messages,
+                        progress,
+                        f"Stopped after {consecutive_seen_pages} consecutive pages with only already-seen offers.",
+                    )
+                    break
+            else:
+                consecutive_seen_pages = 0
+
+    while pages_scanned < page_limit and not (
+        target_new_offers is None and not fast_backfill_active and fetch_concurrency > 1
+    ):
         _raise_if_cancelled(cancelled)
         try:
-            provider_started_at = time.perf_counter()
-            if source == "arbeitnow":
-                jobs = fetch_arbeitnow(page=current_page)
-            elif source == "adzuna":
-                jobs = fetch_adzuna(query=query, country=country, where=where, page=current_page)
-            else:
-                raise ValueError(f"Unsupported source: {source}")
-            timing["provider_fetch"] += time.perf_counter() - provider_started_at
-        except requests.RequestException as error:
-            raise RuntimeError(f"Network/API error: {error}") from error
+            jobs, provider_elapsed = fetch_provider_page(current_page)
+            timing["provider_fetch"] += provider_elapsed
+        except Exception as error:
+            errors += 1
+            pages_scanned += 1
+            _emit(messages, progress, f"Provider page {current_page} failed: {error}")
+            current_page += 1
+            continue
 
         pages_scanned += 1
         last_scanned_page = current_page

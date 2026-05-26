@@ -56,6 +56,9 @@ def fetch(
         "--profile-queries/--broad-exploration",
         help="Use profile-owned provider search queries when supported, or disable them for broad exploration.",
     ),
+    fetch_concurrency: int = typer.Option(1, min=1, help="Maximum provider pages to fetch in parallel for safe page scans."),
+    provider_retry_attempts: int = typer.Option(1, min=1, help="Provider fetch retry attempts per page."),
+    provider_retry_backoff: float = typer.Option(0.0, min=0.0, help="Provider retry backoff seconds, multiplied by attempt."),
 ) -> None:
     """Fetch jobs from one source, track newly explored offers, and print a shortlist."""
 
@@ -78,6 +81,9 @@ def fetch(
             ranked_capacity=ranked_capacity,
             exploration_mode=exploration_mode,  # type: ignore[arg-type]
             use_profile_queries=use_profile_queries,
+            fetch_concurrency=fetch_concurrency,
+            provider_retry_attempts=provider_retry_attempts,
+            provider_retry_backoff=provider_retry_backoff,
         )
     except requests.RequestException as error:
         console.print(f"[red]Network/API error:[/red] {error}")

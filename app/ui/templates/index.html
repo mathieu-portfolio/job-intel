@@ -90,6 +90,26 @@
                 <input name="only_recent_days" type="number" min="1" placeholder="Any">
               </label>
 
+              <label>
+                AI concurrency
+                <input name="ai_concurrency" type="number" min="1" max="8" value="1">
+              </label>
+
+              <label>
+                AI retries
+                <input name="ai_retry_attempts" type="number" min="1" max="5" value="1">
+              </label>
+
+              <label>
+                Retry backoff
+                <input name="ai_retry_backoff" type="number" min="0" step="0.1" value="0">
+              </label>
+
+              <label class="checkbox-filter">
+                <input name="ai_abort_on_error" type="checkbox" value="true">
+                Abort on AI error
+              </label>
+
             </div>
           </details>
 </form>
