@@ -112,6 +112,10 @@ def _connect(db_path: Path) -> Iterator[sqlite3.Connection]:
         connection.close()
 
 
+def open_connection(db_path: Path = DEFAULT_DB_PATH) -> Iterator[sqlite3.Connection]:
+    return _connect(db_path)
+
+
 def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
     with _connect(db_path) as connection:
         connection.executescript(load_sql("schema/init.sql"))
@@ -295,59 +299,73 @@ def upsert_offers(
 ) -> UpsertStats:
     init_db(db_path)
     fetched_at = fetched_at or _now_iso()
+    with _connect(db_path) as connection:
+        stats, _ = upsert_offers_batch(connection, jobs, fetched_at=fetched_at)
+    return stats
+
+
+def upsert_offers_batch(
+    connection: sqlite3.Connection,
+    jobs: list[JobOffer],
+    *,
+    fetched_at: str | None = None,
+) -> tuple[UpsertStats, dict[str, int]]:
+    fetched_at = fetched_at or _now_iso()
     inserted = 0
     updated = 0
+    offer_ids_by_url: dict[str, int] = {}
 
-    with _connect(db_path) as connection:
-        for job in jobs:
-            url = str(job.url)
-            existing = connection.execute(
-                load_sql("offers/select_by_url.sql"),
-                (url,),
-            ).fetchone()
-            raw_json = json.dumps(
-                job.raw_json if job.raw_json is not None else job.model_dump(mode="json"),
-                ensure_ascii=False,
+    for job in jobs:
+        url = str(job.url)
+        existing = connection.execute(
+            load_sql("offers/select_by_url.sql"),
+            (url,),
+        ).fetchone()
+        raw_json = json.dumps(
+            job.raw_json if job.raw_json is not None else job.model_dump(mode="json"),
+            ensure_ascii=False,
+        )
+        if existing is None:
+            inserted += 1
+            cursor = connection.execute(
+                load_sql("offers/insert.sql"),
+                (
+                    job.source,
+                    job.source_id,
+                    url,
+                    job.title,
+                    job.company,
+                    job.location,
+                    job.description,
+                    job.published_at,
+                    fetched_at,
+                    fetched_at,
+                    fetched_at,
+                    raw_json,
+                ),
             )
-            if existing is None:
-                inserted += 1
-                connection.execute(
-                    load_sql("offers/insert.sql"),
-                    (
-                        job.source,
-                        job.source_id,
-                        url,
-                        job.title,
-                        job.company,
-                        job.location,
-                        job.description,
-                        job.published_at,
-                        fetched_at,
-                        fetched_at,
-                        fetched_at,
-                        raw_json,
-                    ),
-                )
-            else:
-                updated += 1
-                connection.execute(
-                    load_sql("offers/update.sql"),
-                    (
-                        job.source,
-                        job.source_id,
-                        job.title,
-                        job.company,
-                        job.location,
-                        job.description,
-                        job.published_at,
-                        fetched_at,
-                        fetched_at,
-                        raw_json,
-                        url,
-                    ),
-                )
+            offer_ids_by_url[url] = int(cursor.lastrowid)
+        else:
+            updated += 1
+            offer_ids_by_url[url] = int(existing["id"])
+            connection.execute(
+                load_sql("offers/update.sql"),
+                (
+                    job.source,
+                    job.source_id,
+                    job.title,
+                    job.company,
+                    job.location,
+                    job.description,
+                    job.published_at,
+                    fetched_at,
+                    fetched_at,
+                    raw_json,
+                    url,
+                ),
+            )
 
-    return UpsertStats(fetched=len(jobs), inserted=inserted, updated=updated)
+    return UpsertStats(fetched=len(jobs), inserted=inserted, updated=updated), offer_ids_by_url
 
 
 def _canonical_url(job: JobOffer) -> str:
@@ -368,6 +386,43 @@ def has_explored_offer(
             (provider, external_id, canonical_url, external_id),
         ).fetchone()
     return row is not None
+
+
+def has_explored_offers_batch(
+    connection: sqlite3.Connection,
+    provider: str,
+    identities: list[tuple[str | None, str]],
+) -> set[tuple[str | None, str]]:
+    if not identities:
+        return set()
+    external_ids = sorted({external_id for external_id, _ in identities if external_id})
+    urls = sorted({canonical_url for _, canonical_url in identities if canonical_url})
+    clauses: list[str] = []
+    params: list[Any] = [provider]
+    if external_ids:
+        clauses.append(f"external_id IN ({', '.join(['?'] * len(external_ids))})")
+        params.extend(external_ids)
+    if urls:
+        clauses.append(f"canonical_url IN ({', '.join(['?'] * len(urls))})")
+        params.extend(urls)
+    if not clauses:
+        return set()
+    rows = connection.execute(
+        f"""
+        SELECT external_id, canonical_url
+        FROM explored_offers
+        WHERE provider = ?
+          AND ({' OR '.join(clauses)});
+        """,
+        params,
+    ).fetchall()
+    seen_external_ids = {row["external_id"] for row in rows if row["external_id"]}
+    seen_urls = {row["canonical_url"] for row in rows if row["canonical_url"]}
+    return {
+        (external_id, canonical_url)
+        for external_id, canonical_url in identities
+        if (external_id and external_id in seen_external_ids) or canonical_url in seen_urls
+    }
 
 
 def record_explored_offer(
@@ -428,6 +483,40 @@ def record_explored_job(
         db_path=db_path,
         seen_at=seen_at,
     )
+
+
+def record_explored_jobs_batch(
+    connection: sqlite3.Connection,
+    records: list[tuple[JobOffer, str, str | None, bool]],
+    *,
+    seen_at: str | None = None,
+) -> None:
+    seen_at = seen_at or _now_iso()
+    for job, status, reason, keep_flag in records:
+        canonical_url = _canonical_url(job)
+        row = connection.execute(
+            load_sql("explored_offers/select_by_identity.sql"),
+            (job.source, job.source_id, canonical_url, job.source_id),
+        ).fetchone()
+        if row is None:
+            connection.execute(
+                load_sql("explored_offers/insert.sql"),
+                (
+                    job.source,
+                    job.source_id,
+                    canonical_url,
+                    seen_at,
+                    seen_at,
+                    status,
+                    reason,
+                    1 if keep_flag else 0,
+                ),
+            )
+        else:
+            connection.execute(
+                load_sql("explored_offers/update.sql"),
+                (job.source_id, canonical_url, seen_at, status, reason, 1 if keep_flag else 0, row["id"]),
+            )
 
 
 def get_exploration_metadata(
@@ -511,6 +600,60 @@ def find_existing_offer_id(
             (job.source, job.source_id, url, job.source, job.source_id),
         ).fetchone()
     return int(row["id"]) if row is not None else None
+
+
+def find_existing_offer_ids_batch(
+    connection: sqlite3.Connection,
+    jobs: list[JobOffer],
+) -> dict[str, int]:
+    if not jobs:
+        return {}
+    source = jobs[0].source
+    external_ids = sorted({job.source_id for job in jobs if job.source_id})
+    urls = sorted({_canonical_url(job) for job in jobs})
+    clauses: list[str] = []
+    params: list[Any] = []
+    if external_ids:
+        clauses.append(
+            f"(source = ? AND source_id IS NOT NULL AND source_id IN ({', '.join(['?'] * len(external_ids))}))"
+        )
+        params.append(source)
+        params.extend(external_ids)
+    if urls:
+        clauses.append(f"url IN ({', '.join(['?'] * len(urls))})")
+        params.extend(urls)
+    if not clauses:
+        return {}
+
+    rows = connection.execute(
+        f"SELECT id, source, source_id, url FROM offers WHERE {' OR '.join(clauses)};",
+        params,
+    ).fetchall()
+    by_external_id = {
+        (row["source"], row["source_id"]): int(row["id"])
+        for row in rows
+        if row["source_id"] is not None
+    }
+    by_url = {row["url"]: int(row["id"]) for row in rows}
+    return {
+        _canonical_url(job): by_external_id.get((job.source, job.source_id), by_url.get(_canonical_url(job)))
+        for job in jobs
+        if by_external_id.get((job.source, job.source_id), by_url.get(_canonical_url(job))) is not None
+    }
+
+
+def find_existing_offer_ids_by_url_batch(
+    connection: sqlite3.Connection,
+    canonical_urls: list[str],
+) -> dict[str, int]:
+    urls = sorted({url for url in canonical_urls if url})
+    if not urls:
+        return {}
+    rows = connection.execute(
+        f"SELECT id, url FROM offers WHERE url IN ({', '.join(['?'] * len(urls))});",
+        urls,
+    ).fetchall()
+    return {row["url"]: int(row["id"]) for row in rows}
 
 
 def find_existing_offer_id_by_url(
@@ -905,25 +1048,11 @@ def save_screening_result(
 ) -> int:
     init_db(db_path)
     screened_at = screened_at or _now_iso()
-    matched_signals = {
-        "positive": [match.model_dump(mode="json") for match in evaluation.matched_positive_terms],
-        "negative": [match.model_dump(mode="json") for match in evaluation.matched_negative_terms],
-    }
-    passed = evaluation.normalized_score >= threshold
     with _connect(db_path) as connection:
-        connection.execute(
-            load_sql("screening_results/upsert.sql"),
-            (
-                offer_id,
-                profile_path,
-                evaluation.normalized_score,
-                evaluation.decision,
-                threshold,
-                1 if passed else 0,
-                json.dumps(matched_signals, ensure_ascii=False),
-                json.dumps(evaluation.reasoning, ensure_ascii=False),
-                screened_at,
-            ),
+        save_screening_results_batch(
+            connection,
+            [(offer_id, profile_path, evaluation, threshold)],
+            screened_at=screened_at,
         )
         row = connection.execute(
             load_sql("screening_results/select_id.sql"),
@@ -949,27 +1078,8 @@ def save_offer_score(
     scored_at: str | None = None,
 ) -> None:
     init_db(db_path)
-    scored_at = scored_at or _now_iso()
     with _connect(db_path) as connection:
-        connection.execute(
-            """
-            INSERT INTO offer_scores (
-                offer_id, preset_id, score, signals_json, scored_at
-            )
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(offer_id, preset_id) DO UPDATE SET
-                score = excluded.score,
-                signals_json = excluded.signals_json,
-                scored_at = excluded.scored_at;
-            """,
-            (
-                offer_id,
-                preset_id,
-                evaluation.normalized_score,
-                json.dumps(_signals_from_evaluation(evaluation), ensure_ascii=False),
-                scored_at,
-            ),
-        )
+        save_offer_scores_batch(connection, [(offer_id, preset_id, evaluation)], scored_at=scored_at)
 
 
 def save_offer_scores(
@@ -980,28 +1090,75 @@ def save_offer_scores(
     scored_at: str | None = None,
 ) -> None:
     init_db(db_path)
-    scored_at = scored_at or _now_iso()
     with _connect(db_path) as connection:
-        for preset_id, evaluation in evaluations.items():
-            connection.execute(
-                """
-                INSERT INTO offer_scores (
-                    offer_id, preset_id, score, signals_json, scored_at
-                )
-                VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT(offer_id, preset_id) DO UPDATE SET
-                    score = excluded.score,
-                    signals_json = excluded.signals_json,
-                    scored_at = excluded.scored_at;
-                """,
-                (
-                    offer_id,
-                    preset_id,
-                    evaluation.normalized_score,
-                    json.dumps(_signals_from_evaluation(evaluation), ensure_ascii=False),
-                    scored_at,
-                ),
+        save_offer_scores_batch(
+            connection,
+            [(offer_id, preset_id, evaluation) for preset_id, evaluation in evaluations.items()],
+            scored_at=scored_at,
+        )
+
+
+def save_offer_scores_batch(
+    connection: sqlite3.Connection,
+    rows: list[tuple[int, str, RuleEvaluation]],
+    *,
+    scored_at: str | None = None,
+) -> None:
+    scored_at = scored_at or _now_iso()
+    connection.executemany(
+        """
+        INSERT INTO offer_scores (
+            offer_id, preset_id, score, signals_json, scored_at
+        )
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(offer_id, preset_id) DO UPDATE SET
+            score = excluded.score,
+            signals_json = excluded.signals_json,
+            scored_at = excluded.scored_at;
+        """,
+        [
+            (
+                offer_id,
+                preset_id,
+                evaluation.normalized_score,
+                json.dumps(_signals_from_evaluation(evaluation), ensure_ascii=False),
+                scored_at,
             )
+            for offer_id, preset_id, evaluation in rows
+        ],
+    )
+
+
+def save_screening_results_batch(
+    connection: sqlite3.Connection,
+    rows: list[tuple[int, str, RuleEvaluation, int]],
+    *,
+    screened_at: str | None = None,
+) -> None:
+    screened_at = screened_at or _now_iso()
+    connection.executemany(
+        load_sql("screening_results/upsert.sql"),
+        [
+            (
+                offer_id,
+                profile_path,
+                evaluation.normalized_score,
+                evaluation.decision,
+                threshold,
+                1 if evaluation.normalized_score >= threshold else 0,
+                json.dumps(
+                    {
+                        "positive": [match.model_dump(mode="json") for match in evaluation.matched_positive_terms],
+                        "negative": [match.model_dump(mode="json") for match in evaluation.matched_negative_terms],
+                    },
+                    ensure_ascii=False,
+                ),
+                json.dumps(evaluation.reasoning, ensure_ascii=False),
+                screened_at,
+            )
+            for offer_id, profile_path, evaluation, threshold in rows
+        ],
+    )
 
 
 def list_scoring_presets(

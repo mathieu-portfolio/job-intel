@@ -14,7 +14,7 @@ import requests
 
 from app.ai.decision import make_final_decision
 from app.ai.evaluator import build_job_evaluation_prompts, evaluate_job_with_ai
-from app.filtering.rules import evaluate_job, load_rule_scoring_config
+from app.filtering.rules import evaluate_job, load_rule_scoring_config, precompute_rule_matching
 from app.llm.factory import ProviderName, create_llm_provider
 from app.llm.ollama_client import OllamaLlmProvider
 from app.models.evaluation import AiJobEvaluation, FinalDecision, RuleEvaluation
@@ -31,23 +31,25 @@ from app.storage.sqlite import (
     StoredOffer,
     UpsertStats,
     create_ranking_run,
-    find_existing_offer_id,
-    find_existing_offer_id_by_url,
     find_screening_result_id,
+    find_existing_offer_ids_batch,
+    find_existing_offer_ids_by_url_batch,
     get_exploration_metadata,
     get_scoring_preset,
-    has_explored_offer,
+    has_explored_offers_batch,
+    init_db,
     list_scoring_presets,
+    open_connection,
     prune_storage,
-    record_explored_job,
+    record_explored_jobs_batch,
     save_ai_review,
     save_exploration_metadata,
-    save_offer_scores,
+    save_offer_scores_batch,
     save_ranking,
-    save_screening_result,
+    save_screening_results_batch,
     select_screened_offers,
     select_unranked_offers,
-    upsert_offers,
+    upsert_offers_batch,
 )
 
 
@@ -77,6 +79,7 @@ class FetchWorkflowResult:
     prune_stats: PruneStats
     matched_count: int
     matches: list[tuple[JobOffer, RuleEvaluation]]
+    messages: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -200,6 +203,16 @@ def fetch_offers(
     cancelled: CancellationCheck | None = None,
 ) -> FetchWorkflowResult:
     messages: list[str] = []
+    timing = {
+        "provider_fetch": 0.0,
+        "explored_lookup": 0.0,
+        "scoring": 0.0,
+        "offer_upsert": 0.0,
+        "score_persistence": 0.0,
+        "screened_persistence": 0.0,
+        "explored_persistence": 0.0,
+    }
+    total_started_at = time.perf_counter()
     if pages < 1:
         raise ValueError("pages must be at least 1.")
     if new_offers is not None and new_offers < 1:
@@ -238,9 +251,11 @@ def fetch_offers(
     matches: list[tuple[JobOffer, RuleEvaluation]] = []
     candidate_profile = load_profile(profile_path)
     screening_threshold = min_score if min_score is not None else candidate_profile.screening_threshold
+    init_db(db_path)
     enabled_presets = list_scoring_presets(db_path, enabled_only=True)
     if not enabled_presets:
         raise RuntimeError("No enabled scoring presets are configured.")
+    precompute_rule_matching(candidate_profile, [preset.weights for preset in enabled_presets])
 
     scope_payload = _exploration_scope_payload(
         source=source,
@@ -281,140 +296,165 @@ def fetch_offers(
     fast_phase = "top" if fast_backfill_active else "normal"
     skip_pages_scanned = 0
 
-    def process_job(job: JobOffer, *, page_counts: dict[str, int]) -> bool:
+    def process_jobs_batch(jobs: list[JobOffer], *, page_counts: dict[str, int]) -> bool:
         nonlocal inserted
         nonlocal updated
         nonlocal already_seen
         nonlocal newly_explored
         nonlocal filtered_out
         nonlocal errors
-        canonical_url = str(job.url)
-        counted_as_new = False
-        try:
-            _raise_if_cancelled(cancelled)
-            if has_explored_offer(
-                provider=job.source,
-                external_id=job.source_id,
-                canonical_url=canonical_url,
-                db_path=db_path,
-            ):
-                already_seen += 1
-                page_counts["already_seen"] += 1
-                return False
+        if not jobs:
+            return False
 
-            newly_explored += 1
-            page_counts["newly_explored"] += 1
-            counted_as_new = True
-            if target_new_offers is not None:
-                _emit(
-                    messages,
-                    progress,
-                    f"Processed {newly_explored}/{target_new_offers} newly explored offers.",
-                )
-            if not job.description.strip():
-                filtered_out += 1
-                record_explored_job(
-                    job,
-                    status="filtered_out",
-                    reason="missing_description",
-                    db_path=db_path,
-                )
-                return target_new_offers is not None and newly_explored >= target_new_offers
-
-            existing_offer_id = find_existing_offer_id(job, db_path=db_path)
-            if existing_offer_id is not None:
-                preset_evaluations = {
-                    preset.id: evaluate_job(job, profile=candidate_profile, config=preset.weights)
-                    for preset in enabled_presets
-                }
-                evaluation = preset_evaluations.get("balanced") or next(iter(preset_evaluations.values()))
-                save_offer_scores(
-                    db_path=db_path,
-                    offer_id=existing_offer_id,
-                    evaluations=preset_evaluations,
-                )
-                save_screening_result(
-                    db_path=db_path,
-                    offer_id=existing_offer_id,
-                    profile_path=str(profile_path),
-                    evaluation=evaluation,
-                    threshold=screening_threshold,
-                )
-                upsert_stats = UpsertStats(fetched=1, inserted=0, updated=0)
-                if find_existing_offer_id_by_url(canonical_url, db_path=db_path) is not None:
-                    upsert_stats = upsert_offers([job], db_path=db_path)
-                updated += upsert_stats.updated
-                record_explored_job(
-                    job,
-                    status="updated" if upsert_stats.updated else "duplicate",
-                    reason="already_in_offers",
-                    db_path=db_path,
-                )
-                return target_new_offers is not None and newly_explored >= target_new_offers
-
-            preset_evaluations = {
-                preset.id: evaluate_job(job, profile=candidate_profile, config=preset.weights)
-                for preset in enabled_presets
-            }
-            evaluation = preset_evaluations.get("balanced") or next(iter(preset_evaluations.values()))
-            best_score = max(score.normalized_score for score in preset_evaluations.values())
-            if best_score < screening_threshold:
-                filtered_out += 1
-                record_explored_job(
-                    job,
-                    status="filtered_out",
-                    reason="rule_filter_failed",
-                    db_path=db_path,
-                )
-                return target_new_offers is not None and newly_explored >= target_new_offers
-
-            upsert_stats = upsert_offers([job], db_path=db_path)
-            inserted += upsert_stats.inserted
-            updated += upsert_stats.updated
-            offer_id = find_existing_offer_id(job, db_path=db_path)
-            if offer_id is not None:
-                save_offer_scores(
-                    db_path=db_path,
-                    offer_id=offer_id,
-                    evaluations=preset_evaluations,
-                )
-                save_screening_result(
-                    db_path=db_path,
-                    offer_id=offer_id,
-                    profile_path=str(profile_path),
-                    evaluation=evaluation,
-                    threshold=screening_threshold,
-                )
-            record_explored_job(
-                job,
-                status="inserted" if upsert_stats.inserted else "updated",
-                reason=None,
-                db_path=db_path,
+        batch_started_at = time.perf_counter()
+        with open_connection(db_path) as connection:
+            lookup_started_at = time.perf_counter()
+            explored_identities = has_explored_offers_batch(
+                connection,
+                jobs[0].source,
+                [(job.source_id, str(job.url)) for job in jobs],
             )
-            matches.append((job, evaluation))
-            return target_new_offers is not None and newly_explored >= target_new_offers
-        except Exception as error:
-            errors += 1
-            if not counted_as_new:
+            timing["explored_lookup"] += time.perf_counter() - lookup_started_at
+
+            jobs_to_score: list[JobOffer] = []
+            explored_records: list[tuple[JobOffer, str, str | None, bool]] = []
+            stop_after_page = False
+            for job in jobs:
+                _raise_if_cancelled(cancelled)
+                canonical_url = str(job.url)
+                if (job.source_id, canonical_url) in explored_identities:
+                    already_seen += 1
+                    page_counts["already_seen"] += 1
+                    continue
+
                 newly_explored += 1
                 page_counts["newly_explored"] += 1
-            record_explored_job(
-                job,
-                status="error",
-                reason=str(error),
-                db_path=db_path,
+                if target_new_offers is not None:
+                    _emit(
+                        messages,
+                        progress,
+                        f"Processed {newly_explored}/{target_new_offers} newly explored offers.",
+                    )
+
+                if not job.description.strip():
+                    filtered_out += 1
+                    explored_records.append((job, "filtered_out", "missing_description", False))
+                else:
+                    jobs_to_score.append(job)
+
+                if target_new_offers is not None and newly_explored >= target_new_offers:
+                    stop_after_page = True
+                    break
+
+            lookup_started_at = time.perf_counter()
+            existing_offer_ids = find_existing_offer_ids_batch(connection, jobs_to_score)
+            existing_url_ids = find_existing_offer_ids_by_url_batch(
+                connection,
+                [str(job.url) for job in jobs_to_score],
             )
-            return target_new_offers is not None and newly_explored >= target_new_offers
+            timing["explored_lookup"] += time.perf_counter() - lookup_started_at
+
+            score_rows: list[tuple[int, str, RuleEvaluation]] = []
+            screening_rows: list[tuple[int, str, RuleEvaluation, int]] = []
+            upsert_jobs: list[JobOffer] = []
+            evaluations_by_url: dict[str, dict[str, RuleEvaluation]] = {}
+            selected_evaluation_by_url: dict[str, RuleEvaluation] = {}
+
+            for job in jobs_to_score:
+                canonical_url = str(job.url)
+                try:
+                    scoring_started_at = time.perf_counter()
+                    preset_evaluations = {
+                        preset.id: evaluate_job(job, profile=candidate_profile, config=preset.weights)
+                        for preset in enabled_presets
+                    }
+                    timing["scoring"] += time.perf_counter() - scoring_started_at
+                    evaluation = preset_evaluations.get("balanced") or next(iter(preset_evaluations.values()))
+                    evaluations_by_url[canonical_url] = preset_evaluations
+                    selected_evaluation_by_url[canonical_url] = evaluation
+
+                    existing_offer_id = existing_offer_ids.get(canonical_url)
+                    if existing_offer_id is not None:
+                        score_rows.extend(
+                            (existing_offer_id, preset_id, preset_evaluation)
+                            for preset_id, preset_evaluation in preset_evaluations.items()
+                        )
+                        screening_rows.append(
+                            (existing_offer_id, str(profile_path), evaluation, screening_threshold)
+                        )
+                        if canonical_url in existing_url_ids:
+                            upsert_jobs.append(job)
+                            explored_records.append((job, "updated", "already_in_offers", False))
+                        else:
+                            explored_records.append((job, "duplicate", "already_in_offers", False))
+                        continue
+
+                    best_score = max(score.normalized_score for score in preset_evaluations.values())
+                    if best_score < screening_threshold:
+                        filtered_out += 1
+                        explored_records.append((job, "filtered_out", "rule_filter_failed", False))
+                        continue
+
+                    upsert_jobs.append(job)
+                    explored_records.append((job, "inserted", None, False))
+                except Exception as error:
+                    errors += 1
+                    explored_records.append((job, "error", str(error), False))
+
+            upsert_started_at = time.perf_counter()
+            upsert_stats, upserted_offer_ids = upsert_offers_batch(connection, upsert_jobs)
+            timing["offer_upsert"] += time.perf_counter() - upsert_started_at
+            inserted += upsert_stats.inserted
+            updated += upsert_stats.updated
+
+            for job in upsert_jobs:
+                canonical_url = str(job.url)
+                offer_id = upserted_offer_ids.get(canonical_url)
+                if offer_id is None:
+                    continue
+                preset_evaluations = evaluations_by_url[canonical_url]
+                evaluation = selected_evaluation_by_url[canonical_url]
+                score_rows.extend(
+                    (offer_id, preset_id, preset_evaluation)
+                    for preset_id, preset_evaluation in preset_evaluations.items()
+                )
+                screening_rows.append((offer_id, str(profile_path), evaluation, screening_threshold))
+                if canonical_url not in existing_offer_ids:
+                    matches.append((job, evaluation))
+
+            score_started_at = time.perf_counter()
+            save_offer_scores_batch(connection, score_rows)
+            timing["score_persistence"] += time.perf_counter() - score_started_at
+
+            screened_started_at = time.perf_counter()
+            save_screening_results_batch(connection, screening_rows)
+            timing["screened_persistence"] += time.perf_counter() - screened_started_at
+
+            explored_started_at = time.perf_counter()
+            record_explored_jobs_batch(connection, explored_records)
+            timing["explored_persistence"] += time.perf_counter() - explored_started_at
+
+        _emit(
+            messages,
+            progress,
+            (
+                f"Processed page batch: {len(jobs)} provider rows in "
+                f"{time.perf_counter() - batch_started_at:.2f}s."
+            ),
+        )
+        return stop_after_page
 
     while pages_scanned < page_limit:
         _raise_if_cancelled(cancelled)
         try:
+            provider_started_at = time.perf_counter()
             if source == "arbeitnow":
                 jobs = fetch_arbeitnow(page=current_page)
             elif source == "adzuna":
                 jobs = fetch_adzuna(query=query, country=country, where=where, page=current_page)
             else:
                 raise ValueError(f"Unsupported source: {source}")
+            timing["provider_fetch"] += time.perf_counter() - provider_started_at
         except requests.RequestException as error:
             raise RuntimeError(f"Network/API error: {error}") from error
 
@@ -432,6 +472,7 @@ def fetch_offers(
 
         page_counts = {"already_seen": 0, "newly_explored": 0}
         jump_page: int | None = None
+        jobs_to_process: list[JobOffer] = []
         for index, job in enumerate(jobs):
             _raise_if_cancelled(cancelled)
             identity = _offer_exploration_id(job)
@@ -445,13 +486,12 @@ def fetch_offers(
                 if identity == previous_oldest_id:
                     fast_phase = "normal"
                     _emit(messages, progress, "Reached previous oldest offer; resuming normal deduplication.")
-                    for remaining_job in jobs[index + 1:]:
-                        if process_job(remaining_job, page_counts=page_counts):
-                            break
+                    jobs_to_process.extend(jobs[index + 1:])
                     break
                 continue
-            if process_job(job, page_counts=page_counts):
-                break
+            jobs_to_process.append(job)
+
+        process_jobs_batch(jobs_to_process, page_counts=page_counts)
 
         if fast_phase == "skip":
             skip_pages_scanned += 1
@@ -505,6 +545,22 @@ def fetch_offers(
             f"updated {stats.updated}; errors {stats.errors}."
         ),
     )
+    total_elapsed = max(time.perf_counter() - total_started_at, 0.001)
+    _emit(
+        messages,
+        progress,
+        (
+            "Fetch timing: "
+            f"provider fetch {timing['provider_fetch']:.2f}s; "
+            f"explored lookup {timing['explored_lookup']:.2f}s; "
+            f"scoring {timing['scoring']:.2f}s; "
+            f"offer upsert {timing['offer_upsert']:.2f}s; "
+            f"score persistence {timing['score_persistence']:.2f}s; "
+            f"screened persistence {timing['screened_persistence']:.2f}s; "
+            f"explored persistence {timing['explored_persistence']:.2f}s; "
+            f"{stats.fetched / total_elapsed:.1f} provider offers/sec."
+        ),
+    )
     if first_seen_identity and last_seen_identity and last_scanned_page is not None:
         _raise_if_cancelled(cancelled)
         save_exploration_metadata(
@@ -545,6 +601,7 @@ def fetch_offers(
         prune_stats=prune_stats,
         matched_count=len(matches),
         matches=matches,
+        messages=messages,
     )
 
 

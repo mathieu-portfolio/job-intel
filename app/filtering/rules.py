@@ -4,6 +4,7 @@ import json
 import re
 import unicodedata
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 from pydantic import BaseModel, Field, ValidationError
@@ -90,16 +91,49 @@ def iter_item_aliases(item: ProfileSignalItem) -> list[Alias]:
     return aliases
 
 
+def _alias_cache_key(item: ProfileSignalItem) -> str:
+    return json.dumps(item.aliases, sort_keys=True, ensure_ascii=False)
+
+
+@lru_cache(maxsize=4096)
+def _normalized_aliases_for_item(term: str, aliases_key: str) -> tuple[tuple[str, str, str | None], ...]:
+    aliases = json.loads(aliases_key) if aliases_key else {}
+    normalized_aliases: list[tuple[str, str, str | None]] = []
+    if isinstance(aliases, dict):
+        for language, values in aliases.items():
+            if isinstance(values, list):
+                normalized_aliases.extend(
+                    (normalize_text(str(alias)), str(alias), str(language))
+                    for alias in values
+                    if str(alias).strip()
+                )
+    if not normalized_aliases:
+        normalized_aliases.append((normalize_text(term), term, None))
+    return tuple(normalized_aliases)
+
+
 def match_signal_item(text: str, item: ProfileSignalItem) -> MatchResult | None:
     normalized_text = normalize_text(text)
-    for alias in iter_item_aliases(item):
-        if _contains_normalized_term(normalized_text, normalize_text(alias.text)):
+    for normalized_alias, alias_text, language in _normalized_aliases_for_item(item.term, _alias_cache_key(item)):
+        if _contains_normalized_term(normalized_text, normalized_alias):
             return MatchResult(
                 canonical_term=item.term,
-                matched_alias=alias.text,
-                language=alias.language,
+                matched_alias=alias_text,
+                language=language,
             )
     return None
+
+
+def precompute_rule_matching(profile: CandidateProfile | None, configs: list[RuleScoringConfig]) -> None:
+    items: list[ProfileSignalItem] = []
+    if profile is not None:
+        items.extend(profile.must_match.any)
+        for category in profile.signals.values():
+            items.extend(category.items)
+    for config in configs:
+        items.extend(config.must_match.any)
+    for item in items:
+        _normalized_aliases_for_item(item.term, _alias_cache_key(item))
 
 
 def _must_match_terms(

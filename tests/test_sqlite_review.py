@@ -1171,6 +1171,7 @@ class SqliteReviewTests(unittest.TestCase):
             self.assertEqual(screenings[0]["title"], "Simulation Engineer")
             self.assertEqual(screenings[0]["profile_path"], str(profile_path))
             self.assertEqual(screenings[0]["passed"], 1)
+            self.assertTrue(any("Fetch timing:" in message for message in result.messages))
 
     def test_fetch_workflow_uses_profile_signals_not_hardcoded_terms(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
