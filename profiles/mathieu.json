@@ -1,13 +1,7 @@
 {
   "must_match": {
     "any": [
-      "systems",
-      "simulation",
-      "infrastructure",
-      "graphics",
-      "tooling",
       "C++",
-      "aerospace",
       "software",
       "developper",
       "engineer",

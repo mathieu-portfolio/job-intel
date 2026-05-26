@@ -30,6 +30,7 @@
         <div class="spinner" aria-hidden="true"></div>
         <div>
           <strong id="workflow-modal-stage">Preparing workflow</strong>
+          <span id="workflow-modal-remaining" hidden></span>
           <span id="workflow-modal-elapsed">Elapsed 0s</span>
         </div>
       </div>
@@ -65,6 +66,7 @@
     const title = document.getElementById("workflow-modal-title");
     const status = document.getElementById("workflow-modal-status");
     const stage = document.getElementById("workflow-modal-stage");
+    const remaining = document.getElementById("workflow-modal-remaining");
     const elapsed = document.getElementById("workflow-modal-elapsed");
     const closeButton = document.getElementById("workflow-modal-close");
     const progress = document.getElementById("workflow-modal-progress");
@@ -72,7 +74,9 @@
     let modalActive = false;
     let timerId = null;
     let stageId = null;
+    let pollId = null;
     let activeRequest = null;
+    let activeWorkflowKind = "";
     const dismissalKey = "jobIntel.workflowNoticeDismissed";
 
     const isCompletionDismissed = () => {
@@ -116,21 +120,75 @@
     const stopTimers = () => {
       if (timerId) window.clearInterval(timerId);
       if (stageId) window.clearInterval(stageId);
+      if (pollId) window.clearInterval(pollId);
       timerId = null;
       stageId = null;
+      pollId = null;
     };
 
-    const openRunningModal = (form) => {
+    const formatRemaining = (count) => {
+      if (activeWorkflowKind === "fetch") {
+        if (count === 1) return "1 offer left to fetch";
+        return `${count} offers left to fetch`;
+      }
+      if (count === 1) return "1 offer left to compute";
+      return `${count} offers left to compute`;
+    };
+
+    const updateProgressSnapshot = (snapshot) => {
+      if (!snapshot) return;
+      if (snapshot.message && stage) {
+        if (stageId) {
+          window.clearInterval(stageId);
+          stageId = null;
+        }
+        stage.textContent = snapshot.message;
+      }
+      if (!remaining) return;
+      if (Number.isInteger(snapshot.remaining)) {
+        const total = Number.isInteger(snapshot.total) ? ` of ${snapshot.total}` : "";
+        remaining.textContent = `${formatRemaining(snapshot.remaining)}${total}`;
+        remaining.hidden = false;
+      } else {
+        remaining.hidden = true;
+      }
+    };
+
+    const startProgressPolling = (token) => {
+      if (!token) return;
+      pollId = window.setInterval(async () => {
+        try {
+          const response = await fetch(`/workflows/progress/${encodeURIComponent(token)}`);
+          if (response.ok) updateProgressSnapshot(await response.json());
+        } catch (_) {
+          // Progress polling is best-effort; the final form response still updates the page.
+        }
+      }, 900);
+    };
+
+    const openRunningModal = (form, token) => {
       clearCompletionDismissal();
       const stages = workflowStages[form.dataset.workflowKind] || ["Working"];
       const startedAt = Date.now();
       let stageIndex = 0;
+      activeWorkflowKind = form.dataset.workflowKind || "";
       modalActive = true;
       modal.hidden = false;
       delete modal.dataset.complete;
       if (title) title.textContent = form.dataset.modalTitle || "Working";
       if (status) status.textContent = form.dataset.modalStatus || "Please wait while the workflow runs.";
       if (stage) stage.textContent = stages[stageIndex];
+      if (remaining) {
+        const formData = new FormData(form);
+        const countField = activeWorkflowKind === "fetch" ? "new_offers" : "limit";
+        const requestedCount = Number.parseInt(formData.get(countField) || "", 10);
+        if ((activeWorkflowKind === "ai" || activeWorkflowKind === "fetch") && Number.isInteger(requestedCount) && requestedCount > 0) {
+          remaining.textContent = `Up to ${formatRemaining(requestedCount)}`;
+          remaining.hidden = false;
+        } else {
+          remaining.hidden = true;
+        }
+      }
       if (elapsed) elapsed.textContent = "Elapsed 0s";
       if (closeButton) {
         closeButton.hidden = false;
@@ -152,6 +210,7 @@
         stageIndex = Math.min(stageIndex + 1, stages.length - 1);
         if (stage) stage.textContent = stages[stageIndex];
       }, 3500);
+      startProgressPolling(token);
     };
 
     const closeModal = () => {
@@ -180,12 +239,14 @@
       }
       modal.hidden = true;
       delete modal.dataset.complete;
+      activeWorkflowKind = "";
       if (result) {
         result.hidden = true;
         result.replaceChildren();
         result.className = "workflow-modal-result";
       }
       if (progress) progress.hidden = true;
+      if (remaining) remaining.hidden = true;
     };
 
     if (closeButton) closeButton.addEventListener("click", closeModal);
@@ -199,10 +260,7 @@
       }
     }
 
-    const submitWithProgress = async (form, button) => {
-      const token = (window.crypto && window.crypto.randomUUID)
-        ? window.crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const submitWithProgress = async (form, button, token) => {
       const controller = new AbortController();
       activeRequest = { token, controller };
       try {
@@ -249,9 +307,13 @@
           return;
         }
         const button = form.querySelector("button[type='submit']");
+        let token = null;
         if (form.dataset.progressModal === "true") {
           event.preventDefault();
-          openRunningModal(form);
+          token = (window.crypto && window.crypto.randomUUID)
+            ? window.crypto.randomUUID()
+            : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+          openRunningModal(form, token);
         }
         if (button) {
           button.disabled = true;
@@ -259,7 +321,7 @@
           button.textContent = form.dataset.runningLabel || "Running...";
         }
         if (form.dataset.progressModal === "true") {
-          submitWithProgress(form, button);
+          submitWithProgress(form, button, token);
         }
       });
     }

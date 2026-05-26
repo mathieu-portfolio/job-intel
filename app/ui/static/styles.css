@@ -278,6 +278,11 @@ main {
   display: block;
 }
 
+#workflow-modal-remaining {
+  color: var(--accent);
+  font-weight: 700;
+}
+
 .spinner {
   width: 28px;
   height: 28px;

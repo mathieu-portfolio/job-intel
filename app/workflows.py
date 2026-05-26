@@ -305,6 +305,12 @@ def fetch_offers(
             newly_explored += 1
             page_counts["newly_explored"] += 1
             counted_as_new = True
+            if target_new_offers is not None:
+                _emit(
+                    messages,
+                    progress,
+                    f"Processed {newly_explored}/{target_new_offers} newly explored offers.",
+                )
             if not job.description.strip():
                 filtered_out += 1
                 record_explored_job(

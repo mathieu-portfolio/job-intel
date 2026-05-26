@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from threading import Event
+from threading import Event, Lock
 from pathlib import Path
 from urllib.parse import parse_qs
 from uuid import uuid4
@@ -97,11 +97,70 @@ def _clear_cancellation_event(request: Request, token: str) -> None:
     request.app.state.workflow_cancellations.pop(token, None)
 
 
+def _record_workflow_progress(request: Request, token: str, message: str) -> None:
+    progress = {"message": message}
+    with request.app.state.workflow_progress_lock:
+        previous = dict(request.app.state.workflow_progress.get(token, {}))
+    total = previous.get("total")
+    current = previous.get("current")
+
+    if message.startswith("Evaluating "):
+        prefix = message.removeprefix("Evaluating ").split(":", 1)[0]
+        try:
+            current_text, total_text = prefix.split("/", 1)
+            current = int(current_text)
+            total = int(total_text)
+            progress["current"] = current
+            progress["total"] = total
+            progress["remaining"] = max(total - current + 1, 0)
+        except ValueError:
+            pass
+    elif message.startswith("Model response parsed") and total is not None and current is not None:
+        progress["current"] = current
+        progress["total"] = total
+        progress["remaining"] = max(total - current, 0)
+    elif message.startswith("Saved ") and " rankings" in message and total is not None:
+        progress["current"] = total
+        progress["total"] = total
+        progress["remaining"] = 0
+    elif "AI-evaluated " in message:
+        try:
+            total = int(message.split("AI-evaluated ", 1)[1].split(";", 1)[0])
+            progress["current"] = 0
+            progress["total"] = total
+            progress["remaining"] = total
+        except ValueError:
+            pass
+    elif message.startswith("Processed ") and "/" in message and " newly explored offers" in message:
+        prefix = message.removeprefix("Processed ").split(" newly explored offers", 1)[0]
+        try:
+            current_text, total_text = prefix.split("/", 1)
+            current = int(current_text)
+            total = int(total_text)
+            progress["current"] = current
+            progress["total"] = total
+            progress["remaining"] = max(total - current, 0)
+        except ValueError:
+            pass
+
+    with request.app.state.workflow_progress_lock:
+        merged = dict(previous)
+        merged.update(progress)
+        request.app.state.workflow_progress[token] = merged
+
+
+def _clear_workflow_progress(request: Request, token: str) -> None:
+    with request.app.state.workflow_progress_lock:
+        request.app.state.workflow_progress.pop(token, None)
+
+
 def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
     app = FastAPI(title="Job Intel Review")
     app.state.db_path = db_path
     app.state.workflow_notice = None
     app.state.workflow_cancellations = {}
+    app.state.workflow_progress = {}
+    app.state.workflow_progress_lock = Lock()
     app.mount("/static", StaticFiles(directory=str(UI_DIR / "static")), name="static")
 
     @app.get("/", response_class=HTMLResponse)
@@ -276,8 +335,11 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
         form = await _form_data(request)
         token = _workflow_token(request)
         cancellation = _cancellation_event(request, token)
+        progress = lambda message: _record_workflow_progress(request, token, message)
         try:
             preview_limit = _positive_int(form.get("limit"), 20)
+            target_new_offers = _positive_int(form.get("new_offers"), 20)
+            progress(f"Processed 0/{target_new_offers} newly explored offers.")
             source = form.get("source") or "arbeitnow"
             country = (form.get("country") or "").strip()
             if source == "adzuna" and not country:
@@ -286,7 +348,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 fetch_offers,
                 source=source,  # type: ignore[arg-type]
                 page=_positive_int(form.get("page"), 1),
-                new_offers=_positive_int(form.get("new_offers"), 20),
+                new_offers=target_new_offers,
                 max_pages=_positive_int(form.get("max_pages"), 10),
                 max_seen_pages=_positive_int(form.get("max_seen_pages"), 50),
                 query=(form.get("query") or "").strip(),
@@ -299,6 +361,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 unranked_capacity=_positive_int(form.get("unranked_capacity"), DEFAULT_UNRANKED_CAPACITY),
                 ranked_capacity=_positive_int(form.get("ranked_capacity"), DEFAULT_RANKED_CAPACITY),
                 exploration_mode=(form.get("exploration_mode") or "safe"),  # type: ignore[arg-type]
+                progress=progress,
                 cancelled=cancellation.is_set,
             )
             request.app.state.workflow_notice = _workflow_notice(
@@ -340,6 +403,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
             )
         finally:
             _clear_cancellation_event(request, token)
+            _clear_workflow_progress(request, token)
         return RedirectResponse("/explore", status_code=303)
 
     @app.post("/workflows/rank")
@@ -347,6 +411,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
         form = await _form_data(request)
         token = _workflow_token(request)
         cancellation = _cancellation_event(request, token)
+        progress = lambda message: _record_workflow_progress(request, token, message)
         try:
             weights_path = _optional_path(form.get("weights_path"))
             result = await run_in_threadpool(
@@ -361,6 +426,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 provider=((form.get("provider") or "").strip() or None),  # type: ignore[arg-type]
                 model=(form.get("model") or "").strip() or None,
                 preset_id=(form.get("preset") or "balanced").strip() or "balanced",
+                progress=progress,
                 cancelled=cancellation.is_set,
             )
             request.app.state.workflow_notice = _workflow_notice(
@@ -390,7 +456,14 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
             )
         finally:
             _clear_cancellation_event(request, token)
+            _clear_workflow_progress(request, token)
         return RedirectResponse("/", status_code=303)
+
+    @app.get("/workflows/progress/{token}")
+    async def workflow_progress(request: Request, token: str):
+        with request.app.state.workflow_progress_lock:
+            progress = dict(request.app.state.workflow_progress.get(token, {}))
+        return progress
 
     @app.post("/workflows/cancel")
     async def cancel_workflow(request: Request):
