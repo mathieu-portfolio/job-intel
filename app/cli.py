@@ -74,7 +74,7 @@ def fetch(
         "--max-seen-pages",
         help="Stop after this many consecutive pages contain only already-seen offers.",
     ),
-    query: str = typer.Option("c++ simulation", help="Search query for sources that support it."),
+    query: str = typer.Option("", help="Manual search query for sources that support it. Overrides profile search queries."),
     country: str = typer.Option("fr", help="Adzuna country code, for example fr, gb, us."),
     where: str | None = typer.Option(None, help="Optional Adzuna location filter."),
     profile: Path = typer.Option(Path("profiles/default.json"), help="Candidate profile JSON path for fast screening."),
@@ -85,6 +85,11 @@ def fetch(
     unranked_capacity: int = typer.Option(DEFAULT_UNRANKED_CAPACITY, help="Maximum unranked offer rows to keep."),
     ranked_capacity: int = typer.Option(DEFAULT_RANKED_CAPACITY, help="Maximum ranked offer rows to keep."),
     exploration_mode: str = typer.Option("safe", help="Exploration mode: safe or fast_backfill."),
+    use_profile_queries: bool = typer.Option(
+        True,
+        "--profile-queries/--broad-exploration",
+        help="Use profile-owned provider search queries when supported, or disable them for broad exploration.",
+    ),
 ) -> None:
     """Fetch jobs from one source, track newly explored offers, and print a shortlist."""
 
@@ -106,6 +111,7 @@ def fetch(
             unranked_capacity=unranked_capacity,
             ranked_capacity=ranked_capacity,
             exploration_mode=exploration_mode,  # type: ignore[arg-type]
+            use_profile_queries=use_profile_queries,
         )
     except requests.RequestException as error:
         console.print(f"[red]Network/API error:[/red] {error}")

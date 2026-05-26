@@ -1194,6 +1194,106 @@ class SqliteReviewTests(unittest.TestCase):
             self.assertEqual(result.stats.filtered_out, 1)
             self.assertEqual(list_screening_results(db_path), [])
 
+    def test_adzuna_fetch_uses_profile_search_queries_when_query_is_empty(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base_path = Path(temp_dir)
+            db_path = base_path / "jobs.sqlite"
+            profile_path = base_path / "profile.json"
+            profile_path.write_text(
+                json.dumps(
+                    {
+                        "search_queries": {
+                            "en": ["systems engineer"],
+                            "fr": ["ingénieur simulation"],
+                        },
+                        "screening_threshold": 0,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            first = _source_job("adzuna-1", "https://example.com/adzuna-1", "Systems Engineer")
+            second = _source_job("adzuna-2", "https://example.com/adzuna-2", "Simulation Engineer")
+
+            with patch("app.workflows.fetch_adzuna", side_effect=[[first], [second]]) as fetch_mock:
+                result = fetch_offers(
+                    source="adzuna",
+                    db_path=db_path,
+                    profile_path=profile_path,
+                    query="",
+                    country="fr",
+                    new_offers=2,
+                    max_pages=1,
+                    min_score=0,
+                )
+
+            self.assertEqual(result.stats.inserted, 2)
+            self.assertEqual(
+                [call.kwargs["query"] for call in fetch_mock.call_args_list],
+                ["systems engineer", "ingénieur simulation"],
+            )
+            self.assertTrue(any("Using 2 profile search requests" in message for message in result.messages))
+
+    def test_adzuna_manual_query_overrides_profile_search_queries(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base_path = Path(temp_dir)
+            db_path = base_path / "jobs.sqlite"
+            profile_path = base_path / "profile.json"
+            profile_path.write_text(
+                json.dumps({"search_queries": {"en": ["systems engineer"]}, "screening_threshold": 0}),
+                encoding="utf-8",
+            )
+            offer = _source_job("manual", "https://example.com/manual", "Manual Query Engineer")
+
+            with patch("app.workflows.fetch_adzuna", return_value=[offer]) as fetch_mock:
+                result = fetch_offers(
+                    source="adzuna",
+                    db_path=db_path,
+                    profile_path=profile_path,
+                    query="manual query",
+                    country="fr",
+                    new_offers=1,
+                    max_pages=1,
+                    min_score=0,
+                )
+
+            self.assertEqual(result.stats.inserted, 1)
+            self.assertEqual(len(fetch_mock.call_args_list), 1)
+            self.assertEqual(fetch_mock.call_args.kwargs["query"], "manual query")
+
+    def test_adzuna_profile_query_duplicates_are_deduped_across_queries(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base_path = Path(temp_dir)
+            db_path = base_path / "jobs.sqlite"
+            profile_path = base_path / "profile.json"
+            profile_path.write_text(
+                json.dumps(
+                    {
+                        "search_queries": {
+                            "en": ["systems engineer", "software engineer"],
+                        },
+                        "screening_threshold": 0,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            duplicate = _source_job("same-offer", "https://example.com/same", "Systems Engineer")
+
+            with patch("app.workflows.fetch_adzuna", side_effect=[[duplicate], [duplicate]]):
+                result = fetch_offers(
+                    source="adzuna",
+                    db_path=db_path,
+                    profile_path=profile_path,
+                    query="",
+                    country="fr",
+                    new_offers=2,
+                    max_pages=1,
+                    min_score=0,
+                )
+
+            self.assertEqual(result.stats.inserted, 1)
+            self.assertEqual(result.stats.already_seen, 1)
+            self.assertEqual(len(list_explored_offers(db_path)), 1)
+
     def test_ai_review_persistence_references_screening_result(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             base_path = Path(temp_dir)

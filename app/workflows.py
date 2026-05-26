@@ -19,6 +19,7 @@ from app.llm.factory import ProviderName, create_llm_provider
 from app.llm.ollama_client import OllamaLlmProvider
 from app.models.evaluation import AiJobEvaluation, FinalDecision, RuleEvaluation
 from app.models.job import JobOffer
+from app.models.profile import CandidateProfile
 from app.sources.adzuna import fetch_adzuna
 from app.sources.arbeitnow import fetch_arbeitnow
 from app.storage.files import load_profile
@@ -98,6 +99,12 @@ class RankWorkflowResult:
     ranked: list[RankedResult]
     candidates: list[tuple[StoredOffer, RuleEvaluation]]
     messages: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class ProviderSearchRequest:
+    query: str
+    where: str | None = None
 
 
 def _emit(messages: list[str], progress: ProgressCallback | None, message: str) -> None:
@@ -181,6 +188,60 @@ def _exploration_scope_key(scope: dict[str, object]) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def _dedupe_preserve_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        cleaned = value.strip()
+        key = cleaned.casefold()
+        if cleaned and key not in seen:
+            seen.add(key)
+            result.append(cleaned)
+    return result
+
+
+def _profile_search_locations(profile: CandidateProfile) -> list[str | None]:
+    terms: list[str] = [str(location) for location in profile.location_preferences]
+    location_category = profile.signals.get("location_preferences")
+    if location_category is not None:
+        terms.extend(item.term for item in location_category.items)
+    locations = _dedupe_preserve_order(terms)
+    return locations or [None]
+
+
+def iter_profile_search_requests(
+    profile: CandidateProfile,
+    provider: FetchSource,
+    *,
+    query: str | None = None,
+    where: str | None = None,
+    use_profile_queries: bool = True,
+) -> list[ProviderSearchRequest]:
+    manual_query = (query or "").strip()
+    manual_where = (where or "").strip() or None
+    if provider != "adzuna":
+        return [ProviderSearchRequest(query=manual_query, where=manual_where)]
+    if manual_query or not use_profile_queries:
+        return [ProviderSearchRequest(query=manual_query, where=manual_where)]
+
+    queries = _dedupe_preserve_order(
+        [
+            search_query
+            for language_queries in profile.search_queries.values()
+            for search_query in language_queries
+        ]
+    )
+    if not queries:
+        return [ProviderSearchRequest(query=manual_query, where=manual_where)]
+
+    locations = [manual_where] if manual_where else _profile_search_locations(profile)
+    return [
+        ProviderSearchRequest(query=search_query, where=search_where)
+        for search_query in queries
+        for search_where in locations
+    ]
+
+
 def fetch_offers(
     *,
     source: FetchSource = "arbeitnow",
@@ -199,6 +260,7 @@ def fetch_offers(
     unranked_capacity: int = DEFAULT_UNRANKED_CAPACITY,
     ranked_capacity: int = DEFAULT_RANKED_CAPACITY,
     exploration_mode: ExplorationMode = "safe",
+    use_profile_queries: bool = True,
     progress: ProgressCallback | None = None,
     cancelled: CancellationCheck | None = None,
 ) -> FetchWorkflowResult:
@@ -223,6 +285,108 @@ def fetch_offers(
         raise ValueError("max_seen_pages must be at least 1.")
     if exploration_mode not in {"safe", "normal", "fast_backfill"}:
         raise ValueError("exploration_mode must be safe, normal, or fast_backfill.")
+    candidate_profile = load_profile(profile_path)
+    search_requests = iter_profile_search_requests(
+        candidate_profile,
+        source,
+        query=query,
+        where=where,
+        use_profile_queries=use_profile_queries,
+    )
+    if len(search_requests) > 1:
+        _emit(
+            messages,
+            progress,
+            (
+                f"Using {len(search_requests)} profile search requests for {source}: "
+                + "; ".join(
+                    f"{request.query}{f' @ {request.where}' if request.where else ''}"
+                    for request in search_requests[:8]
+                )
+                + ("; ..." if len(search_requests) > 8 else "")
+            ),
+        )
+        aggregate_stats = UpsertStats(fetched=0, inserted=0, updated=0)
+        aggregate_matches: list[tuple[JobOffer, RuleEvaluation]] = []
+        aggregate_messages = messages
+        aggregate_prune: PruneStats | None = None
+        aggregate_deleted_explored = 0
+        aggregate_deleted_unranked = 0
+        aggregate_deleted_ranked = 0
+        for search_request in search_requests:
+            remaining_new_offers = (
+                None
+                if new_offers is None
+                else max(0, new_offers - aggregate_stats.newly_explored)
+            )
+            if remaining_new_offers == 0:
+                break
+            result = fetch_offers(
+                source=source,
+                page=page,
+                pages=pages,
+                new_offers=remaining_new_offers,
+                max_pages=max_pages,
+                max_seen_pages=max_seen_pages,
+                query=search_request.query,
+                country=country,
+                where=search_request.where,
+                profile_path=profile_path,
+                db_path=db_path,
+                min_score=min_score,
+                explored_capacity=explored_capacity,
+                unranked_capacity=unranked_capacity,
+                ranked_capacity=ranked_capacity,
+                exploration_mode=exploration_mode,
+                use_profile_queries=False,
+                progress=progress,
+                cancelled=cancelled,
+            )
+            aggregate_stats = UpsertStats(
+                fetched=aggregate_stats.fetched + result.stats.fetched,
+                inserted=aggregate_stats.inserted + result.stats.inserted,
+                updated=aggregate_stats.updated + result.stats.updated,
+                skipped_existing=aggregate_stats.skipped_existing + result.stats.skipped_existing,
+                pages_scanned=aggregate_stats.pages_scanned + result.stats.pages_scanned,
+                explored=aggregate_stats.explored + result.stats.explored,
+                newly_explored=aggregate_stats.newly_explored + result.stats.newly_explored,
+                already_seen=aggregate_stats.already_seen + result.stats.already_seen,
+                filtered_out=aggregate_stats.filtered_out + result.stats.filtered_out,
+                errors=aggregate_stats.errors + result.stats.errors,
+            )
+            aggregate_matches.extend(result.matches)
+            aggregate_messages.extend(result.messages)
+            aggregate_prune = result.prune_stats
+            aggregate_deleted_explored += result.prune_stats.deleted_explored
+            aggregate_deleted_unranked += result.prune_stats.deleted_unranked
+            aggregate_deleted_ranked += result.prune_stats.deleted_ranked
+
+        if aggregate_prune is None:
+            aggregate_prune = prune_storage(
+                db_path,
+                explored_capacity=explored_capacity,
+                unranked_capacity=unranked_capacity,
+                ranked_capacity=ranked_capacity,
+            )
+        aggregate_prune = PruneStats(
+            deleted_explored=aggregate_deleted_explored,
+            deleted_unranked=aggregate_deleted_unranked,
+            deleted_ranked=aggregate_deleted_ranked,
+            before=aggregate_prune.before,
+            after=aggregate_prune.after,
+        )
+        return FetchWorkflowResult(
+            source=source,
+            db_path=db_path,
+            stats=aggregate_stats,
+            prune_stats=aggregate_prune,
+            matched_count=len(aggregate_matches),
+            matches=aggregate_matches,
+            messages=aggregate_messages,
+        )
+
+    query = search_requests[0].query
+    where = search_requests[0].where
 
     target_new_offers = new_offers
     page_limit = max_pages if target_new_offers is not None else pages
@@ -249,7 +413,6 @@ def fetch_offers(
     pages_scanned = 0
     consecutive_seen_pages = 0
     matches: list[tuple[JobOffer, RuleEvaluation]] = []
-    candidate_profile = load_profile(profile_path)
     screening_threshold = min_score if min_score is not None else candidate_profile.screening_threshold
     init_db(db_path)
     enabled_presets = list_scoring_presets(db_path, enabled_only=True)

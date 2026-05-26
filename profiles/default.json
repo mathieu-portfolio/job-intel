@@ -1,4 +1,18 @@
 {
+  "search_queries": {
+    "en": [
+      "C++ developer",
+      "software engineer",
+      "systems engineer",
+      "simulation engineer"
+    ],
+    "fr": [
+      "développeur C++",
+      "ingénieur logiciel",
+      "ingénieur systèmes",
+      "ingénieur simulation"
+    ]
+  },
   "must_match": {
     "any": [
       {
