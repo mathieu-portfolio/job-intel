@@ -22,6 +22,16 @@ from app.sources.arbeitnow import fetch_arbeitnow
 from app.workflows import fetch_offers
 
 
+HTTP_HEADERS = {
+    "Accept": "application/json",
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/125.0 Safari/537.36"
+    ),
+}
+
+
 @dataclass(frozen=True)
 class BenchmarkResult:
     name: str
@@ -55,8 +65,27 @@ def _repeat(name: str, repeats: int, run: Callable[[], tuple[int, int]]) -> Benc
     return BenchmarkResult(name=name, elapsed=total_elapsed, offers=total_offers, pages=total_pages)
 
 
+def _run_stage(name: str, repeats: int, run: Callable[[], tuple[int, int]]) -> BenchmarkResult | None:
+    try:
+        return _repeat(name, repeats, run)
+    except requests.HTTPError as error:
+        response = error.response
+        status = response.status_code if response is not None else "unknown"
+        url = response.url if response is not None else "unknown URL"
+        print(f"{name}: failed with HTTP {status} for {url}")
+        return None
+    except Exception as error:
+        print(f"{name}: failed with {type(error).__name__}: {error}")
+        return None
+
+
 def _raw_fetch_arbeitnow(page: int) -> int:
-    response = requests.get(ARBEITNOW_API_URL, params={"page": page}, timeout=20)
+    response = requests.get(
+        ARBEITNOW_API_URL,
+        params={"page": page},
+        headers=HTTP_HEADERS,
+        timeout=20,
+    )
     response.raise_for_status()
     return len(response.json().get("data", []))
 
@@ -78,6 +107,7 @@ def _raw_fetch_adzuna(*, page: int, query: str, country: str, where: str | None)
     response = requests.get(
         ADZUNA_API_URL_TEMPLATE.format(country=country, page=page),
         params=params,
+        headers=HTTP_HEADERS,
         timeout=20,
     )
     response.raise_for_status()
@@ -115,39 +145,45 @@ def main() -> None:
     results: list[BenchmarkResult] = []
 
     if "fetch-only" in stages:
-        results.append(
-            _repeat(
-                "Fetch",
-                args.repeats,
-                lambda: (
-                    sum(_raw_fetch(args.provider, page, args.query, args.country, args.where) for page in range(1, args.pages + 1)),
-                    args.pages,
+        result = _run_stage(
+            "Fetch",
+            args.repeats,
+            lambda: (
+                sum(
+                    _raw_fetch(args.provider, page, args.query, args.country, args.where)
+                    for page in range(1, args.pages + 1)
                 ),
-            )
+                args.pages,
+            ),
         )
+        if result is not None:
+            results.append(result)
 
     if "fetch-parse" in stages:
-        results.append(
-            _repeat(
-                "Fetch + Parse",
-                args.repeats,
-                lambda: (
-                    sum(_fetch_parsed(args.provider, page, args.query, args.country, args.where) for page in range(1, args.pages + 1)),
-                    args.pages,
+        result = _run_stage(
+            "Fetch + Parse",
+            args.repeats,
+            lambda: (
+                sum(
+                    _fetch_parsed(args.provider, page, args.query, args.country, args.where)
+                    for page in range(1, args.pages + 1)
                 ),
-            )
+                args.pages,
+            ),
         )
+        if result is not None:
+            results.append(result)
 
     if "fetch-score" in stages:
         from benchmarks.benchmark_scoring import score_fetched_pages
 
-        results.append(
-            _repeat(
-                "Fetch + Parse + Scoring",
-                args.repeats,
-                lambda: score_fetched_pages(args.provider, args.pages, args.query, args.country, args.where),
-            )
+        result = _run_stage(
+            "Fetch + Parse + Scoring",
+            args.repeats,
+            lambda: score_fetched_pages(args.provider, args.pages, args.query, args.country, args.where),
         )
+        if result is not None:
+            results.append(result)
 
     if "full" in stages:
         def run_full() -> tuple[int, int]:
@@ -164,7 +200,9 @@ def main() -> None:
                 )
                 return result.stats.fetched, result.stats.pages_scanned
 
-        results.append(_repeat("Full Pipeline", args.repeats, run_full))
+        result = _run_stage("Full Pipeline", args.repeats, run_full)
+        if result is not None:
+            results.append(result)
 
     for result in results:
         _print_result(result)

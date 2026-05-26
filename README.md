@@ -254,6 +254,28 @@ Supported clear scopes are `rankings`, `offers`, `explored`, and `all`. Without 
 
 More details on fetch collection, explored-offer tracking, pruning capacities, and clear scopes are in [docs/operations.md](docs/operations.md).
 
+## Benchmarks
+
+Run the full benchmark suite with one command:
+
+```bash
+python benchmarks/run_benchmarks.py --provider arbeitnow --pages 3 --repeats 1 --offers 500
+```
+
+On PowerShell with the project virtualenv:
+
+```powershell
+.venv\Scripts\python.exe benchmarks\run_benchmarks.py --provider arbeitnow --pages 3 --repeats 1 --offers 500
+```
+
+The runner executes fetch, fetch+parse, fetch+parse+scoring, full pipeline, standalone scoring, and standalone storage benchmarks. Each run writes a timestamped text report and JSON report under:
+
+```text
+benchmarks/results/
+```
+
+Use Adzuna by passing `--provider adzuna --query "c++ simulation" --country fr`; Adzuna requires `ADZUNA_APP_ID` and `ADZUNA_APP_KEY` in the environment.
+
 ## Output files
 
 Fetched jobs are saved to:
