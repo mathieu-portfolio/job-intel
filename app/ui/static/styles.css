@@ -210,6 +210,10 @@ main {
   display: none;
 }
 
+.workflow-modal [hidden] {
+  display: none !important;
+}
+
 .workflow-modal {
   position: fixed;
   inset: 0;
