@@ -60,9 +60,9 @@ def _fetch_jobs(provider: str, pages: int, query: str, country: str, where: str 
     return jobs
 
 
-def score_jobs(jobs: list[JobOffer], *, profile_path: Path, db_path: Path = DEFAULT_DB_PATH) -> ScoringBenchmark:
+def score_jobs(jobs: list[JobOffer], *, profile_id: str, db_path: Path = DEFAULT_DB_PATH) -> ScoringBenchmark:
     init_db(db_path)
-    profile = load_profile(profile_path)
+    profile = load_profile(profile_id)
     presets = list_scoring_presets(db_path, enabled_only=True)
     configs = [preset.weights for preset in presets]
     precompute_rule_matching(profile, configs)
@@ -82,11 +82,11 @@ def score_fetched_pages(
     country: str,
     where: str | None,
     *,
-    profile_path: Path = Path("profiles/default.json"),
+    profile_id: str = "default",
     db_path: Path = DEFAULT_DB_PATH,
 ) -> tuple[int, int]:
     jobs = _fetch_jobs(provider, pages, query, country, where)
-    score_jobs(jobs, profile_path=profile_path, db_path=db_path)
+    score_jobs(jobs, profile_id=profile_id, db_path=db_path)
     return len(jobs), pages
 
 
@@ -96,7 +96,7 @@ def main() -> None:
     parser.add_argument("--pages", type=int, default=3)
     parser.add_argument("--repeats", type=int, default=1)
     parser.add_argument("--offers", type=int, default=500)
-    parser.add_argument("--profile", type=Path, default=Path("profiles/default.json"))
+    parser.add_argument("--profile", default="default")
     parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
     parser.add_argument("--query", default="c++ simulation")
     parser.add_argument("--country", default="fr")
@@ -116,7 +116,7 @@ def main() -> None:
         else:
             jobs = _fetch_jobs(args.provider, args.pages, args.query, args.country, args.where)
             pages = args.pages
-        result = score_jobs(jobs, profile_path=args.profile, db_path=args.db)
+        result = score_jobs(jobs, profile_id=args.profile, db_path=args.db)
         total_elapsed += result.elapsed
         total_offers += result.offers
         total_pages += pages

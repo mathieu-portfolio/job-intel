@@ -8,7 +8,7 @@ def create_ranking_run(
     started_at: str,
     algorithm: str,
     model: str | None,
-    profile_path: str,
+    profile_id: str,
     config: dict[str, Any],
 ) -> int:
     init_db(db_path)
@@ -19,7 +19,7 @@ def create_ranking_run(
                 started_at,
                 algorithm,
                 model,
-                profile_path,
+                profile_id,
                 json.dumps(config, ensure_ascii=False),
             ),
         )
@@ -33,7 +33,7 @@ def save_ranking(
     offer_id: int,
     algorithm: str,
     model: str | None,
-    profile_path: str,
+    profile_id: str,
     score: int,
     recommendation: Recommendation,
     summary: str,
@@ -45,7 +45,7 @@ def save_ranking(
     with _connect(db_path) as connection:
         connection.execute(
             load_sql("rankings/delete_existing.sql"),
-            (offer_id, algorithm, model, profile_path),
+            (offer_id, algorithm, model, profile_id),
         )
         connection.execute(
             load_sql("rankings/insert.sql"),
@@ -54,7 +54,7 @@ def save_ranking(
                 offer_id,
                 algorithm,
                 model,
-                profile_path,
+                profile_id,
                 score,
                 recommendation,
                 summary,
@@ -89,7 +89,7 @@ def save_ai_review(
     offer_id: int,
     provider: str | None,
     model: str | None,
-    profile_path: str,
+    profile_id: str,
     score: int,
     recommendation: Recommendation,
     summary: str,
@@ -102,7 +102,7 @@ def save_ai_review(
     with _connect(db_path) as connection:
         connection.execute(
             load_sql("ai_reviews/delete_existing.sql"),
-            (offer_id, provider, model, profile_path, preset_id),
+            (offer_id, provider, model, profile_id, preset_id),
         )
         connection.execute(
             load_sql("ai_reviews/insert.sql"),
@@ -111,7 +111,7 @@ def save_ai_review(
                 offer_id,
                 provider,
                 model,
-                profile_path,
+                profile_id,
                 preset_id,
                 score,
                 recommendation,
@@ -156,7 +156,7 @@ def list_ranked_offers(
     source: str | None = None,
     location: str | None = None,
     ranking_mode: str | None = None,
-    profile_path: str | None = None,
+    profile_id: str | None = None,
     only_recent_days: int | None = None,
     ai_only: bool = False,
     sort: str = "score_desc",
@@ -181,9 +181,9 @@ def list_ranked_offers(
     if ranking_mode:
         clauses.append("rankings.algorithm = ?")
         params.append(ranking_mode)
-    if profile_path:
-        clauses.append("rankings.profile_path = ?")
-        params.append(profile_path)
+    if profile_id:
+        clauses.append("rankings.profile_id = ?")
+        params.append(profile_id)
     if ai_only:
         clauses.append(
             "("

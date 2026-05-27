@@ -27,6 +27,7 @@ from app.storage.reviews import (
     list_unranked_review_offers,
 )
 from app.storage.scoring import list_scoring_presets, list_screened_offers
+from app.storage.files import profile_id_from_value
 from app.ui_options import ADZUNA_MARKETS, discover_profiles
 from app.workflows import WorkflowCancelled, fetch_offers, rank_offers
 
@@ -278,13 +279,16 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
         q: str | None = None,
         source: str | None = None,
         preset: str = "balanced",
+        profile: str | None = None,
         threshold: int = 40,
         show_all_presets: bool = False,
         sort: str = "score_desc",
         limit: int = 100,
     ) -> HTMLResponse:
+        selected_profile = profile_id_from_value(profile or get_default_profile_value())
         offers = list_screened_offers(
             db_path=request.app.state.db_path,
+            profile_id=selected_profile,
             preset_id=preset,
             threshold=threshold,
             show_all_matching_presets=show_all_presets,
@@ -303,6 +307,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                     "q": q or "",
                     "source": source or "",
                     "preset": preset,
+                    "profile": selected_profile,
                     "threshold": threshold,
                     "show_all_presets": show_all_presets,
                     "sort": sort,
@@ -367,7 +372,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 query=(form.get("query") or "").strip(),
                 country=country or "fr",
                 where=(form.get("location") or "").strip() or None,
-                profile_path=Path(form.get("profile")) if form.get("profile") else None,
+                profile_id=form.get("profile") or None,
                 db_path=request.app.state.db_path,
                 min_score=_positive_int(form.get("min_score"), 40),
                 explored_capacity=_positive_int(form.get("explored_capacity"), DEFAULT_EXPLORED_CAPACITY),
@@ -432,7 +437,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
         try:
             result = await run_in_threadpool(
                 rank_offers,
-                profile_path=Path(form.get("profile")) if form.get("profile") else None,
+                profile_id=form.get("profile") or None,
                 db_path=request.app.state.db_path,
                 limit=_positive_int(form.get("limit"), 10),
                 only_recent_days=_optional_positive_int(form.get("only_recent_days")),

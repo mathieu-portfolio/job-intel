@@ -4,7 +4,7 @@ from app.workflow_parts.common import *  # noqa: F401,F403
 
 def rank_offers(
     *,
-    profile_path: Path | None = None,
+    profile_id: str | None = None,
     db_path: Path = DEFAULT_DB_PATH,
     limit: int = 10,
     only_recent_days: int | None = None,
@@ -29,10 +29,11 @@ def rank_offers(
         ai_retry_backoff,
         name="AI retry",
     )
-    profile_path = resolve_profile_path(profile_path)
-    _emit(messages, progress, f"Loading profile {profile_path}.")
+    profile_ref = profile_id
+    profile_id = profile_id_from_value(profile_ref)
+    _emit(messages, progress, f"Loading profile {profile_id}.")
     _raise_if_cancelled(cancelled)
-    candidate_profile = load_profile(profile_path)
+    candidate_profile = load_profile(profile_ref)
     scoring_preset = get_scoring_preset(preset_id, db_path=db_path)
     rule_config = scoring_preset.weights
 
@@ -48,7 +49,7 @@ def rank_offers(
         db_path=db_path,
         provider=provider_name,
         model=model_name,
-        profile_path=str(profile_path),
+        profile_id=profile_id,
         preset_id=scoring_preset.id,
         min_score=min_score if ranking_mode == "hybrid" else None,
         limit=limit,
@@ -89,7 +90,7 @@ def rank_offers(
 
     if not candidates or dry_run:
         return RankWorkflowResult(
-            profile_path=profile_path,
+            profile_id=profile_id,
             db_path=db_path,
             ranking_mode=ranking_mode,
             provider_name=provider_name,
@@ -121,7 +122,7 @@ def rank_offers(
         started_at=run_timestamp.isoformat(timespec="seconds"),
         algorithm=ranking_mode,
         model=model_name,
-        profile_path=str(profile_path),
+        profile_id=profile_id,
         config=config_payload,
     )
 
@@ -141,7 +142,7 @@ def rank_offers(
                 offer_id=stored_offer.id,
                 algorithm=ranking_mode,
                 model=model_name,
-                profile_path=str(profile_path),
+                profile_id=profile_id,
                 score=final_decision.final_score,
                 recommendation=final_decision.recommendation,
                 summary="Rule-only ranking.",
@@ -249,7 +250,7 @@ def rank_offers(
                     offer_id=stored_offer.id,
                     algorithm=ranking_mode,
                     model=model_name,
-                    profile_path=str(profile_path),
+                    profile_id=profile_id,
                     score=final_decision.final_score,
                     recommendation=final_decision.recommendation,
                     summary=ai_evaluation.summary,
@@ -260,16 +261,17 @@ def rank_offers(
                     screening_result_id=find_screening_result_id(
                         db_path=db_path,
                         offer_id=stored_offer.id,
-                        profile_path=str(profile_path),
+                        profile_id=profile_id,
                     ),
                     offer_id=stored_offer.id,
                     provider=provider_name,
                     model=model_name,
-                    profile_path=str(profile_path),
+                    profile_id=profile_id,
                     score=final_decision.final_score,
                     recommendation=final_decision.recommendation,
                     summary=ai_evaluation.summary,
                     result=result_payload,
+                    preset_id=scoring_preset.id,
                 )
                 ranked.append((stored_offer, rule_evaluation, ai_evaluation, final_decision))
                 _emit(messages, progress, f"Completed {completed_ai}/{len(candidates)} AI evaluations.")
@@ -281,7 +283,7 @@ def rank_offers(
     ranked.sort(key=lambda item: item[3].final_score, reverse=True)
     _emit(messages, progress, f"Saved {len(ranked)} rankings.")
     return RankWorkflowResult(
-        profile_path=profile_path,
+        profile_id=profile_id,
         db_path=db_path,
         ranking_mode=ranking_mode,
         provider_name=provider_name,

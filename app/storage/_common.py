@@ -117,6 +117,7 @@ def open_connection(db_path: Path = DEFAULT_DB_PATH) -> Iterator[sqlite3.Connect
 def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
     with _connect(db_path) as connection:
         connection.executescript(load_sql("schema/init.sql"))
+        _migrate_profile_identity(connection)
         _migrate_multi_preset_scores(connection)
         _migrate_exploration_metadata(connection)
         offer_columns = {
@@ -133,6 +134,108 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
             connection.execute(load_sql("schema/add_explored_keep_flag.sql"))
         _seed_builtin_scoring_presets(connection)
         _backfill_balanced_scores(connection)
+
+
+def _profile_id_from_legacy_value(value: str | None) -> str:
+    raw = str(value or "").strip().replace("\\", "/")
+    name = raw.rsplit("/", 1)[-1]
+    if name.lower().endswith(".json"):
+        name = name[:-5]
+    return name or "default"
+
+
+def _rename_legacy_profile_column(connection: sqlite3.Connection, table_name: str) -> None:
+    columns = _table_columns(connection, table_name)
+    if "profile_path" in columns and "profile_id" not in columns:
+        connection.execute(f"ALTER TABLE {table_name} RENAME COLUMN profile_path TO profile_id;")
+    elif "profile_id" not in columns:
+        connection.execute(f"ALTER TABLE {table_name} ADD COLUMN profile_id TEXT NOT NULL DEFAULT 'default';")
+
+
+def _normalize_profile_id_column(connection: sqlite3.Connection, table_name: str) -> None:
+    try:
+        rows = connection.execute(f"SELECT rowid AS row_id, profile_id FROM {table_name};").fetchall()
+    except sqlite3.OperationalError:
+        return
+    for row in rows:
+        normalized = _profile_id_from_legacy_value(row["profile_id"])
+        if normalized != row["profile_id"]:
+            try:
+                connection.execute(
+                    f"UPDATE {table_name} SET profile_id = ? WHERE rowid = ?;",
+                    (normalized, row["row_id"]),
+                )
+            except sqlite3.IntegrityError:
+                connection.execute(f"DELETE FROM {table_name} WHERE rowid = ?;", (row["row_id"],))
+
+
+def _migrate_profile_identity(connection: sqlite3.Connection) -> None:
+    for index_name in (
+        "idx_rankings_lookup",
+        "idx_rankings_unique_offer_algorithm_model_profile",
+        "idx_screening_results_lookup",
+        "idx_screening_results_unique_offer_profile",
+        "idx_offer_scores_profile_preset_score",
+        "idx_offer_profile_matches_profile",
+        "idx_ai_reviews_lookup",
+        "idx_ai_reviews_preset_lookup",
+        "idx_ai_reviews_unique_offer_provider_model_profile",
+        "idx_ai_reviews_unique_offer_provider_model_profile_preset",
+    ):
+        connection.execute(f"DROP INDEX IF EXISTS {index_name};")
+
+    for table_name in (
+        "profiles",
+        "ranking_runs",
+        "rankings",
+        "screening_results",
+        "offer_scores",
+        "offer_profile_matches",
+        "ai_reviews",
+    ):
+        try:
+            _rename_legacy_profile_column(connection, table_name)
+        except sqlite3.OperationalError:
+            continue
+        _normalize_profile_id_column(connection, table_name)
+
+    ai_columns = _table_columns(connection, "ai_reviews")
+    if "preset_id" not in ai_columns:
+        connection.execute("ALTER TABLE ai_reviews ADD COLUMN preset_id TEXT NOT NULL DEFAULT 'balanced';")
+    offer_score_columns = _table_columns(connection, "offer_scores")
+    if "preset_id" not in offer_score_columns:
+        connection.execute("ALTER TABLE offer_scores ADD COLUMN preset_id TEXT NOT NULL DEFAULT 'balanced';")
+
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_offer_scores_profile_preset_score ON offer_scores(profile_id, preset_id, score DESC);"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_offer_profile_matches_profile ON offer_profile_matches(profile_id, matched_at DESC);"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_rankings_lookup ON rankings(algorithm, model, profile_id);"
+    )
+    connection.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_rankings_unique_offer_algorithm_model_profile
+        ON rankings(offer_id, algorithm, COALESCE(model, ''), profile_id);
+        """
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_screening_results_lookup ON screening_results(profile_id, passed, score DESC);"
+    )
+    connection.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_screening_results_unique_offer_profile ON screening_results(offer_id, profile_id);"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ai_reviews_lookup ON ai_reviews(profile_id, provider, model, score DESC);"
+    )
+    connection.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_reviews_unique_offer_provider_model_profile_preset
+        ON ai_reviews(offer_id, COALESCE(provider, ''), COALESCE(model, ''), profile_id, preset_id);
+        """
+    )
 
 
 def _migrate_exploration_metadata(connection: sqlite3.Connection) -> None:
@@ -175,12 +278,12 @@ def _migrate_multi_preset_scores(connection: sqlite3.Connection) -> None:
         """
         CREATE TABLE IF NOT EXISTS offer_scores (
             offer_id INTEGER NOT NULL,
-            profile_path TEXT NOT NULL,
+            profile_id TEXT NOT NULL,
             preset_id TEXT NOT NULL,
             score INTEGER NOT NULL,
             signals_json TEXT,
             scored_at TEXT NOT NULL,
-            PRIMARY KEY (offer_id, profile_path, preset_id),
+            PRIMARY KEY (offer_id, profile_id, preset_id),
             FOREIGN KEY(offer_id) REFERENCES offers(id) ON DELETE CASCADE,
             FOREIGN KEY(preset_id) REFERENCES scoring_presets(id) ON DELETE CASCADE
         );
@@ -192,18 +295,18 @@ def _migrate_multi_preset_scores(connection: sqlite3.Connection) -> None:
             "ALTER TABLE offer_scores ADD COLUMN preset_id TEXT NOT NULL DEFAULT 'balanced';"
         )
         offer_score_columns.add("preset_id")
-    if "profile_path" not in offer_score_columns:
+    if "profile_id" not in offer_score_columns:
         connection.execute("ALTER TABLE offer_scores RENAME TO offer_scores_legacy;")
         connection.execute(
             """
             CREATE TABLE offer_scores (
                 offer_id INTEGER NOT NULL,
-                profile_path TEXT NOT NULL,
+                profile_id TEXT NOT NULL,
                 preset_id TEXT NOT NULL,
                 score INTEGER NOT NULL,
                 signals_json TEXT,
                 scored_at TEXT NOT NULL,
-                PRIMARY KEY (offer_id, profile_path, preset_id),
+                PRIMARY KEY (offer_id, profile_id, preset_id),
                 FOREIGN KEY(offer_id) REFERENCES offers(id) ON DELETE CASCADE,
                 FOREIGN KEY(preset_id) REFERENCES scoring_presets(id) ON DELETE CASCADE
             );
@@ -212,11 +315,11 @@ def _migrate_multi_preset_scores(connection: sqlite3.Connection) -> None:
         connection.execute(
             """
             INSERT OR IGNORE INTO offer_scores (
-                offer_id, profile_path, preset_id, score, signals_json, scored_at
+                offer_id, profile_id, preset_id, score, signals_json, scored_at
             )
             SELECT
                 offer_id,
-                COALESCE((SELECT profile_path FROM screening_results sr WHERE sr.offer_id = offer_scores_legacy.offer_id ORDER BY screened_at DESC LIMIT 1), ''),
+                COALESCE((SELECT profile_id FROM screening_results sr WHERE sr.offer_id = offer_scores_legacy.offer_id ORDER BY screened_at DESC LIMIT 1), 'default'),
                 preset_id,
                 score,
                 signals_json,
@@ -245,7 +348,33 @@ def _migrate_multi_preset_scores(connection: sqlite3.Connection) -> None:
             "ALTER TABLE offer_ai_reviews ADD COLUMN preset_id TEXT NOT NULL DEFAULT 'balanced';"
         )
     connection.execute(
-        "CREATE INDEX IF NOT EXISTS idx_offer_scores_profile_preset_score ON offer_scores(profile_path, preset_id, score DESC);"
+        "CREATE INDEX IF NOT EXISTS idx_offer_scores_profile_preset_score ON offer_scores(profile_id, preset_id, score DESC);"
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS offer_profile_matches (
+            offer_id INTEGER NOT NULL,
+            profile_id TEXT NOT NULL,
+            category_scores_json TEXT NOT NULL DEFAULT '{}',
+            signals_json TEXT,
+            matched_at TEXT NOT NULL,
+            PRIMARY KEY (offer_id, profile_id),
+            FOREIGN KEY(offer_id) REFERENCES offers(id) ON DELETE CASCADE
+        );
+        """
+    )
+    connection.execute(
+        """
+        INSERT OR IGNORE INTO offer_profile_matches (
+            offer_id, profile_id, category_scores_json, signals_json, matched_at
+        )
+        SELECT offer_id, profile_id, '{}', signals_json, scored_at
+        FROM offer_scores
+        WHERE signals_json IS NOT NULL;
+        """
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_offer_profile_matches_profile ON offer_profile_matches(profile_id, matched_at DESC);"
     )
     ai_columns = _table_columns(connection, "ai_reviews")
     if "preset_id" not in ai_columns:
@@ -256,13 +385,13 @@ def _migrate_multi_preset_scores(connection: sqlite3.Connection) -> None:
     connection.execute(
         """
         CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_reviews_unique_offer_provider_model_profile_preset
-        ON ai_reviews(offer_id, COALESCE(provider, ''), COALESCE(model, ''), profile_path, preset_id);
+        ON ai_reviews(offer_id, COALESCE(provider, ''), COALESCE(model, ''), profile_id, preset_id);
         """
     )
     connection.execute(
         """
         CREATE INDEX IF NOT EXISTS idx_ai_reviews_preset_lookup
-        ON ai_reviews(profile_path, preset_id, provider, model, score DESC);
+        ON ai_reviews(profile_id, preset_id, provider, model, score DESC);
         """
     )
     connection.execute(
@@ -311,11 +440,11 @@ def _backfill_balanced_scores(connection: sqlite3.Connection) -> None:
     connection.execute(
         """
         INSERT OR IGNORE INTO offer_scores (
-            offer_id, profile_path, preset_id, score, signals_json, scored_at
+            offer_id, profile_id, preset_id, score, signals_json, scored_at
         )
         SELECT
             offer_id,
-            profile_path,
+            profile_id,
             'balanced',
             score,
             matched_signals_json,

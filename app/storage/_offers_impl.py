@@ -251,12 +251,12 @@ def select_unranked_offers(
     db_path: Path = DEFAULT_DB_PATH,
     algorithm: str,
     model: str | None,
-    profile_path: str,
+    profile_id: str,
     limit: int,
     only_recent_days: int | None = None,
 ) -> list[StoredOffer]:
     init_db(db_path)
-    params: list[Any] = [algorithm, model, profile_path]
+    params: list[Any] = [algorithm, model, profile_id]
     recent_clause = ""
     if only_recent_days is not None:
         cutoff = (datetime.now() - timedelta(days=only_recent_days)).isoformat(timespec="seconds")

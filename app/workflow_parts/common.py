@@ -15,7 +15,7 @@ import requests
 
 from app.ai.decision import make_final_decision
 from app.ai.evaluator import build_job_evaluation_prompts, evaluate_job_with_ai
-from app.filtering.rules import evaluate_job, load_rule_scoring_config, precompute_rule_matching
+from app.filtering.rules import evaluate_job, evaluate_job_profile_match, score_profile_match, load_rule_scoring_config, precompute_rule_matching
 from app.llm.factory import ProviderName, create_llm_provider
 from app.llm.ollama_client import OllamaLlmProvider
 from app.models.evaluation import AiJobEvaluation, FinalDecision, RuleEvaluation
@@ -23,7 +23,7 @@ from app.models.job import JobOffer
 from app.models.profile import CandidateProfile
 from app.sources.adzuna import fetch_adzuna
 from app.sources.arbeitnow import fetch_arbeitnow
-from app.storage.files import load_profile, resolve_profile_path
+from app.storage.files import load_profile, profile_id_from_value
 from app.storage.connection import DEFAULT_DB_PATH, init_db, open_connection
 from app.storage.exploration import (
     get_exploration_metadata,
@@ -91,7 +91,7 @@ class FetchWorkflowResult:
 
 @dataclass(frozen=True)
 class RankWorkflowResult:
-    profile_path: Path
+    profile_id: str
     db_path: Path
     ranking_mode: RankingMode
     provider_name: str | None
@@ -239,7 +239,7 @@ def _exploration_scope_payload(
     query: str,
     country: str,
     where: str | None,
-    profile_path: Path,
+    profile_id: str,
     min_score: int | None,
 ) -> dict[str, object]:
     return {
@@ -247,7 +247,7 @@ def _exploration_scope_payload(
         "query": query,
         "country": country,
         "where": where or "",
-        "profile_path": str(profile_path),
+        "profile_id": profile_id_from_value(profile_id),
         "min_score": min_score,
     }
 

@@ -111,7 +111,7 @@ class SqliteReviewTests(unittest.TestCase):
             started_at="2026-05-24T12:00:00",
             algorithm="rules",
             model=None,
-            profile_path="profiles/default.json",
+            profile_id="default",
             config={},
         )
         save_ranking(
@@ -120,7 +120,7 @@ class SqliteReviewTests(unittest.TestCase):
             offer_id=1,
             algorithm="rules",
             model=None,
-            profile_path="profiles/default.json",
+            profile_id="default",
             score=50,
             recommendation="low",
             summary="summary",
@@ -128,7 +128,7 @@ class SqliteReviewTests(unittest.TestCase):
         )
         return run_id
 
-    def _seed_screened_offer(self, db_path: Path, profile_path: Path, job: JobOffer) -> int:
+    def _seed_screened_offer(self, db_path: Path, profile_id: Path, job: JobOffer) -> int:
         upsert_offers([job], db_path=db_path)
         offer_id = find_existing_offer_id(job, db_path=db_path)
         self.assertIsNotNone(offer_id)
@@ -142,7 +142,7 @@ class SqliteReviewTests(unittest.TestCase):
         save_screening_result(
             db_path=db_path,
             offer_id=offer_id,
-            profile_path=str(profile_path),
+            profile_id=str(profile_id),
             evaluation=evaluation,
             threshold=0,
         )
@@ -194,7 +194,6 @@ class SqliteReviewTests(unittest.TestCase):
                 provider="mock",
                 model="test",
                 profile_id="profile_a",
-                profile_path="profiles/profile_a.json",
                 preset_id="balanced",
                 score=88,
                 recommendation="high",
@@ -208,7 +207,6 @@ class SqliteReviewTests(unittest.TestCase):
                 provider="mock",
                 model="test",
                 profile_id="profile_b",
-                profile_path="profiles/profile_b.json",
                 preset_id="balanced",
                 score=42,
                 recommendation="low",
@@ -236,7 +234,6 @@ class SqliteReviewTests(unittest.TestCase):
                     algorithm="ai",
                     model="test",
                     profile_id=profile_id,
-                    profile_path=f"profiles/{profile_id}.json",
                     config={},
                 )
                 save_ranking(
@@ -246,7 +243,6 @@ class SqliteReviewTests(unittest.TestCase):
                     algorithm="ai",
                     model="test",
                     profile_id=profile_id,
-                    profile_path=f"profiles/{profile_id}.json",
                     score=score,
                     recommendation="high" if score >= 75 else "low",
                     summary=profile_id,
@@ -683,7 +679,7 @@ class SqliteReviewTests(unittest.TestCase):
                         offer_id INTEGER NOT NULL,
                         provider TEXT,
                         model TEXT,
-                        profile_path TEXT NOT NULL,
+                        profile_id TEXT NOT NULL,
                         score INTEGER NOT NULL,
                         recommendation TEXT NOT NULL,
                         summary TEXT NOT NULL,
@@ -699,11 +695,11 @@ class SqliteReviewTests(unittest.TestCase):
                         '2026-05-24T12:00:00', '2026-05-24T12:00:00', '2026-05-24T12:00:00', '{}'
                     );
                     INSERT INTO ai_reviews (
-                        offer_id, provider, model, profile_path, score,
+                        offer_id, provider, model, profile_id, score,
                         recommendation, summary, review_json, reviewed_at
                     )
                     VALUES (
-                        1, 'mock', 'mock-model', 'profiles/default.json', 70,
+                        1, 'mock', 'mock-model', 'default', 70,
                         'medium', 'legacy review', '{}', '2026-05-24T12:01:00'
                     );
                     """
@@ -803,7 +799,7 @@ class SqliteReviewTests(unittest.TestCase):
                 started_at="2026-05-24T12:00:00",
                 algorithm="rules",
                 model=None,
-                profile_path="profiles/default.json",
+                profile_id="default",
                 config={},
             )
             save_ranking(
@@ -812,7 +808,7 @@ class SqliteReviewTests(unittest.TestCase):
                 offer_id=2,
                 algorithm="rules",
                 model=None,
-                profile_path="profiles/default.json",
+                profile_id="default",
                 score=50,
                 recommendation="low",
                 summary="summary",
@@ -858,7 +854,7 @@ class SqliteReviewTests(unittest.TestCase):
                 started_at="2026-05-24T12:00:00",
                 algorithm="rules",
                 model=None,
-                profile_path="profiles/default.json",
+                profile_id="default",
                 config={},
             )
             for offer_id, ranked_at in [(3, "2026-05-24T12:00:00"), (4, "2026-05-24T12:01:00")]:
@@ -868,7 +864,7 @@ class SqliteReviewTests(unittest.TestCase):
                     offer_id=offer_id,
                     algorithm="rules",
                     model=None,
-                    profile_path="profiles/default.json",
+                    profile_id="default",
                     score=50,
                     recommendation="low",
                     summary="summary",
@@ -1154,14 +1150,14 @@ class SqliteReviewTests(unittest.TestCase):
         newest_id: str,
         oldest_id: str,
         last_explored_page: int,
-        profile_path: Path = Path("profiles/default.json"),
+        profile_id: Path = Path("default"),
     ) -> None:
         scope = _exploration_scope_payload(
             source="arbeitnow",
             query="c++ simulation",
             country="fr",
             where=None,
-            profile_path=profile_path,
+            profile_id=profile_id,
             min_score=0,
         )
         save_exploration_metadata(
@@ -1296,15 +1292,15 @@ class SqliteReviewTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             base_path = Path(temp_dir)
             db_path = base_path / "jobs.sqlite"
-            profile_path = base_path / "profile.json"
-            self._write_profile(profile_path, positive_signals={"simulation": 50}, threshold=40)
+            profile_id = base_path / "profile.json"
+            self._write_profile(profile_id, positive_signals={"simulation": 50}, threshold=40)
             matching = _source_job("source-1", "https://example.com/match", "Simulation Engineer")
 
             with patch("app.workflow_parts.fetch.fetch_arbeitnow", return_value=[matching]):
                 result = fetch_offers(
                     source="arbeitnow",
                     db_path=db_path,
-                    profile_path=profile_path,
+                    profile_id=profile_id,
                     new_offers=1,
                     max_pages=1,
                 )
@@ -1313,7 +1309,7 @@ class SqliteReviewTests(unittest.TestCase):
             self.assertEqual(result.stats.inserted, 1)
             self.assertEqual(len(screenings), 1)
             self.assertEqual(screenings[0]["title"], "Simulation Engineer")
-            self.assertEqual(screenings[0]["profile_path"], str(profile_path))
+            self.assertEqual(screenings[0]["profile_id"], str(profile_id))
             self.assertEqual(screenings[0]["passed"], 1)
             self.assertTrue(any("Fetch timing:" in message for message in result.messages))
 
@@ -1415,15 +1411,15 @@ class SqliteReviewTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             base_path = Path(temp_dir)
             db_path = base_path / "jobs.sqlite"
-            profile_path = base_path / "profile.json"
-            self._write_profile(profile_path, positive_signals={"python": 50}, threshold=40)
+            profile_id = base_path / "profile.json"
+            self._write_profile(profile_id, positive_signals={"python": 50}, threshold=40)
             old_global_match = _source_job("source-1", "https://example.com/cpp", "C++ Simulation Engineer")
 
             with patch("app.workflow_parts.fetch.fetch_arbeitnow", return_value=[old_global_match]):
                 result = fetch_offers(
                     source="arbeitnow",
                     db_path=db_path,
-                    profile_path=profile_path,
+                    profile_id=profile_id,
                     new_offers=1,
                     max_pages=1,
                 )
@@ -1436,8 +1432,8 @@ class SqliteReviewTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             base_path = Path(temp_dir)
             db_path = base_path / "jobs.sqlite"
-            profile_path = base_path / "profile.json"
-            profile_path.write_text(
+            profile_id = base_path / "profile.json"
+            profile_id.write_text(
                 json.dumps(
                     {
                         "search_queries": {
@@ -1456,7 +1452,7 @@ class SqliteReviewTests(unittest.TestCase):
                 result = fetch_offers(
                     source="adzuna",
                     db_path=db_path,
-                    profile_path=profile_path,
+                    profile_id=profile_id,
                     query="",
                     country="fr",
                     new_offers=2,
@@ -1475,8 +1471,8 @@ class SqliteReviewTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             base_path = Path(temp_dir)
             db_path = base_path / "jobs.sqlite"
-            profile_path = base_path / "profile.json"
-            profile_path.write_text(
+            profile_id = base_path / "profile.json"
+            profile_id.write_text(
                 json.dumps({"search_queries": {"en": ["systems engineer"]}, "screening_threshold": 0}),
                 encoding="utf-8",
             )
@@ -1486,7 +1482,7 @@ class SqliteReviewTests(unittest.TestCase):
                 result = fetch_offers(
                     source="adzuna",
                     db_path=db_path,
-                    profile_path=profile_path,
+                    profile_id=profile_id,
                     query="manual query",
                     country="fr",
                     new_offers=1,
@@ -1502,8 +1498,8 @@ class SqliteReviewTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             base_path = Path(temp_dir)
             db_path = base_path / "jobs.sqlite"
-            profile_path = base_path / "profile.json"
-            profile_path.write_text(
+            profile_id = base_path / "profile.json"
+            profile_id.write_text(
                 json.dumps(
                     {
                         "search_queries": {
@@ -1520,7 +1516,7 @@ class SqliteReviewTests(unittest.TestCase):
                 result = fetch_offers(
                     source="adzuna",
                     db_path=db_path,
-                    profile_path=profile_path,
+                    profile_id=profile_id,
                     query="",
                     country="fr",
                     new_offers=2,
@@ -1536,21 +1532,21 @@ class SqliteReviewTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             base_path = Path(temp_dir)
             db_path = base_path / "jobs.sqlite"
-            profile_path = base_path / "profile.json"
-            self._write_profile(profile_path, positive_signals={"simulation": 50}, threshold=40)
+            profile_id = base_path / "profile.json"
+            self._write_profile(profile_id, positive_signals={"simulation": 50}, threshold=40)
             matching = _source_job("source-1", "https://example.com/match", "Simulation Engineer")
 
             with patch("app.workflow_parts.fetch.fetch_arbeitnow", return_value=[matching]):
                 fetch_offers(
                     source="arbeitnow",
                     db_path=db_path,
-                    profile_path=profile_path,
+                    profile_id=profile_id,
                     new_offers=1,
                     max_pages=1,
                 )
 
             rank_offers(
-                profile_path=profile_path,
+                profile_id=profile_id,
                 db_path=db_path,
                 ranking_mode="ai",
                 provider="mock",
@@ -1567,12 +1563,12 @@ class SqliteReviewTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             base_path = Path(temp_dir)
             db_path = base_path / "jobs.sqlite"
-            profile_path = base_path / "profile.json"
-            self._write_profile(profile_path, positive_signals={"systems": 50}, threshold=0)
+            profile_id = base_path / "profile.json"
+            self._write_profile(profile_id, positive_signals={"systems": 50}, threshold=0)
             for index in range(4):
                 self._seed_screened_offer(
                     db_path,
-                    profile_path,
+                    profile_id,
                     _source_job(f"ai-{index}", f"https://example.com/ai-{index}", f"AI Job {index}"),
                 )
             active = 0
@@ -1603,7 +1599,7 @@ class SqliteReviewTests(unittest.TestCase):
 
             with patch("app.workflow_parts.review.evaluate_job_with_ai", side_effect=evaluate):
                 result = rank_offers(
-                    profile_path=profile_path,
+                    profile_id=profile_id,
                     db_path=db_path,
                     ranking_mode="ai",
                     provider="mock",
@@ -1619,15 +1615,15 @@ class SqliteReviewTests(unittest.TestCase):
     def test_ai_ranking_parallel_reviews_are_faster_than_serial(self) -> None:
         def seed_case(base_path: Path) -> tuple[Path, Path]:
             db_path = base_path / "jobs.sqlite"
-            profile_path = base_path / "profile.json"
-            self._write_profile(profile_path, positive_signals={"systems": 50}, threshold=0)
+            profile_id = base_path / "profile.json"
+            self._write_profile(profile_id, positive_signals={"systems": 50}, threshold=0)
             for index in range(4):
                 self._seed_screened_offer(
                     db_path,
-                    profile_path,
+                    profile_id,
                     _source_job(f"ai-{index}", f"https://example.com/ai-{index}", f"AI Job {index}"),
                 )
-            return db_path, profile_path
+            return db_path, profile_id
 
         def evaluate(*args, **kwargs) -> AiJobEvaluation:
             time.sleep(0.5)
@@ -1650,7 +1646,7 @@ class SqliteReviewTests(unittest.TestCase):
             with patch("app.workflow_parts.review.evaluate_job_with_ai", side_effect=evaluate):
                 started_at = time.perf_counter()
                 serial_result = rank_offers(
-                    profile_path=serial_profile,
+                    profile_id=serial_profile,
                     db_path=serial_db,
                     ranking_mode="ai",
                     provider="mock",
@@ -1662,7 +1658,7 @@ class SqliteReviewTests(unittest.TestCase):
             with patch("app.workflow_parts.review.evaluate_job_with_ai", side_effect=evaluate):
                 started_at = time.perf_counter()
                 parallel_result = rank_offers(
-                    profile_path=parallel_profile,
+                    profile_id=parallel_profile,
                     db_path=parallel_db,
                     ranking_mode="ai",
                     provider="mock",
@@ -1681,12 +1677,12 @@ class SqliteReviewTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             base_path = Path(temp_dir)
             db_path = base_path / "jobs.sqlite"
-            profile_path = base_path / "profile.json"
-            self._write_profile(profile_path, positive_signals={"systems": 50}, threshold=0)
+            profile_id = base_path / "profile.json"
+            self._write_profile(profile_id, positive_signals={"systems": 50}, threshold=0)
             for title in ["Good One", "Fail Me", "Good Two"]:
                 self._seed_screened_offer(
                     db_path,
-                    profile_path,
+                    profile_id,
                     _source_job(title.lower().replace(" ", "-"), f"https://example.com/{title}", title),
                 )
 
@@ -1707,7 +1703,7 @@ class SqliteReviewTests(unittest.TestCase):
 
             with patch("app.workflow_parts.review.evaluate_job_with_ai", side_effect=evaluate):
                 result = rank_offers(
-                    profile_path=profile_path,
+                    profile_id=profile_id,
                     db_path=db_path,
                     ranking_mode="ai",
                     provider="mock",
@@ -1739,7 +1735,7 @@ class SqliteReviewTests(unittest.TestCase):
                 started_at="2026-05-24T12:00:00",
                 algorithm="rules",
                 model=None,
-                profile_path="profiles/default.json",
+                profile_id="default",
                 config={},
             )
             ai_run = create_ranking_run(
@@ -1747,7 +1743,7 @@ class SqliteReviewTests(unittest.TestCase):
                 started_at="2026-05-24T12:00:01",
                 algorithm="ai",
                 model="mock",
-                profile_path="profiles/default.json",
+                profile_id="default",
                 config={},
             )
             hybrid_run = create_ranking_run(
@@ -1755,7 +1751,7 @@ class SqliteReviewTests(unittest.TestCase):
                 started_at="2026-05-24T12:00:02",
                 algorithm="hybrid",
                 model="mock",
-                profile_path="profiles/default.json",
+                profile_id="default",
                 config={},
             )
 
@@ -1771,7 +1767,7 @@ class SqliteReviewTests(unittest.TestCase):
                     offer_id=offer_id,
                     algorithm=algorithm,
                     model=model,
-                    profile_path="profiles/default.json",
+                    profile_id="default",
                     score=50,
                     recommendation="low",
                     summary="summary",
@@ -1796,7 +1792,7 @@ class SqliteReviewTests(unittest.TestCase):
                 started_at="2026-05-24T12:00:00",
                 algorithm="rules",
                 model=None,
-                profile_path="profiles/default.json",
+                profile_id="default",
                 config={},
             )
             for offer_id in [1, 2]:
@@ -1806,7 +1802,7 @@ class SqliteReviewTests(unittest.TestCase):
                     offer_id=offer_id,
                     algorithm="rules",
                     model=None,
-                    profile_path="profiles/default.json",
+                    profile_id="default",
                     score=50,
                     recommendation="low",
                     summary="summary",
@@ -1831,7 +1827,7 @@ class SqliteReviewTests(unittest.TestCase):
                 started_at="2026-05-24T12:00:00",
                 algorithm="rules",
                 model=None,
-                profile_path="profiles/default.json",
+                profile_id="default",
                 config={},
             )
             save_ranking(
@@ -1840,7 +1836,7 @@ class SqliteReviewTests(unittest.TestCase):
                 offer_id=1,
                 algorithm="rules",
                 model=None,
-                profile_path="profiles/default.json",
+                profile_id="default",
                 score=50,
                 recommendation="low",
                 summary="summary",
@@ -1867,7 +1863,7 @@ class SqliteReviewTests(unittest.TestCase):
                 started_at="2026-05-24T12:00:00",
                 algorithm="rules",
                 model=None,
-                profile_path="profiles/default.json",
+                profile_id="default",
                 config={},
             )
             save_ranking(
@@ -1876,7 +1872,7 @@ class SqliteReviewTests(unittest.TestCase):
                 offer_id=1,
                 algorithm="rules",
                 model=None,
-                profile_path="profiles/default.json",
+                profile_id="default",
                 score=50,
                 recommendation="low",
                 summary="summary",
@@ -1892,8 +1888,8 @@ class SqliteReviewTests(unittest.TestCase):
     def test_rank_workflow_rules_mode_saves_summary_counts(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "jobs.sqlite"
-            profile_path = Path(temp_dir) / "profile.json"
-            profile_path.write_text(
+            profile_id = Path(temp_dir) / "profile.json"
+            profile_id.write_text(
                 """
 {
   "interests": ["C++", "simulation", "systems"],
@@ -1919,13 +1915,13 @@ class SqliteReviewTests(unittest.TestCase):
             save_screening_result(
                 db_path=db_path,
                 offer_id=offer_id,
-                profile_path=str(profile_path),
+                profile_id=str(profile_id),
                 evaluation=evaluation,
                 threshold=0,
             )
 
             result = rank_offers(
-                profile_path=profile_path,
+                profile_id=profile_id,
                 db_path=db_path,
                 ranking_mode="rules",
                 limit=1,

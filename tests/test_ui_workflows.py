@@ -97,7 +97,7 @@ class UiWorkflowTests(unittest.TestCase):
                 started_at="2026-05-24T12:00:00",
                 algorithm="rules",
                 model=None,
-                profile_path="profiles/default.json",
+                profile_id="default",
                 config={},
             )
             save_ranking(
@@ -106,7 +106,7 @@ class UiWorkflowTests(unittest.TestCase):
                 offer_id=1,
                 algorithm="rules",
                 model=None,
-                profile_path="profiles/default.json",
+                profile_id="default",
                 score=50,
                 recommendation="low",
                 summary="summary",
@@ -181,8 +181,8 @@ class UiWorkflowTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             base_path = Path(temp_dir)
             db_path = base_path / "jobs.sqlite"
-            profile_path = base_path / "profile.json"
-            profile_path.write_text(
+            profile_id = base_path / "profile.json"
+            profile_id.write_text(
                 """
 {
   "interests": ["C++", "simulation", "systems"],
@@ -202,7 +202,7 @@ class UiWorkflowTests(unittest.TestCase):
                     "/workflows/fetch",
                     data={
                         "source": "arbeitnow",
-                        "profile": str(profile_path),
+                        "profile": str(profile_id),
                         "new_offers": "1",
                         "max_pages": "1",
                         "min_score": "0",
@@ -225,7 +225,7 @@ class UiWorkflowTests(unittest.TestCase):
                 started_at="2026-05-24T12:00:00",
                 algorithm="rules",
                 model=None,
-                profile_path="profiles/default.json",
+                profile_id="default",
                 config={},
             )
             save_ranking(
@@ -234,7 +234,7 @@ class UiWorkflowTests(unittest.TestCase):
                 offer_id=1,
                 algorithm="rules",
                 model=None,
-                profile_path="profiles/default.json",
+                profile_id="default",
                 score=50,
                 recommendation="low",
                 summary="summary",
@@ -289,7 +289,7 @@ class UiWorkflowTests(unittest.TestCase):
                 started_at="2026-05-24T12:00:00",
                 algorithm="rules",
                 model=None,
-                profile_path="profiles/default.json",
+                profile_id="default",
                 config={},
             )
             save_ranking(
@@ -298,7 +298,7 @@ class UiWorkflowTests(unittest.TestCase):
                 offer_id=1,
                 algorithm="rules",
                 model=None,
-                profile_path="profiles/default.json",
+                profile_id="default",
                 score=50,
                 recommendation="low",
                 summary="summary",
@@ -322,8 +322,8 @@ class UiWorkflowTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             base_path = Path(temp_dir)
             db_path = base_path / "jobs.sqlite"
-            profile_path = base_path / "profile.json"
-            profile_path.write_text(
+            profile_id = base_path / "profile.json"
+            profile_id.write_text(
                 """
 {
   "interests": ["C++", "simulation", "systems"],
@@ -349,7 +349,7 @@ class UiWorkflowTests(unittest.TestCase):
             save_screening_result(
                 db_path=db_path,
                 offer_id=offer_id,
-                profile_path=str(profile_path),
+                profile_id=str(profile_id),
                 evaluation=evaluation,
                 threshold=0,
             )
@@ -358,7 +358,7 @@ class UiWorkflowTests(unittest.TestCase):
             response = client.post(
                 "/workflows/rank",
                 data={
-                    "profile": str(profile_path),
+                    "profile": str(profile_id),
                     "limit": "1",
                     "provider": "mock",
                 },

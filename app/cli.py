@@ -107,7 +107,7 @@ def fetch(
             query=query,
             country=country,
             where=where,
-            profile_path=profile,
+            profile_id=str(profile),
             db_path=db,
             min_score=min_score,
             explored_capacity=explored_capacity,
@@ -283,7 +283,7 @@ def rank(
 
     try:
         result = rank_offers(
-            profile_path=profile,
+            profile_id=str(profile),
             db_path=db,
             limit=limit,
             only_recent_days=only_recent_days,

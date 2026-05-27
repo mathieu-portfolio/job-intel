@@ -150,7 +150,7 @@ def rank(
 
     try:
         result = rank_offers(
-            profile_path=profile,
+            profile_id=str(profile),
             db_path=db,
             limit=limit,
             only_recent_days=only_recent_days,

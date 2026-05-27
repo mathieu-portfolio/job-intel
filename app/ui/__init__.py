@@ -25,6 +25,7 @@ from app.storage.reviews import (
     list_unranked_review_offers,
 )
 from app.storage.scoring import list_scoring_presets, list_screened_offers
+from app.storage.files import profile_id_from_value
 from app.ui_options import ADZUNA_MARKETS, discover_profiles, get_default_profile_value
 from app.workflows import WorkflowCancelled, fetch_offers, rank_offers
 from app.ui.state import (
@@ -77,7 +78,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
         limit: int = 100,
     ) -> HTMLResponse:
         recency_days = _positive_int(recency, DEFAULT_RECENCY_DAYS)
-        selected_profile = profile or get_default_profile_value()
+        selected_profile = profile_id_from_value(profile or get_default_profile_value())
         offers = list_ranked_offers(
             db_path=request.app.state.db_path,
             recommendation=recommendation or None,
@@ -85,7 +86,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
             source=source or None,
             location=location or None,
             ranking_mode=ranking_mode or None,
-            profile_path=selected_profile,
+            profile_id=selected_profile,
             only_recent_days=recency_days,
             ai_only=ai_only,
             sort=sort,
@@ -172,10 +173,10 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
         sort: str = "score_desc",
         limit: int = 100,
     ) -> HTMLResponse:
-        selected_profile = profile or get_default_profile_value()
+        selected_profile = profile_id_from_value(profile or get_default_profile_value())
         offers = list_screened_offers(
             db_path=request.app.state.db_path,
-            profile_path=selected_profile,
+            profile_id=selected_profile,
             preset_id=preset,
             threshold=threshold,
             show_all_matching_presets=show_all_presets,
@@ -259,7 +260,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 query=(form.get("query") or "").strip(),
                 country=country or "fr",
                 where=(form.get("location") or "").strip() or None,
-                profile_path=Path(form.get("profile")) if form.get("profile") else None,
+                profile_id=form.get("profile") or None,
                 db_path=request.app.state.db_path,
                 min_score=_positive_int(form.get("min_score"), 40),
                 explored_capacity=_positive_int(form.get("explored_capacity"), DEFAULT_EXPLORED_CAPACITY),
@@ -324,7 +325,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
         try:
             result = await run_in_threadpool(
                 rank_offers,
-                profile_path=Path(form.get("profile")) if form.get("profile") else None,
+                profile_id=form.get("profile") or None,
                 db_path=request.app.state.db_path,
                 limit=_positive_int(form.get("limit"), 10),
                 only_recent_days=_optional_positive_int(form.get("only_recent_days")),

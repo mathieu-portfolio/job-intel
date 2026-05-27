@@ -198,7 +198,7 @@ python -m app.cli rank --provider mock
 Use a custom profile:
 
 ```bash
-python -m app.cli rank --profile profiles/default.json --limit 10
+python -m app.cli rank --profile default --limit 10
 ```
 
 Use a custom database or only recent offers:

@@ -56,11 +56,11 @@ def benchmark_storage(
     jobs: list[JobOffer],
     *,
     db_path: Path,
-    profile_path: Path,
+    profile_id: str,
     min_score: int,
 ) -> StorageBenchmark:
     init_db(db_path)
-    profile = load_profile(profile_path)
+    profile = load_profile(profile_id)
     presets = list_scoring_presets(db_path, enabled_only=True)
     configs = [preset.weights for preset in presets]
     precompute_rule_matching(profile, configs)
@@ -85,7 +85,7 @@ def benchmark_storage(
             evaluations = evaluations_by_url[str(job.url)]
             selected = evaluations.get("balanced") or next(iter(evaluations.values()))
             score_rows.extend((offer_id, preset_id, evaluation) for preset_id, evaluation in evaluations.items())
-            screening_rows.append((offer_id, str(profile_path), selected, min_score))
+            screening_rows.append((offer_id, profile_id, selected, min_score))
         save_offer_scores_batch(connection, score_rows)
         save_screening_results_batch(connection, screening_rows)
         record_explored_jobs_batch(connection, [(job, "inserted", None, False) for job in jobs])
@@ -98,7 +98,7 @@ def main() -> None:
     parser.add_argument("--offers", type=int, default=500)
     parser.add_argument("--repeats", type=int, default=1)
     parser.add_argument("--db", type=Path, default=None)
-    parser.add_argument("--profile", type=Path, default=Path("profiles/default.json"))
+    parser.add_argument("--profile", default="default")
     parser.add_argument("--min-score", type=int, default=0)
     args = parser.parse_args()
 
@@ -113,14 +113,14 @@ def main() -> None:
                 result = benchmark_storage(
                     sample_jobs(args.offers, source=f"benchmark-{repeat}"),
                     db_path=Path(temp_dir) / "storage.sqlite",
-                    profile_path=args.profile,
+                    profile_id=args.profile,
                     min_score=args.min_score,
                 )
         else:
             result = benchmark_storage(
                 sample_jobs(args.offers, source=f"benchmark-{repeat}"),
                 db_path=args.db,
-                profile_path=args.profile,
+                profile_id=args.profile,
                 min_score=args.min_score,
             )
         total_elapsed += result.elapsed

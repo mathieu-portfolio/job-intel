@@ -137,23 +137,19 @@ def _profile_signal_matches(
     return positives, negatives, positive_score, negative_score, reasoning
 
 
-def evaluate_job(
+
+def evaluate_job_profile_match(
     job: JobOffer,
     profile: CandidateProfile | None = None,
     config: RuleScoringConfig | None = None,
 ) -> RuleEvaluation:
+    """Compute preset-independent profile/offer match facts.
+
+    The stored contributions are per-category match ratios in the 0..1 range.
+    Presets can later apply their own category weights at runtime without
+    recomputing textual matches or storing one score per preset.
+    """
     config = config or load_rule_scoring_config()
-    if profile is not None:
-        overrides = {
-            "no_signal_score": profile.no_signal_score,
-            "positive_score_scale": profile.positive_score_scale,
-            "negative_score_scale": profile.negative_score_scale,
-            "strong_negative_threshold": profile.strong_negative_threshold,
-            "strong_negative_score_cap": profile.strong_negative_score_cap,
-        }
-        config = config.model_copy(
-            update={key: value for key, value in overrides.items() if value is not None}
-        )
     text = " ".join(
         [
             job.title,
@@ -177,36 +173,114 @@ def evaluate_job(
             seniority=seniority_evaluation,
         )
 
-    configured_positives = _configured_term_matches(text=text, terms=config.positive_terms)
-    configured_negatives = _configured_term_matches(text=text, terms=config.negative_terms)
-    profile_positives, profile_negatives, profile_positive_score, profile_negative_score, profile_reasoning = (
-        _profile_signal_matches(text=text, profile=profile, config=config)
-    )
-    positives = [*configured_positives, *profile_positives]
-    negatives = [*configured_negatives, *profile_negatives]
+    if profile is None:
+        return RuleEvaluation(
+            score=0,
+            normalized_score=config.no_signal_score,
+            matched_positive_terms=[],
+            matched_negative_terms=[],
+            decision=recommendation_from_score(config.no_signal_score),
+            reasoning=["No profile was provided.", *seniority_evaluation.reasoning],
+            seniority=seniority_evaluation,
+        )
 
-    positive_score = sum(match.weight for match in configured_positives) + profile_positive_score
-    negative_score = sum(match.weight for match in configured_negatives) + profile_negative_score
-    score = positive_score + negative_score
+    positives: list[WeightedTermMatch] = []
+    negatives: list[WeightedTermMatch] = []
+    reasoning: list[str] = []
+    for category_name, category in profile.signals.items():
+        total_item_weight = sum(abs(item.weight) for item in category.items if item.term.strip())
+        if total_item_weight <= 0:
+            continue
+        matched_items = [
+            (item, match)
+            for item in category.items
+            if item.term.strip()
+            for match in [match_signal_item(text, item)]
+            if match is not None
+        ]
+        if not matched_items:
+            continue
+        category_weight = config.category_weights.get(category_name, 0.0)
+        destination = positives if category_weight >= 0 else negatives
+        category_score = sum(abs(item.weight) for item, _ in matched_items) / total_item_weight
+        destination.extend(
+            WeightedTermMatch(
+                category=category_name,
+                term=item.term,
+                matched_alias=match.matched_alias,
+                language=match.language,
+                weight=(abs(item.weight) / total_item_weight) * 100,
+                contribution=abs(item.weight) / total_item_weight,
+            )
+            for item, match in matched_items
+        )
+        reasoning.append(
+            f"Matched {len(matched_items)}/{len(category.items)} items in {category_name} "
+            f"for category ratio {category_score:.2f}."
+        )
+
+    return RuleEvaluation(
+        score=0,
+        normalized_score=config.no_signal_score,
+        matched_positive_terms=positives,
+        matched_negative_terms=negatives,
+        decision=recommendation_from_score(config.no_signal_score),
+        reasoning=[*reasoning, *seniority_evaluation.reasoning],
+        seniority=seniority_evaluation,
+    )
+
+
+def score_profile_match(
+    profile_match: RuleEvaluation,
+    config: RuleScoringConfig | None = None,
+) -> RuleEvaluation:
+    """Apply a scoring preset to stored profile-match facts."""
+    config = config or load_rule_scoring_config()
+    category_scores: dict[str, float] = {}
+    for match in [*profile_match.matched_positive_terms, *profile_match.matched_negative_terms]:
+        if not match.category:
+            continue
+        category_scores[match.category] = category_scores.get(match.category, 0.0) + float(match.contribution or 0.0)
+
+    positive_score = 0.0
+    negative_score = 0.0
+    for category_name, category_score in category_scores.items():
+        category_weight = config.category_weights.get(category_name, 0.0)
+        contribution = category_score * category_weight
+        if category_weight >= 0:
+            positive_score += contribution
+        else:
+            negative_score += contribution
+
+    raw_score = positive_score + negative_score
     normalized_score = _normalized_score(
         positive_score=positive_score,
         negative_score=negative_score,
         config=config,
     )
     reasoning = [
-        f"Matched {len(positives)} positive weighted terms for {positive_score:+.2f}.",
-        f"Matched {len(negatives)} negative weighted terms for {negative_score:+.2f}.",
-        *profile_reasoning,
-        *seniority_evaluation.reasoning,
-        f"Calibrated raw score {score:+.2f} to {normalized_score}/100.",
+        f"Applied preset weights to {len(category_scores)} matched categories.",
+        f"Calibrated raw score {raw_score:+.2f} to {normalized_score}/100.",
+        *profile_match.reasoning,
     ]
-
     return RuleEvaluation(
-        score=round(score),
+        score=round(raw_score),
         normalized_score=normalized_score,
-        matched_positive_terms=positives,
-        matched_negative_terms=negatives,
+        matched_positive_terms=profile_match.matched_positive_terms,
+        matched_negative_terms=profile_match.matched_negative_terms,
         decision=recommendation_from_score(normalized_score),
         reasoning=reasoning,
-        seniority=seniority_evaluation,
+        seniority=profile_match.seniority,
     )
+
+
+def evaluate_job(
+    job: JobOffer,
+    profile: CandidateProfile | None = None,
+    config: RuleScoringConfig | None = None,
+) -> RuleEvaluation:
+    config = config or load_rule_scoring_config()
+    profile_match = evaluate_job_profile_match(job, profile=profile, config=config)
+    if profile_match.normalized_score == 0 and profile_match.decision == "skip":
+        return profile_match
+    return score_profile_match(profile_match, config=config)
