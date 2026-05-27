@@ -3,6 +3,9 @@ from __future__ import annotations
 from app.storage._common import *  # noqa: F401,F403
 from app.storage._offers_impl import _job_from_offer_row
 from app.storage._reviews_impl import _main_signal_terms, _like_pattern
+from app.ai.decision import DecisionWeights, blend_seniority
+
+SCREENED_DECISION_WEIGHTS = DecisionWeights(ai=0.0, seniority=0.30)
 
 def save_screening_result(
     *,
@@ -148,6 +151,7 @@ def save_screening_results_batch(
                     },
                     ensure_ascii=False,
                 ),
+                json.dumps((row[3] if len(row) == 5 else row[2]).seniority.model_dump(mode="json"), ensure_ascii=False),
                 screened_at,
             )
             for row in rows
@@ -239,6 +243,74 @@ def _score_from_category_scores(raw: str | None, preset: ScoringPreset) -> tuple
     return score_category_scores(_category_scores_from_json(raw), preset.weights)
 
 
+def _json_object(raw: str | None) -> dict[str, Any]:
+    if not raw:
+        return {}
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _seniority_from_json(raw: str | None) -> dict[str, Any]:
+    value = _json_object(raw)
+    score = value.get("score")
+    try:
+        value["score"] = max(0, min(100, int(score)))
+    except (TypeError, ValueError):
+        value["score"] = 70
+    value.setdefault("target_seniority", "unknown")
+    value.setdefault("offer_seniority", "unknown")
+    value.setdefault("confidence", 0)
+    value.setdefault("reasoning", [])
+    return value
+
+
+def _screened_score_details(row: sqlite3.Row, preset: ScoringPreset) -> dict[str, Any]:
+    raw_score, rule_score = _score_from_category_scores(row["category_scores_json"], preset)
+    seniority = _seniority_from_json(row["seniority_json"] if "seniority_json" in row.keys() else None)
+    seniority_score = int(seniority["score"])
+    final_score = blend_seniority(rule_score, seniority_score, SCREENED_DECISION_WEIGHTS.seniority)
+    return {
+        "rule_score": rule_score,
+        "raw_category_score": raw_score,
+        "seniority_score": seniority_score,
+        "seniority": seniority,
+        "final_score": final_score,
+        "base_score": rule_score,
+        "base_weight": int(round((1.0 - SCREENED_DECISION_WEIGHTS.seniority) * 100)),
+        "seniority_weight": int(round(SCREENED_DECISION_WEIGHTS.seniority * 100)),
+    }
+
+
+def _category_score_details(raw: str | None, preset: ScoringPreset) -> list[dict[str, Any]]:
+    details: list[dict[str, Any]] = []
+    for name, raw_category_score in _category_scores_from_json(raw).items():
+        if isinstance(raw_category_score, dict):
+            ratio = float(raw_category_score.get("ratio", 0.0) or 0.0)
+            matched = raw_category_score.get("matched_weight", 0.0) or 0.0
+            total = raw_category_score.get("total_weight", 0.0) or 0.0
+        else:
+            ratio = 0.0
+            matched = 0.0
+            total = 0.0
+        weight = preset.weights.category_weights.get(name, 0.0)
+        contribution = ratio * weight
+        if not contribution and not matched:
+            continue
+        details.append(
+            {
+                "name": name.replace("_", " "),
+                "ratio": round(ratio * 100),
+                "matched_weight": matched,
+                "total_weight": total,
+                "contribution": round(contribution),
+            }
+        )
+    return sorted(details, key=lambda item: abs(item["contribution"]), reverse=True)
+
+
 def _signals_json_for_row(row: sqlite3.Row) -> str:
     return row["matched_signals_json"] or "{}"
 
@@ -270,7 +342,8 @@ def select_screened_offers(
             f"""
             SELECT
                 offers.*,
-                screening_results.category_scores_json
+                screening_results.category_scores_json,
+                screening_results.seniority_json
             FROM offers
             JOIN screening_results ON screening_results.offer_id = offers.id
             WHERE screening_results.profile_id = ?
@@ -292,7 +365,7 @@ def select_screened_offers(
     sorted_rows = sorted(
         rows,
         key=lambda row: (
-            _score_from_category_scores(row["category_scores_json"], preset)[1],
+            _screened_score_details(row, preset)["final_score"],
             row["published_at"] or "",
             row["first_seen_at"] or "",
         ),
@@ -301,7 +374,7 @@ def select_screened_offers(
     if min_score is not None:
         sorted_rows = [
             row for row in sorted_rows
-            if _score_from_category_scores(row["category_scores_json"], preset)[1] >= min_score
+            if _screened_score_details(row, preset)["final_score"] >= min_score
         ]
     return [StoredOffer(id=row["id"], job=_job_from_offer_row(row)) for row in sorted_rows[:limit]]
 
@@ -359,6 +432,8 @@ def list_screened_offers(
                 screening_results.score AS stored_score,
                 screening_results.matched_signals_json,
                 screening_results.category_scores_json,
+                screening_results.seniority_json,
+                screening_results.reasoning_json,
                 ai_reviews.score AS ai_score,
                 ai_reviews.recommendation AS ai_verdict,
                 ai_reviews.reviewed_at AS ai_reviewed_at
@@ -377,8 +452,12 @@ def list_screened_offers(
     results: list[dict[str, Any]] = []
     for row in rows:
         item = dict(row)
-        _, normalized_score = _score_from_category_scores(row["category_scores_json"], preset)
-        item["fast_score"] = normalized_score
+        score_details = _screened_score_details(row, preset)
+        item["fast_score"] = score_details["final_score"]
+        item["rule_score"] = score_details["rule_score"]
+        item["seniority_score"] = score_details["seniority_score"]
+        item["score_details"] = score_details
+        item["category_score_details"] = _category_score_details(row["category_scores_json"], preset)
         item["main_signals"] = _main_signal_terms(_signals_json_for_row(row))
         results.append(item)
 

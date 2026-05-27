@@ -245,7 +245,9 @@
 
             {% if show_screened_filters %}
               <div class="meta score-meta">
-                <span>{{ offer.preset_name }} {{ offer.fast_score }}</span>
+                <span>Final {{ offer.fast_score }}</span>
+                <span>Rule {{ offer.rule_score }}</span>
+                <span>Seniority {{ offer.seniority_score }}</span>
                 {% for signal in offer.main_signals %}
                   <span>{{ signal }}</span>
                 {% endfor %}
@@ -253,6 +255,47 @@
                   <span>AI {{ offer.ai_score }} {{ offer.ai_verdict }}</span>
                 {% endif %}
               </div>
+
+              <details class="review-details screened-details">
+                <summary>Screening details</summary>
+                <div class="details-grid">
+                  <section>
+                    <h3>Score computation</h3>
+                    <p>Final score: {{ offer.score_details.final_score }}/100</p>
+                    <p>Rule score: {{ offer.score_details.rule_score }}/100</p>
+                    <p>Seniority score: {{ offer.score_details.seniority_score }}/100</p>
+                    <p>Formula: {{ offer.score_details.base_weight }}% rule + {{ offer.score_details.seniority_weight }}% seniority.</p>
+                  </section>
+
+                  <section>
+                    <h3>Seniority</h3>
+                    {% set seniority = offer.score_details.seniority %}
+                    <p>{{ seniority.offer_seniority }} offer vs {{ seniority.target_seniority }} target.</p>
+                    <p>Confidence: {{ seniority.confidence }}/100</p>
+                    <ul>
+                      {% for reason in seniority.reasoning %}
+                        <li>{{ reason }}</li>
+                      {% else %}
+                        <li>No explicit seniority signal found.</li>
+                      {% endfor %}
+                    </ul>
+                  </section>
+
+                  <section>
+                    <h3>Rule signals</h3>
+                    <p>Raw category score: {{ offer.score_details.raw_category_score }}</p>
+                    {% if offer.category_score_details %}
+                      <ul>
+                        {% for category in offer.category_score_details %}
+                          <li>{{ category.name }}: {{ category.contribution }} points ({{ category.ratio }}% matched)</li>
+                        {% endfor %}
+                      </ul>
+                    {% else %}
+                      <p>No weighted rule signal was recorded.</p>
+                    {% endif %}
+                  </section>
+                </div>
+              </details>
             {% endif %}
 
             <p class="summary description-preview">{{ offer.description }}</p>

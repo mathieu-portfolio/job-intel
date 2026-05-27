@@ -17,7 +17,7 @@ class DecisionWeights:
     # completely dominate an otherwise useful offer.
     rule: float = 0.50
     ai: float = 0.50
-    seniority: float = 0.10
+    seniority: float = 0.30
 
 
 def _clamp_score(score: float) -> int:
@@ -32,7 +32,7 @@ def _rule_cap(rule_evaluation: RuleEvaluation) -> tuple[int | None, str | None]:
     return None, None
 
 
-def _weighted_base_score(rule_component: int, ai_component: int | None, weights: DecisionWeights) -> int:
+def weighted_base_score(rule_component: int, ai_component: int | None, weights: DecisionWeights) -> int:
     if ai_component is None:
         return rule_component
 
@@ -45,7 +45,7 @@ def _weighted_base_score(rule_component: int, ai_component: int | None, weights:
     )
 
 
-def _blend_seniority(base_score: int, seniority_component: int, seniority_weight: float) -> int:
+def blend_seniority(base_score: int, seniority_component: int, seniority_weight: float) -> int:
     weight = max(0.0, min(1.0, seniority_weight))
     return _clamp_score(((1.0 - weight) * base_score) + (weight * seniority_component))
 
@@ -60,8 +60,8 @@ def make_final_decision(
     ai_component = ai_evaluation.fit_score if ai_evaluation is not None else None
     seniority_component = rule_evaluation.seniority.score
 
-    base_score = _weighted_base_score(rule_component, ai_component, weights)
-    final_score = _blend_seniority(base_score, seniority_component, weights.seniority)
+    base_score = weighted_base_score(rule_component, ai_component, weights)
+    final_score = blend_seniority(base_score, seniority_component, weights.seniority)
 
     if ai_component is None:
         reasoning = [

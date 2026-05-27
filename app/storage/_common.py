@@ -121,6 +121,7 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
         _migrate_multi_preset_scores(connection)
         _migrate_profile_ids(connection)
         _migrate_screening_category_scores(connection)
+        _migrate_screening_seniority(connection)
         _migrate_exploration_metadata(connection)
         offer_columns = {
             row["name"]
@@ -142,6 +143,10 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
 
 def _migrate_screening_category_scores(connection: sqlite3.Connection) -> None:
     _ensure_column(connection, "screening_results", "category_scores_json TEXT NOT NULL DEFAULT '{}'")
+
+
+def _migrate_screening_seniority(connection: sqlite3.Connection) -> None:
+    _ensure_column(connection, "screening_results", "seniority_json TEXT NOT NULL DEFAULT '{}'")
 
 
 def _migrate_exploration_metadata(connection: sqlite3.Connection) -> None:

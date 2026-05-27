@@ -296,10 +296,10 @@
                   <p>Recommendation: {{ final.get("recommendation") }}</p>
                   {% if final.get("ai_component") is not none %}
                     <p>Base: 50% rule ({{ final.get("rule_component") }}/100) + 50% AI fit ({{ final.get("ai_component") }}/100) = {{ final.get("base_component") }}/100.</p>
-                    <p>Formula: 90% base ({{ final.get("base_component") }}/100) + 10% seniority ({{ final.get("seniority_component") }}/100).</p>
+                    <p>Formula: 70% base ({{ final.get("base_component") }}/100) + 30% seniority ({{ final.get("seniority_component") }}/100).</p>
                   {% else %}
                     <p>Base: rule-only score ({{ final.get("base_component") or final.get("rule_component") }}/100).</p>
-                    <p>Formula: 90% base ({{ final.get("base_component") or final.get("rule_component") }}/100) + 10% seniority ({{ final.get("seniority_component") }}/100).</p>
+                    <p>Formula: 70% base ({{ final.get("base_component") or final.get("rule_component") }}/100) + 30% seniority ({{ final.get("seniority_component") }}/100).</p>
                   {% endif %}
                   <ul>
                     {% for reason in final.get("reasoning") or [] %}
