@@ -19,7 +19,18 @@
         </nav>
       </div>
       <div class="header-actions">
-        <div class="count">{{ offers|length }} screened offers</div>
+        <form class="active-profile-form" method="post" action="/settings/profile">
+          <input type="hidden" name="redirect_to" value="{{ request.url.path }}">
+          <label>
+            Active profile
+            <select name="active_profile" onchange="this.form.submit()">
+              {% for profile in profiles %}
+                <option value="{{ profile.value }}" {% if active_profile.value == profile.value %}selected{% endif %}>{{ profile.label }}</option>
+              {% endfor %}
+            </select>
+          </label>
+        </form>
+        <div class="count">{{ offers|length }} {% if active_page == 'screened' %}screened{% else %}offers{% endif %}</div>
       </div>
     </header>
 
@@ -39,6 +50,7 @@
         >
           <div class="workflow-head">
             <h2>Fetch offers</h2>
+            <p class="profile-note">Using {{ active_profile.label }}</p>
             <button type="submit">Fetch offers</button>
           </div>
           
@@ -57,15 +69,6 @@
                 <option value="">Choose market</option>
                 {% for market in adzuna_markets %}
                   <option value="{{ market.value }}">{{ market.label }}</option>
-                {% endfor %}
-              </select>
-            </label>
-
-            <label>
-              Profile
-              <select name="profile">
-                {% for profile in profiles %}
-                  <option value="{{ profile.value }}" {% if loop.first %}selected{% endif %}>{{ profile.label }}</option>
                 {% endfor %}
               </select>
             </label>
@@ -173,14 +176,6 @@
           </select>
         </label>
         {% if show_screened_filters %}
-          <label>
-            Profile
-            <select name="profile">
-              {% for profile in profiles %}
-                <option value="{{ profile.value }}" {% if filters.profile == profile.value %}selected{% endif %}>{{ profile.label }}</option>
-              {% endfor %}
-            </select>
-          </label>
           <label>
             Preset
             <select name="preset">

@@ -10,6 +10,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
 from app.storage.connection import DEFAULT_DB_PATH
+from app.storage.files import profile_id_from_path
 from app.storage.maintenance import (
     DEFAULT_EXPLORED_CAPACITY,
     DEFAULT_RANKED_CAPACITY,
@@ -25,8 +26,7 @@ from app.storage.reviews import (
     list_unranked_review_offers,
 )
 from app.storage.scoring import list_scoring_presets, list_screened_offers
-from app.storage.files import profile_id_from_value
-from app.ui_options import ADZUNA_MARKETS, discover_profiles, get_default_profile_value
+from app.ui_options import ADZUNA_MARKETS, discover_profiles
 from app.workflows import WorkflowCancelled, fetch_offers, rank_offers
 from app.ui.state import (
     _cancellation_event,
@@ -47,11 +47,38 @@ UI_DIR = Path(__file__).parent
 templates = Jinja2Templates(directory=str(UI_DIR / "templates"))
 DEFAULT_RECENCY_DAYS = 30
 CLEAR_SUMMARIES = {
-    "rankings": "Deletes AI review rows and legacy ranking rows.",
-    "offers": "Deletes screened offers. Dependent AI review rows are removed by SQLite foreign keys.",
-    "explored": "Deletes provider exploration history. Existing offers and AI reviews remain.",
-    "all": "Deletes explored tracking, screened offers, AI reviews, and run metadata.",
+    "rankings": "Deletes AI review rows and legacy ranking rows for the active profile.",
+    "offers": "Deletes screened-offer state for the active profile. Shared raw offers remain available to other profiles.",
+    "explored": "Deletes provider exploration history for the active profile. Existing screened offers and AI reviews remain.",
+    "all": "Deletes explored tracking, screened-offer state, AI reviews, and run metadata for the active profile.",
 }
+
+
+
+def _active_profile_path(request: Request) -> str:
+    profiles = discover_profiles()
+    default = profiles[0]["value"] if profiles else "profiles/default.json"
+    selected = (request.cookies.get("job_intel_active_profile") or default).strip()
+    values = {profile["value"] for profile in profiles}
+    return selected if selected in values else default
+
+
+def _active_profile_context(request: Request) -> dict[str, str]:
+    active_value = _active_profile_path(request)
+    profiles = discover_profiles()
+    active = next((profile for profile in profiles if profile["value"] == active_value), None)
+    return {
+        "value": active_value,
+        "id": profile_id_from_path(active_value),
+        "label": active["label"] if active else Path(active_value).stem.title(),
+    }
+
+
+def _common_template_context(request: Request) -> dict[str, object]:
+    return {
+        "profiles": discover_profiles(),
+        "active_profile": _active_profile_context(request),
+    }
 
 def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
     app = FastAPI(title="Job Intel Review")
@@ -62,6 +89,21 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
     app.state.workflow_progress_lock = Lock()
     app.mount("/static", StaticFiles(directory=str(UI_DIR / "static")), name="static")
 
+
+    @app.post("/settings/profile")
+    async def set_active_profile(request: Request):
+        form = await _form_data(request)
+        selected = (form.get("active_profile") or "").strip()
+        valid_values = {profile["value"] for profile in discover_profiles()}
+        if selected not in valid_values:
+            raise HTTPException(status_code=400, detail="Unknown profile.")
+        redirect_to = (form.get("redirect_to") or request.headers.get("referer") or "/").strip()
+        if not redirect_to.startswith("/") or redirect_to.startswith("//"):
+            redirect_to = "/"
+        response = RedirectResponse(redirect_to, status_code=303)
+        response.set_cookie("job_intel_active_profile", selected, max_age=60 * 60 * 24 * 365, samesite="lax")
+        return response
+
     @app.get("/", response_class=HTMLResponse)
     @app.get("/ai-reviewed", response_class=HTMLResponse)
     def index(
@@ -71,14 +113,13 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
         source: str | None = None,
         location: str | None = None,
         ranking_mode: str | None = None,
-        profile: str | None = None,
         recency: str | None = None,
         ai_only: bool = False,
         sort: str = "score_desc",
         limit: int = 100,
     ) -> HTMLResponse:
         recency_days = _positive_int(recency, DEFAULT_RECENCY_DAYS)
-        selected_profile = profile_id_from_value(profile or get_default_profile_value())
+        active_profile = _active_profile_path(request)
         offers = list_ranked_offers(
             db_path=request.app.state.db_path,
             recommendation=recommendation or None,
@@ -86,7 +127,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
             source=source or None,
             location=location or None,
             ranking_mode=ranking_mode or None,
-            profile_id=selected_profile,
+            profile_path=active_profile,
             only_recent_days=recency_days,
             ai_only=ai_only,
             sort=sort,
@@ -102,7 +143,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                     "status": status or "",
                     "source": source or "",
                     "location": location or "",
-                    "profile": selected_profile,
+                    "ranking_mode": ranking_mode or "",
                     "recency": recency_days,
                     "ai_only": ai_only,
                     "sort": sort,
@@ -110,7 +151,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 },
                 "options": get_review_filter_options(request.app.state.db_path),
                 "scoring_presets": list_scoring_presets(request.app.state.db_path, enabled_only=True),
-                "profiles": discover_profiles(),
+                **_common_template_context(request),
                 "location_suggestions": list_offer_locations(request.app.state.db_path),
                 "db_path": request.app.state.db_path,
                 "workflow_notice": _consume_workflow_notice(request),
@@ -126,10 +167,12 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
         source: str | None = None,
         limit: int = 100,
     ) -> HTMLResponse:
+        active_profile = _active_profile_path(request)
         offers = list_unranked_review_offers(
             db_path=request.app.state.db_path,
             search=q or None,
             source=source or None,
+            profile_id=profile_id_from_path(active_profile),
             limit=limit,
         )
         return templates.TemplateResponse(
@@ -145,7 +188,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 "options": get_review_filter_options(request.app.state.db_path),
                 "location_suggestions": list_offer_locations(request.app.state.db_path),
                 "adzuna_markets": ADZUNA_MARKETS,
-                "profiles": discover_profiles(),
+                **_common_template_context(request),
                 "db_path": request.app.state.db_path,
                 "workflow_notice": _consume_workflow_notice(request),
                 "storage_capacities": {
@@ -167,17 +210,16 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
         q: str | None = None,
         source: str | None = None,
         preset: str = "balanced",
-        profile: str | None = None,
         threshold: int = 40,
         show_all_presets: bool = False,
         sort: str = "score_desc",
         limit: int = 100,
     ) -> HTMLResponse:
-        selected_profile = profile_id_from_value(profile or get_default_profile_value())
+        active_profile = _active_profile_path(request)
         offers = list_screened_offers(
             db_path=request.app.state.db_path,
-            profile_id=selected_profile,
             preset_id=preset,
+            profile_id=profile_id_from_path(active_profile),
             threshold=threshold,
             show_all_matching_presets=show_all_presets,
             search=q or None,
@@ -195,7 +237,6 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                     "q": q or "",
                     "source": source or "",
                     "preset": preset,
-                    "profile": selected_profile,
                     "threshold": threshold,
                     "show_all_presets": show_all_presets,
                     "sort": sort,
@@ -205,7 +246,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 "scoring_presets": scoring_presets,
                 "location_suggestions": list_offer_locations(request.app.state.db_path),
                 "adzuna_markets": ADZUNA_MARKETS,
-                "profiles": discover_profiles(),
+                **_common_template_context(request),
                 "db_path": request.app.state.db_path,
                 "workflow_notice": _consume_workflow_notice(request),
                 "storage_capacities": {
@@ -230,8 +271,12 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
             {
                 "db_path": request.app.state.db_path,
                 "workflow_notice": _consume_workflow_notice(request),
-                "storage_counts": get_storage_counts(request.app.state.db_path),
+                "storage_counts": get_storage_counts(
+                    request.app.state.db_path,
+                    profile_id=profile_id_from_path(_active_profile_path(request)),
+                ),
                 "clear_summaries": CLEAR_SUMMARIES,
+                **_common_template_context(request),
                 "active_page": "maintenance",
             },
         )
@@ -260,7 +305,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 query=(form.get("query") or "").strip(),
                 country=country or "fr",
                 where=(form.get("location") or "").strip() or None,
-                profile_id=form.get("profile") or None,
+                profile_path=Path(_active_profile_path(request)),
                 db_path=request.app.state.db_path,
                 min_score=_positive_int(form.get("min_score"), 40),
                 explored_capacity=_positive_int(form.get("explored_capacity"), DEFAULT_EXPLORED_CAPACITY),
@@ -325,7 +370,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
         try:
             result = await run_in_threadpool(
                 rank_offers,
-                profile_id=form.get("profile") or None,
+                profile_path=Path(_active_profile_path(request)),
                 db_path=request.app.state.db_path,
                 limit=_positive_int(form.get("limit"), 10),
                 only_recent_days=_optional_positive_int(form.get("only_recent_days")),
@@ -408,7 +453,11 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
 
     @app.post("/rankings/clear")
     def clear_all_rankings(request: Request):
-        clear_data(db_path=request.app.state.db_path, scope="rankings")
+        clear_data(
+            db_path=request.app.state.db_path,
+            scope="rankings",
+            profile_id=profile_id_from_path(_active_profile_path(request)),
+        )
         return RedirectResponse("/", status_code=303)
 
     @app.post("/storage/clear")
@@ -416,7 +465,11 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
         form = await _form_data(request)
         scope = (form.get("scope") or "").strip()
         try:
-            result = clear_data(db_path=request.app.state.db_path, scope=scope)
+            result = clear_data(
+                db_path=request.app.state.db_path,
+                scope=scope,
+                profile_id=profile_id_from_path(_active_profile_path(request)),
+            )
             request.app.state.workflow_notice = _workflow_notice(
                 "success",
                 "Clear complete",

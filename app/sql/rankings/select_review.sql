@@ -4,6 +4,7 @@ SELECT
     rankings.algorithm,
     rankings.model,
     rankings.profile_id,
+    rankings.profile_path,
     rankings.score,
     rankings.recommendation,
     rankings.summary,

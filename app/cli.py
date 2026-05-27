@@ -77,7 +77,7 @@ def fetch(
     query: str = typer.Option("", help="Manual search query for sources that support it. Overrides profile search queries."),
     country: str = typer.Option("fr", help="Adzuna country code, for example fr, gb, us."),
     where: str | None = typer.Option(None, help="Optional Adzuna location filter."),
-    profile: Path | None = typer.Option(None, help="Candidate profile JSON path. Defaults to the first discovered profile by (order, id)."),
+    profile: Path = typer.Option(Path("profiles/default.json"), help="Candidate profile JSON path for fast screening."),
     db: Path = typer.Option(DEFAULT_DB_PATH, "--db", help="SQLite database path."),
     min_score: int = typer.Option(40, help="Minimum calibrated rule score to print."),
     limit: int = typer.Option(20, help="Maximum number of matches to print."),
@@ -107,7 +107,7 @@ def fetch(
             query=query,
             country=country,
             where=where,
-            profile_id=str(profile),
+            profile_path=profile,
             db_path=db,
             min_score=min_score,
             explored_capacity=explored_capacity,
@@ -256,7 +256,7 @@ def _print_ranked_job(
 
 @app.command()
 def rank(
-    profile: Path | None = typer.Option(None, help="Candidate profile JSON path. Defaults to the first discovered profile by (order, id)."),
+    profile: Path = typer.Option(Path("profiles/default.json"), help="Candidate profile JSON path."),
     db: Path = typer.Option(DEFAULT_DB_PATH, "--db", help="SQLite database path."),
     limit: int = typer.Option(10, min=1, help="Maximum number of jobs to evaluate."),
     only_recent_days: int | None = typer.Option(None, min=1, help="Only rank offers seen or published in the last N days."),
@@ -283,7 +283,7 @@ def rank(
 
     try:
         result = rank_offers(
-            profile_id=str(profile),
+            profile_path=profile,
             db_path=db,
             limit=limit,
             only_recent_days=only_recent_days,

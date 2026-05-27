@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS exploration_scopes (
 
 CREATE TABLE IF NOT EXISTS profiles (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    profile_id TEXT NOT NULL UNIQUE,
+    profile_path TEXT NOT NULL UNIQUE,
     name TEXT,
     profile_json TEXT NOT NULL,
     updated_at TEXT NOT NULL
@@ -51,7 +51,8 @@ CREATE TABLE IF NOT EXISTS ranking_runs (
     started_at TEXT NOT NULL,
     algorithm TEXT NOT NULL,
     model TEXT,
-    profile_id TEXT NOT NULL,
+    profile_id TEXT NOT NULL DEFAULT 'default',
+    profile_path TEXT NOT NULL,
     config_json TEXT NOT NULL
 );
 
@@ -70,8 +71,8 @@ CREATE TABLE IF NOT EXISTS rankings (
     offer_id INTEGER NOT NULL,
     algorithm TEXT NOT NULL,
     model TEXT,
-    profile_id TEXT NOT NULL,
-    preset_id TEXT NOT NULL DEFAULT 'balanced',
+    profile_id TEXT NOT NULL DEFAULT 'default',
+    profile_path TEXT NOT NULL,
     score INTEGER NOT NULL,
     recommendation TEXT NOT NULL,
     summary TEXT NOT NULL,
@@ -84,8 +85,8 @@ CREATE TABLE IF NOT EXISTS rankings (
 CREATE TABLE IF NOT EXISTS screening_results (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     offer_id INTEGER NOT NULL,
-    profile_id TEXT NOT NULL,
-    preset_id TEXT NOT NULL DEFAULT 'balanced',
+    profile_id TEXT NOT NULL DEFAULT 'default',
+    profile_path TEXT NOT NULL,
     score INTEGER NOT NULL,
     recommendation TEXT NOT NULL,
     threshold INTEGER NOT NULL,
@@ -98,7 +99,7 @@ CREATE TABLE IF NOT EXISTS screening_results (
 
 CREATE TABLE IF NOT EXISTS offer_scores (
     offer_id INTEGER NOT NULL,
-    profile_id TEXT NOT NULL,
+    profile_id TEXT NOT NULL DEFAULT 'default',
     preset_id TEXT NOT NULL,
     score INTEGER NOT NULL,
     signals_json TEXT,
@@ -108,25 +109,14 @@ CREATE TABLE IF NOT EXISTS offer_scores (
     FOREIGN KEY(preset_id) REFERENCES scoring_presets(id) ON DELETE CASCADE
 );
 
-
-
-CREATE TABLE IF NOT EXISTS offer_profile_matches (
-    offer_id INTEGER NOT NULL,
-    profile_id TEXT NOT NULL,
-    category_scores_json TEXT NOT NULL,
-    signals_json TEXT,
-    matched_at TEXT NOT NULL,
-    PRIMARY KEY (offer_id, profile_id),
-    FOREIGN KEY(offer_id) REFERENCES offers(id) ON DELETE CASCADE
-);
-
 CREATE TABLE IF NOT EXISTS ai_reviews (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     screening_result_id INTEGER,
     offer_id INTEGER NOT NULL,
     provider TEXT,
     model TEXT,
-    profile_id TEXT NOT NULL,
+    profile_id TEXT NOT NULL DEFAULT 'default',
+    profile_path TEXT NOT NULL,
     preset_id TEXT NOT NULL DEFAULT 'balanced',
     score INTEGER NOT NULL,
     recommendation TEXT NOT NULL,

@@ -59,8 +59,14 @@
     if (hasQueryParams()) return;
     if (!Object.keys(prefs).length) return;
 
+    const activeFieldNames = new Set(
+      Array.from(form.elements)
+        .filter((field) => isPersistableField(field))
+        .map((field) => field.name),
+    );
     const params = new URLSearchParams();
     for (const [name, value] of Object.entries(prefs)) {
+      if (!activeFieldNames.has(name)) continue;
       if (value === undefined || value === null || value === "") continue;
       params.set(name, String(value));
     }

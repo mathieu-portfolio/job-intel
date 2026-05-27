@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.storage.files import default_profile_id, discover_profiles as discover_profile_infos
+from app.storage.files import discover_profiles as discover_profile_infos
 
 
 ADZUNA_MARKETS: list[dict[str, str]] = [
@@ -33,13 +33,13 @@ def _readable_label(path: Path) -> str:
 
 def discover_profiles(profiles_dir: Path = Path("profiles")) -> list[dict[str, str]]:
     return [
-        {"label": profile.label, "value": profile.profile_id}
+        {
+            "id": profile.profile_id,
+            "label": profile.label,
+            "value": str(profile.path).replace("\\", "/"),
+        }
         for profile in discover_profile_infos(profiles_dir)
     ]
-
-
-def get_default_profile_value(profiles_dir: Path = Path("profiles")) -> str:
-    return default_profile_id(profiles_dir)
 
 
 def _discover_json_options(directory: Path) -> list[dict[str, str]]:

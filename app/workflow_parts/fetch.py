@@ -13,7 +13,7 @@ def fetch_offers(
     query: str = "c++ simulation",
     country: str = "fr",
     where: str | None = None,
-    profile_id: str | None = None,
+    profile_path: Path = Path("profiles/default.json"),
     db_path: Path = DEFAULT_DB_PATH,
     min_score: int | None = None,
     explored_capacity: int = DEFAULT_EXPLORED_CAPACITY,
@@ -54,9 +54,8 @@ def fetch_offers(
         provider_retry_backoff,
         name="provider retry",
     )
-    profile_ref = profile_id
-    profile_id = profile_id_from_value(profile_ref)
-    candidate_profile = load_profile(profile_ref)
+    candidate_profile = load_profile(profile_path)
+    profile_id = candidate_profile.profile_id or profile_id_from_path(profile_path)
     search_requests = iter_profile_search_requests(
         candidate_profile,
         source,
@@ -87,14 +86,14 @@ def fetch_offers(
         aggregate_summaries: list[FetchRequestSummary] = []
         aggregate_provider_keys: set[tuple[str, str]] = set()
         duplicate_provider_rows_across_requests = 0
-        for search_request in search_requests:
-            remaining_new_offers = (
-                None
-                if new_offers is None
-                else max(0, new_offers - aggregate_stats.newly_explored)
+        search_results: list[FetchWorkflowResult] = []
+
+        def fetch_search_request(search_request: ProviderSearchRequest, remaining_new_offers: int | None) -> FetchWorkflowResult:
+            _emit(
+                messages,
+                progress,
+                f"Provider {source} search started: {_format_search_request(search_request)}.",
             )
-            if remaining_new_offers == 0:
-                break
             result = fetch_offers(
                 source=source,
                 page=page,
@@ -105,7 +104,7 @@ def fetch_offers(
                 query=search_request.query,
                 country=country,
                 where=search_request.where,
-                profile_id=profile_ref,
+                profile_path=profile_path,
                 db_path=db_path,
                 min_score=min_score,
                 explored_capacity=explored_capacity,
@@ -291,7 +290,7 @@ def fetch_offers(
         query=query,
         country=country,
         where=where,
-        profile_id=profile_id,
+        profile_path=profile_path,
         min_score=min_score,
     )
     scope_key = _exploration_scope_key(scope_payload)
@@ -395,28 +394,33 @@ def fetch_offers(
             )
             timing["explored_lookup"] += time.perf_counter() - lookup_started_at
 
-            score_rows: list[tuple[int, str, RuleEvaluation]] = []
-            screening_rows: list[tuple[int, str, RuleEvaluation, int]] = []
+            score_rows: list[tuple[int, str, str, RuleEvaluation]] = []
+            screening_rows: list[tuple[int, str, str, RuleEvaluation, int]] = []
             upsert_jobs: list[JobOffer] = []
-            profile_matches_by_url: dict[str, RuleEvaluation] = {}
+            evaluations_by_url: dict[str, dict[str, RuleEvaluation]] = {}
             selected_evaluation_by_url: dict[str, RuleEvaluation] = {}
-            selected_preset = next((preset for preset in enabled_presets if preset.id == "balanced"), enabled_presets[0])
 
             for job in jobs_to_score:
                 canonical_url = str(job.url)
                 try:
                     scoring_started_at = time.perf_counter()
-                    profile_match = evaluate_job_profile_match(job, profile=candidate_profile, config=selected_preset.weights)
-                    evaluation = score_profile_match(profile_match, selected_preset.weights)
+                    preset_evaluations = {
+                        preset.id: evaluate_job(job, profile=candidate_profile, config=preset.weights)
+                        for preset in enabled_presets
+                    }
                     timing["scoring"] += time.perf_counter() - scoring_started_at
-                    profile_matches_by_url[canonical_url] = profile_match
+                    evaluation = preset_evaluations.get("balanced") or next(iter(preset_evaluations.values()))
+                    evaluations_by_url[canonical_url] = preset_evaluations
                     selected_evaluation_by_url[canonical_url] = evaluation
 
                     existing_offer_id = existing_offer_ids.get(canonical_url)
                     if existing_offer_id is not None:
-                        score_rows.append((existing_offer_id, profile_id, profile_match))
+                        score_rows.extend(
+                            (existing_offer_id, profile_id, preset_id, preset_evaluation)
+                            for preset_id, preset_evaluation in preset_evaluations.items()
+                        )
                         screening_rows.append(
-                            (existing_offer_id, profile_id, evaluation, screening_threshold)
+                            (existing_offer_id, profile_id, str(profile_path), evaluation, screening_threshold)
                         )
                         if canonical_url in existing_url_ids:
                             upsert_jobs.append(job)
@@ -425,7 +429,8 @@ def fetch_offers(
                             explored_records.append((job, "duplicate", "already_in_offers", False))
                         continue
 
-                    if evaluation.normalized_score < screening_threshold:
+                    best_score = max(score.normalized_score for score in preset_evaluations.values())
+                    if best_score < screening_threshold:
                         filtered_out += 1
                         explored_records.append((job, "filtered_out", "rule_filter_failed", False))
                         continue
@@ -447,10 +452,13 @@ def fetch_offers(
                 offer_id = upserted_offer_ids.get(canonical_url)
                 if offer_id is None:
                     continue
-                profile_match = profile_matches_by_url[canonical_url]
+                preset_evaluations = evaluations_by_url[canonical_url]
                 evaluation = selected_evaluation_by_url[canonical_url]
-                score_rows.append((offer_id, profile_id, profile_match))
-                screening_rows.append((offer_id, profile_id, evaluation, screening_threshold))
+                score_rows.extend(
+                    (offer_id, profile_id, preset_id, preset_evaluation)
+                    for preset_id, preset_evaluation in preset_evaluations.items()
+                )
+                screening_rows.append((offer_id, profile_id, str(profile_path), evaluation, screening_threshold))
                 if canonical_url not in existing_offer_ids:
                     matches.append((job, evaluation))
 
@@ -577,7 +585,7 @@ def fetch_offers(
                 submit_next_pages()
 
     while pages_scanned < page_limit and not (
-        target_new_offers is None and not fast_backfill_active and fetch_concurrency > 1
+        not fast_backfill_active and fetch_concurrency > 1
     ):
         _raise_if_cancelled(cancelled)
         try:

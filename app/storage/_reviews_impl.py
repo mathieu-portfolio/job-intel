@@ -8,10 +8,12 @@ def create_ranking_run(
     started_at: str,
     algorithm: str,
     model: str | None,
-    profile_id: str,
+    profile_path: str,
     config: dict[str, Any],
+    profile_id: str | None = None,
 ) -> int:
     init_db(db_path)
+    profile_id = profile_id or profile_id_from_path(profile_path)
     with _connect(db_path) as connection:
         cursor = connection.execute(
             load_sql("ranking_runs/insert.sql"),
@@ -20,6 +22,7 @@ def create_ranking_run(
                 algorithm,
                 model,
                 profile_id,
+                profile_path,
                 json.dumps(config, ensure_ascii=False),
             ),
         )
@@ -33,15 +36,17 @@ def save_ranking(
     offer_id: int,
     algorithm: str,
     model: str | None,
-    profile_id: str,
+    profile_path: str,
     score: int,
     recommendation: Recommendation,
     summary: str,
     result: dict[str, Any],
+    profile_id: str | None = None,
     ranked_at: str | None = None,
 ) -> None:
     init_db(db_path)
     ranked_at = ranked_at or _now_iso()
+    profile_id = profile_id or profile_id_from_path(profile_path)
     with _connect(db_path) as connection:
         connection.execute(
             load_sql("rankings/delete_existing.sql"),
@@ -55,6 +60,7 @@ def save_ranking(
                 algorithm,
                 model,
                 profile_id,
+                profile_path,
                 score,
                 recommendation,
                 summary,
@@ -89,16 +95,18 @@ def save_ai_review(
     offer_id: int,
     provider: str | None,
     model: str | None,
-    profile_id: str,
+    profile_path: str,
     score: int,
     recommendation: Recommendation,
     summary: str,
     result: dict[str, Any],
+    profile_id: str | None = None,
     preset_id: str = DEFAULT_SCORING_PRESET_ID,
     reviewed_at: str | None = None,
 ) -> None:
     init_db(db_path)
     reviewed_at = reviewed_at or _now_iso()
+    profile_id = profile_id or profile_id_from_path(profile_path)
     with _connect(db_path) as connection:
         connection.execute(
             load_sql("ai_reviews/delete_existing.sql"),
@@ -112,6 +120,7 @@ def save_ai_review(
                 provider,
                 model,
                 profile_id,
+                profile_path,
                 preset_id,
                 score,
                 recommendation,
@@ -157,6 +166,7 @@ def list_ranked_offers(
     location: str | None = None,
     ranking_mode: str | None = None,
     profile_id: str | None = None,
+    profile_path: str | None = None,
     only_recent_days: int | None = None,
     ai_only: bool = False,
     sort: str = "score_desc",
@@ -184,6 +194,9 @@ def list_ranked_offers(
     if profile_id:
         clauses.append("rankings.profile_id = ?")
         params.append(profile_id)
+    elif profile_path:
+        clauses.append("rankings.profile_id = ?")
+        params.append(profile_id_from_path(profile_path))
     if ai_only:
         clauses.append(
             "("
@@ -231,11 +244,15 @@ def list_unranked_review_offers(
     db_path: Path = DEFAULT_DB_PATH,
     search: str | None = None,
     source: str | None = None,
+    profile_id: str = "default",
     limit: int = 100,
 ) -> list[dict[str, Any]]:
     init_db(db_path)
-    clauses: list[str] = []
-    params: list[Any] = []
+    clauses: list[str] = [
+        "EXISTS (SELECT 1 FROM offer_scores WHERE offer_scores.offer_id = offers.id AND offer_scores.profile_id = ?)",
+        "NOT EXISTS (SELECT 1 FROM rankings WHERE rankings.offer_id = offers.id AND rankings.profile_id = ?)",
+    ]
+    params: list[Any] = [profile_id, profile_id]
     search_pattern = _like_pattern(search)
     if search_pattern:
         clauses.append(
@@ -250,17 +267,36 @@ def list_unranked_review_offers(
         clauses.append("offers.source = ?")
         params.append(source)
 
-    filter_sql = f"AND {' AND '.join(clauses)}" if clauses else ""
+    where_sql = f"WHERE {' AND '.join(clauses)}"
     params.append(limit)
     with _connect(db_path) as connection:
-        sql = load_sql("offers/select_unranked_review.sql").replace(
-            "/*FILTER_CLAUSE*/",
-            filter_sql,
-        )
-        rows = connection.execute(sql, params).fetchall()
+        rows = connection.execute(
+            f"""
+            SELECT
+                offers.id AS offer_id,
+                offers.source,
+                offers.url,
+                offers.title,
+                offers.company,
+                offers.location,
+                offers.description,
+                offers.published_at,
+                offers.first_seen_at,
+                offers.last_seen_at,
+                offers.last_fetched_at
+            FROM offers
+            {where_sql}
+            ORDER BY
+                offers.last_fetched_at DESC,
+                CASE WHEN offers.published_at IS NULL THEN 1 ELSE 0 END,
+                offers.published_at DESC,
+                offers.first_seen_at DESC
+            LIMIT ?;
+            """,
+            params,
+        ).fetchall()
 
     return [dict(row) for row in rows]
-
 
 def get_review_filter_options(db_path: Path = DEFAULT_DB_PATH) -> dict[str, list[str]]:
     init_db(db_path)

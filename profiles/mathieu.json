@@ -1,0 +1,187 @@
+{
+  "search_queries": {
+    "en": [
+      "C++ developer",
+      "software engineer",
+      "systems engineer"
+    ],
+    "fr": [
+      "développeur C++",
+      "ingénieur logiciel",
+      "ingénieur systèmes"
+    ]
+  },
+  "must_match": {
+    "any": [
+      {
+        "term": "C++",
+        "aliases": {
+          "en": ["C++"],
+          "fr": ["C++"]
+        }
+      },
+      {
+        "term": "software",
+        "aliases": {
+          "en": ["software", "software development", "software engineer", "software engineering"],
+          "fr": ["logiciel", "développement logiciel", "ingénieur logiciel", "ingénierie logicielle"]
+        }
+      },
+      {
+        "term": "engineer",
+        "aliases": {
+          "en": ["engineer", "engineering"],
+          "fr": ["ingénieur", "ingénierie"]
+        }
+      },
+      {
+        "term": "developer",
+        "aliases": {
+          "en": ["developer", "developper"],
+          "fr": ["développeur", "développeuse"]
+        }
+      }
+    ]
+  },
+  "signals": {
+    "interests": [
+      {
+        "term": "systems",
+        "weight": 1.0,
+        "aliases": {
+          "en": ["systems", "system programming", "systems engineering"],
+          "fr": ["systèmes", "programmation système", "ingénierie système"]
+        }
+      },
+      {
+        "term": "simulation",
+        "weight": 1.0,
+        "aliases": {
+          "en": ["simulation", "numerical simulation"],
+          "fr": ["simulation", "simulation numérique"]
+        }
+      },
+      {
+        "term": "infrastructure",
+        "weight": 1.0,
+        "aliases": {
+          "en": ["infrastructure", "platform engineering"],
+          "fr": ["infrastructure", "ingénierie plateforme"]
+        }
+      },
+      {
+        "term": "graphics",
+        "weight": 1.0,
+        "aliases": {
+          "en": ["graphics", "rendering", "visualization"],
+          "fr": ["graphique", "rendu", "visualisation"]
+        }
+      },
+      {
+        "term": "tooling",
+        "weight": 1.0,
+        "aliases": {
+          "en": ["tooling", "developer tools", "internal tools"],
+          "fr": ["outillage", "outils developpeur", "outils internes"]
+        }
+      }
+    ],
+    "preferred_domains": [
+      {
+        "term": "aerospace",
+        "weight": 1.0,
+        "aliases": {
+          "en": ["aerospace", "space", "aviation"],
+          "fr": ["aérospatial", "spatial", "aéronautique"]
+        }
+      },
+      {
+        "term": "defense",
+        "weight": 1.0,
+        "aliases": {
+          "en": ["defense", "defence"],
+          "fr": ["defense"]
+        }
+      }
+    ],
+    "strengths": [
+      {
+        "term": "C++",
+        "weight": 1.0,
+        "aliases": {
+          "en": ["C++", "modern C++"],
+          "fr": ["C++", "C++ moderne"]
+        }
+      },
+      {
+        "term": "architecture thinking",
+        "weight": 1.0,
+        "aliases": {
+          "en": ["architecture thinking", "software architecture", "system design"],
+          "fr": ["architecture logicielle", "conception système"]
+        }
+      },
+      {
+        "term": "modular design",
+        "weight": 1.0,
+        "aliases": {
+          "en": ["modular design", "modularity"],
+          "fr": ["conception modulaire", "modularité"]
+        }
+      },
+      {
+        "term": "technical curiosity",
+        "weight": 1.0,
+        "aliases": {
+          "en": ["technical curiosity", "learning mindset"],
+          "fr": ["curiosité technique", "envie d apprendre"]
+        }
+      }
+    ],
+    "disliked_work": [
+      {
+        "term": "generic CRUD",
+        "weight": 1.0,
+        "aliases": {
+          "en": ["generic CRUD", "basic CRUD", "admin forms"],
+          "fr": ["CRUD générique", "formulaires métier", "back-office basique"]
+        }
+      },
+      {
+        "term": "pure consulting",
+        "weight": 1.0,
+        "aliases": {
+          "en": ["pure consulting", "client consulting"],
+          "fr": ["conseil pur", "mission de conseil"]
+        }
+      },
+      {
+        "term": "marketing-driven products",
+        "weight": 1.0,
+        "aliases": {
+          "en": ["marketing-driven products", "growth marketing"],
+          "fr": ["produits pilotés par le marketing", "marketing digital"]
+        }
+      }
+    ],
+    "location_preferences": [
+      {
+        "term": "France",
+        "weight": 1.0,
+        "aliases": {
+          "en": ["France"],
+          "fr": ["France"]
+        }
+      },
+      {
+        "term": "remote Europe",
+        "weight": 1.0,
+        "aliases": {
+          "en": ["remote Europe", "Europe remote"],
+          "fr": ["télétravail Europe", "remote Europe"]
+        }
+      }
+    ]
+  },
+  "target_seniority": "junior"
+}

@@ -251,11 +251,13 @@ def select_unranked_offers(
     db_path: Path = DEFAULT_DB_PATH,
     algorithm: str,
     model: str | None,
-    profile_id: str,
+    profile_path: str,
     limit: int,
+    profile_id: str | None = None,
     only_recent_days: int | None = None,
 ) -> list[StoredOffer]:
     init_db(db_path)
+    profile_id = profile_id or profile_id_from_path(profile_path)
     params: list[Any] = [algorithm, model, profile_id]
     recent_clause = ""
     if only_recent_days is not None:

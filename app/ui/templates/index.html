@@ -19,6 +19,17 @@
         </nav>
       </div>
       <div class="header-actions">
+        <form class="active-profile-form" method="post" action="/settings/profile">
+          <input type="hidden" name="redirect_to" value="{{ request.url.path }}">
+          <label>
+            Active profile
+            <select name="active_profile" onchange="this.form.submit()">
+              {% for profile in profiles %}
+                <option value="{{ profile.value }}" {% if active_profile.value == profile.value %}selected{% endif %}>{{ profile.label }}</option>
+              {% endfor %}
+            </select>
+          </label>
+        </form>
         <div class="count">{{ offers|length }} AI reviewed offers</div>
       </div>
     </header>
@@ -38,18 +49,11 @@
         >
           <div class="workflow-head">
             <h2>Review with AI</h2>
+            <p class="profile-note">Using {{ active_profile.label }}</p>
             <button type="submit">Review with AI</button>
           </div>
           
           <div class="workflow-grid">
-            <label>
-              Profile
-              <select name="profile">
-                {% for profile in profiles %}
-                  <option value="{{ profile.value }}" {% if loop.first %}selected{% endif %}>{{ profile.label }}</option>
-                {% endfor %}
-              </select>
-            </label>
 
             <label>
               AI provider
@@ -140,14 +144,6 @@
             <option value="">Any</option>
             {% for value in options.sources %}
               <option value="{{ value }}" {% if filters.source == value %}selected{% endif %}>{{ value }}</option>
-            {% endfor %}
-          </select>
-        </label>
-        <label>
-          Profile
-          <select name="profile">
-            {% for profile in profiles %}
-              <option value="{{ profile.value }}" {% if filters.profile == profile.value %}selected{% endif %}>{{ profile.label }}</option>
             {% endfor %}
           </select>
         </label>

@@ -26,16 +26,26 @@ def _delete_ids(
     return int(cursor.rowcount if cursor.rowcount is not None else len(ids))
 
 
-def get_storage_counts(db_path: Path = DEFAULT_DB_PATH) -> StorageCounts:
+def get_storage_counts(db_path: Path = DEFAULT_DB_PATH, *, profile_id: str | None = None) -> StorageCounts:
     init_db(db_path)
     with _connect(db_path) as connection:
-        row = connection.execute(load_sql("pruning/counts.sql")).fetchone()
+        if profile_id:
+            row = connection.execute(
+                """
+                SELECT
+                    (SELECT COUNT(*) FROM explored_offers WHERE profile_id = ?) AS explored_count,
+                    (SELECT COUNT(DISTINCT offer_id) FROM screening_results WHERE profile_id = ?) AS unranked_count,
+                    (SELECT COUNT(DISTINCT offer_id) FROM rankings WHERE profile_id = ?) AS ranked_count;
+                """,
+                (profile_id, profile_id, profile_id),
+            ).fetchone()
+        else:
+            row = connection.execute(load_sql("pruning/counts.sql")).fetchone()
     return StorageCounts(
         explored=int(row["explored_count"]),
         unranked=int(row["unranked_count"]),
         ranked=int(row["ranked_count"]),
     )
-
 
 def prune_storage(
     db_path: Path = DEFAULT_DB_PATH,
@@ -120,25 +130,83 @@ def get_clear_plan(
     *,
     db_path: Path = DEFAULT_DB_PATH,
     scope: str,
+    profile_id: str | None = None,
 ) -> ClearPlan:
     clear_scope = _validate_clear_scope(scope)
     init_db(db_path)
     with _connect(db_path) as connection:
+        if not profile_id:
+            if clear_scope == "rankings":
+                row = connection.execute(load_sql("clear/count_rankings.sql")).fetchone()
+                return ClearPlan(scope=clear_scope, rankings=int(row["rankings_count"]))
+            if clear_scope == "offers":
+                row = connection.execute(load_sql("clear/count_offers.sql")).fetchone()
+                return ClearPlan(
+                    scope=clear_scope,
+                    offers=int(row["offers_count"]),
+                    rankings=int(row["dependent_rankings_count"]),
+                )
+            if clear_scope == "explored":
+                row = connection.execute(load_sql("clear/count_explored.sql")).fetchone()
+                return ClearPlan(scope=clear_scope, explored=int(row["explored_count"]))
+
+            row = connection.execute(load_sql("clear/count_all.sql")).fetchone()
+            return ClearPlan(
+                scope=clear_scope,
+                explored=int(row["explored_count"]),
+                offers=int(row["offers_count"]),
+                rankings=int(row["rankings_count"]),
+                ranking_runs=int(row["ranking_runs_count"]),
+            )
+
         if clear_scope == "rankings":
-            row = connection.execute(load_sql("clear/count_rankings.sql")).fetchone()
-            return ClearPlan(scope=clear_scope, rankings=int(row["rankings_count"]))
+            row = connection.execute(
+                """
+                SELECT
+                    (SELECT COUNT(*) FROM ai_reviews WHERE profile_id = ?)
+                    + (SELECT COUNT(*) FROM rankings WHERE profile_id = ?) AS rankings_count,
+                    (SELECT COUNT(*) FROM ranking_runs WHERE profile_id = ?) AS ranking_runs_count;
+                """,
+                (profile_id, profile_id, profile_id),
+            ).fetchone()
+            return ClearPlan(
+                scope=clear_scope,
+                rankings=int(row["rankings_count"]),
+                ranking_runs=int(row["ranking_runs_count"]),
+            )
         if clear_scope == "offers":
-            row = connection.execute(load_sql("clear/count_offers.sql")).fetchone()
+            row = connection.execute(
+                """
+                SELECT
+                    (SELECT COUNT(DISTINCT offer_id) FROM screening_results WHERE profile_id = ?) AS offers_count,
+                    (SELECT COUNT(*) FROM ai_reviews WHERE profile_id = ?)
+                    + (SELECT COUNT(*) FROM rankings WHERE profile_id = ?) AS dependent_rankings_count;
+                """,
+                (profile_id, profile_id, profile_id),
+            ).fetchone()
             return ClearPlan(
                 scope=clear_scope,
                 offers=int(row["offers_count"]),
                 rankings=int(row["dependent_rankings_count"]),
             )
         if clear_scope == "explored":
-            row = connection.execute(load_sql("clear/count_explored.sql")).fetchone()
+            row = connection.execute(
+                "SELECT COUNT(*) AS explored_count FROM explored_offers WHERE profile_id = ?;",
+                (profile_id,),
+            ).fetchone()
             return ClearPlan(scope=clear_scope, explored=int(row["explored_count"]))
 
-        row = connection.execute(load_sql("clear/count_all.sql")).fetchone()
+        row = connection.execute(
+            """
+            SELECT
+                (SELECT COUNT(*) FROM explored_offers WHERE profile_id = ?) AS explored_count,
+                (SELECT COUNT(DISTINCT offer_id) FROM screening_results WHERE profile_id = ?) AS offers_count,
+                (SELECT COUNT(*) FROM ai_reviews WHERE profile_id = ?)
+                + (SELECT COUNT(*) FROM rankings WHERE profile_id = ?) AS rankings_count,
+                (SELECT COUNT(*) FROM ranking_runs WHERE profile_id = ?) AS ranking_runs_count;
+            """,
+            (profile_id, profile_id, profile_id, profile_id, profile_id),
+        ).fetchone()
         return ClearPlan(
             scope=clear_scope,
             explored=int(row["explored_count"]),
@@ -147,34 +215,65 @@ def get_clear_plan(
             ranking_runs=int(row["ranking_runs_count"]),
         )
 
-
 def clear_data(
     *,
     db_path: Path = DEFAULT_DB_PATH,
     scope: str,
+    profile_id: str | None = None,
 ) -> ClearPlan:
-    plan = get_clear_plan(db_path=db_path, scope=scope)
+    plan = get_clear_plan(db_path=db_path, scope=scope, profile_id=profile_id)
     init_db(db_path)
     with _connect(db_path) as connection:
+        if not profile_id:
+            if plan.scope == "rankings":
+                connection.execute(load_sql("clear/delete_ai_reviews.sql"))
+                connection.execute(load_sql("clear/delete_rankings.sql"))
+            elif plan.scope == "offers":
+                connection.execute(load_sql("clear/delete_offers.sql"))
+            elif plan.scope == "explored":
+                connection.execute(load_sql("clear/delete_explored.sql"))
+                connection.execute("DELETE FROM exploration_scopes;")
+            elif plan.scope == "all":
+                connection.execute(load_sql("clear/delete_explored.sql"))
+                connection.execute("DELETE FROM exploration_scopes;")
+                connection.execute(load_sql("clear/delete_ai_reviews.sql"))
+                connection.execute(load_sql("clear/delete_rankings.sql"))
+                connection.execute(load_sql("clear/delete_offers.sql"))
+                connection.execute(load_sql("clear/delete_ranking_runs.sql"))
+            else:
+                raise ValueError(f"Unsupported clear scope: {plan.scope}")
+            return plan
+
         if plan.scope == "rankings":
-            connection.execute(load_sql("clear/delete_ai_reviews.sql"))
-            connection.execute(load_sql("clear/delete_rankings.sql"))
+            connection.execute("DELETE FROM ai_reviews WHERE profile_id = ?;", (profile_id,))
+            connection.execute("DELETE FROM rankings WHERE profile_id = ?;", (profile_id,))
+            connection.execute("DELETE FROM ranking_runs WHERE profile_id = ?;", (profile_id,))
         elif plan.scope == "offers":
-            connection.execute(load_sql("clear/delete_offers.sql"))
+            connection.execute("DELETE FROM ai_reviews WHERE profile_id = ?;", (profile_id,))
+            connection.execute("DELETE FROM rankings WHERE profile_id = ?;", (profile_id,))
+            connection.execute("DELETE FROM ranking_runs WHERE profile_id = ?;", (profile_id,))
+            connection.execute("DELETE FROM offer_scores WHERE profile_id = ?;", (profile_id,))
+            connection.execute("DELETE FROM screening_results WHERE profile_id = ?;", (profile_id,))
         elif plan.scope == "explored":
-            connection.execute(load_sql("clear/delete_explored.sql"))
-            connection.execute("DELETE FROM exploration_scopes;")
+            connection.execute("DELETE FROM explored_offers WHERE profile_id = ?;", (profile_id,))
+            connection.execute(
+                "DELETE FROM exploration_scopes WHERE scope_json LIKE ?;",
+                (f'%"profile_id": "{profile_id}"%',),
+            )
         elif plan.scope == "all":
-            connection.execute(load_sql("clear/delete_explored.sql"))
-            connection.execute("DELETE FROM exploration_scopes;")
-            connection.execute(load_sql("clear/delete_ai_reviews.sql"))
-            connection.execute(load_sql("clear/delete_rankings.sql"))
-            connection.execute(load_sql("clear/delete_offers.sql"))
-            connection.execute(load_sql("clear/delete_ranking_runs.sql"))
+            connection.execute("DELETE FROM explored_offers WHERE profile_id = ?;", (profile_id,))
+            connection.execute(
+                "DELETE FROM exploration_scopes WHERE scope_json LIKE ?;",
+                (f'%"profile_id": "{profile_id}"%',),
+            )
+            connection.execute("DELETE FROM ai_reviews WHERE profile_id = ?;", (profile_id,))
+            connection.execute("DELETE FROM rankings WHERE profile_id = ?;", (profile_id,))
+            connection.execute("DELETE FROM ranking_runs WHERE profile_id = ?;", (profile_id,))
+            connection.execute("DELETE FROM offer_scores WHERE profile_id = ?;", (profile_id,))
+            connection.execute("DELETE FROM screening_results WHERE profile_id = ?;", (profile_id,))
         else:
             raise ValueError(f"Unsupported clear scope: {plan.scope}")
     return plan
-
 
 def clear_rankings(db_path: Path = DEFAULT_DB_PATH) -> None:
     init_db(db_path)

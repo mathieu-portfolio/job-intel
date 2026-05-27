@@ -19,6 +19,17 @@
         </nav>
       </div>
       <div class="header-actions">
+        <form class="active-profile-form" method="post" action="/settings/profile">
+          <input type="hidden" name="redirect_to" value="{{ request.url.path }}">
+          <label>
+            Active profile
+            <select name="active_profile" onchange="this.form.submit()">
+              {% for profile in profiles %}
+                <option value="{{ profile.value }}" {% if active_profile.value == profile.value %}selected{% endif %}>{{ profile.label }}</option>
+              {% endfor %}
+            </select>
+          </label>
+        </form>
         <div class="count">Maintenance</div>
       </div>
     </header>
@@ -42,13 +53,14 @@
       <section class="workflow-card maintenance-actions danger-zone-panel">
         <div class="workflow-head">
           <h2>Data cleanup</h2>
+          <p class="profile-note">Only clears data for {{ active_profile.label }}</p>
         </div>
         <div class="destructive-list">
           <form
             method="post"
             action="/storage/clear"
             data-running-label="Clearing..."
-            data-confirm-message="Delete explored tracking? Existing screened offers and AI reviews will remain."
+            data-confirm-message="Delete explored tracking for {{ active_profile.label }}? Existing screened offers and AI reviews will remain."
           >
             <div>
               <strong>Clear explored tracking</strong>
@@ -63,7 +75,7 @@
             method="post"
             action="/storage/clear"
             data-running-label="Clearing..."
-            data-confirm-message="Delete all app data? This removes explored tracking, screened offers, AI reviews, and run metadata."
+            data-confirm-message="Delete all data for {{ active_profile.label }}? This removes this profile's explored tracking, screened offers, AI reviews, and run metadata."
           >
             <div>
               <strong>Clear all data</strong>

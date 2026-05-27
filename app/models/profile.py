@@ -54,9 +54,8 @@ def _normalize_signal_categories(raw_signals: dict[str, object]) -> dict[str, di
 
 
 class CandidateProfile(BaseModel):
-    id: str | None = None
+    profile_id: str | None = None
     name: str | None = None
-    order: int = 0
     must_match: MustMatchRule = Field(default_factory=MustMatchRule)
     search_queries: dict[str, list[str]] = Field(default_factory=dict)
     signals: dict[str, ProfileSignalCategory] = Field(default_factory=dict)
