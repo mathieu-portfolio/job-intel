@@ -1,0 +1,25 @@
+{
+  "id": "ai_infrastructure_engineer",
+  "target_seniority": "junior",
+  "search_queries": {
+    "en": [
+      "ai infrastructure engineer",
+      "ml platform engineer",
+      "inference engineer",
+      "ai systems engineer"
+    ],
+    "fr": [
+      "ingénieur infrastructure IA",
+      "ingénieur plateforme ML",
+      "ingénieur inférence",
+      "ingénieur systèmes IA"
+    ]
+  },
+  "focus": [
+    "infrastructure",
+    "systems",
+    "tooling",
+    "architecture thinking",
+    "technical curiosity"
+  ]
+}

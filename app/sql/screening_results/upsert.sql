@@ -1,10 +1,9 @@
 INSERT INTO screening_results (
-    offer_id, profile_id, profile_path, score, recommendation, threshold, passed,
+    offer_id, profile_path, score, recommendation, threshold, passed,
     matched_signals_json, reasoning_json, screened_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT(offer_id, profile_id) DO UPDATE SET
-    profile_path = excluded.profile_path,
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(offer_id, profile_path) DO UPDATE SET
     score = excluded.score,
     recommendation = excluded.recommendation,
     threshold = excluded.threshold,

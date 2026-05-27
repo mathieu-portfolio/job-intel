@@ -1,0 +1,23 @@
+{
+  "id": "aerospace_defense_software_engineer",
+  "target_seniority": "junior",
+  "search_queries": {
+    "en": [
+      "aerospace software engineer",
+      "defense software engineer",
+      "simulation engineer aerospace"
+    ],
+    "fr": [
+      "ingénieur logiciel aérospatial",
+      "ingénieur logiciel défense",
+      "ingénieur simulation aérospatial"
+    ]
+  },
+  "focus": [
+    "aerospace",
+    "defense",
+    "simulation",
+    "C++",
+    "systems"
+  ]
+}

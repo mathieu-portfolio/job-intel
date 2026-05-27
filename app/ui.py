@@ -12,7 +12,6 @@ from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
 from app.storage.connection import DEFAULT_DB_PATH
-from app.storage.files import profile_id_from_path
 from app.storage.maintenance import (
     DEFAULT_EXPLORED_CAPACITY,
     DEFAULT_RANKED_CAPACITY,
@@ -187,7 +186,6 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
         source: str | None = None,
         location: str | None = None,
         ranking_mode: str | None = None,
-        profile: str = "profiles/default.json",
         recency: str | None = None,
         ai_only: bool = False,
         sort: str = "score_desc",
@@ -201,7 +199,6 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
             source=source or None,
             location=location or None,
             ranking_mode=ranking_mode or None,
-            profile_path=profile,
             only_recent_days=recency_days,
             ai_only=ai_only,
             sort=sort,
@@ -217,9 +214,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                     "status": status or "",
                     "source": source or "",
                     "location": location or "",
-                    "ranking_mode": ranking_mode or "",
-                    "profile": profile,
-                    "recency": recency_days,
+                "recency": recency_days,
                     "ai_only": ai_only,
                     "sort": sort,
                     "limit": limit,
@@ -282,7 +277,6 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
         request: Request,
         q: str | None = None,
         source: str | None = None,
-        profile: str = "profiles/default.json",
         preset: str = "balanced",
         threshold: int = 40,
         show_all_presets: bool = False,
@@ -292,7 +286,6 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
         offers = list_screened_offers(
             db_path=request.app.state.db_path,
             preset_id=preset,
-            profile_id=profile_id_from_path(profile),
             threshold=threshold,
             show_all_matching_presets=show_all_presets,
             search=q or None,
@@ -309,7 +302,6 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 "filters": {
                     "q": q or "",
                     "source": source or "",
-                    "profile": profile,
                     "preset": preset,
                     "threshold": threshold,
                     "show_all_presets": show_all_presets,
@@ -375,7 +367,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 query=(form.get("query") or "").strip(),
                 country=country or "fr",
                 where=(form.get("location") or "").strip() or None,
-                profile_path=Path(form.get("profile") or "profiles/default.json"),
+                profile_path=Path(form.get("profile")) if form.get("profile") else None,
                 db_path=request.app.state.db_path,
                 min_score=_positive_int(form.get("min_score"), 40),
                 explored_capacity=_positive_int(form.get("explored_capacity"), DEFAULT_EXPLORED_CAPACITY),
@@ -440,7 +432,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
         try:
             result = await run_in_threadpool(
                 rank_offers,
-                profile_path=Path(form.get("profile") or "profiles/default.json"),
+                profile_path=Path(form.get("profile")) if form.get("profile") else None,
                 db_path=request.app.state.db_path,
                 limit=_positive_int(form.get("limit"), 10),
                 only_recent_days=_optional_positive_int(form.get("only_recent_days")),

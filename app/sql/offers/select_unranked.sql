@@ -6,7 +6,7 @@ WHERE NOT EXISTS (
     WHERE rankings.offer_id = offers.id
       AND rankings.algorithm = ?
       AND rankings.model IS ?
-      AND rankings.profile_id = ?
+      AND rankings.profile_path = ?
 )
 /*RECENT_FILTER*/
 ORDER BY

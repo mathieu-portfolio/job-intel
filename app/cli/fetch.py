@@ -43,7 +43,7 @@ def fetch(
     query: str = typer.Option("", help="Manual search query for sources that support it. Overrides profile search queries."),
     country: str = typer.Option("fr", help="Adzuna country code, for example fr, gb, us."),
     where: str | None = typer.Option(None, help="Optional Adzuna location filter."),
-    profile: Path = typer.Option(Path("profiles/default.json"), help="Candidate profile JSON path for fast screening."),
+    profile: Path | None = typer.Option(None, help="Candidate profile JSON path. Defaults to the first discovered profile by (order, id)."),
     db: Path = typer.Option(DEFAULT_DB_PATH, "--db", help="SQLite database path."),
     min_score: int = typer.Option(40, help="Minimum calibrated rule score to print."),
     limit: int = typer.Option(20, help="Maximum number of matches to print."),

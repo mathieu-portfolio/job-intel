@@ -1,0 +1,25 @@
+{
+  "id": "simulation_software_engineer",
+  "target_seniority": "junior",
+  "search_queries": {
+    "en": [
+      "simulation engineer",
+      "scientific software engineer",
+      "numerical software engineer",
+      "c++ simulation"
+    ],
+    "fr": [
+      "ingénieur simulation",
+      "ingénieur logiciel scientifique",
+      "ingénieur logiciel numérique",
+      "simulation C++"
+    ]
+  },
+  "focus": [
+    "simulation",
+    "graphics",
+    "C++",
+    "engineering software",
+    "technical curiosity"
+  ]
+}

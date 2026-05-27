@@ -123,7 +123,7 @@ def _print_ranked_job(
     console.print("-" * 80)
 
 def rank(
-    profile: Path = typer.Option(Path("profiles/default.json"), help="Candidate profile JSON path."),
+    profile: Path | None = typer.Option(None, help="Candidate profile JSON path. Defaults to the first discovered profile by (order, id)."),
     db: Path = typer.Option(DEFAULT_DB_PATH, "--db", help="SQLite database path."),
     limit: int = typer.Option(10, min=1, help="Maximum number of jobs to evaluate."),
     only_recent_days: int | None = typer.Option(None, min=1, help="Only rank offers seen or published in the last N days."),

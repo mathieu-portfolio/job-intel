@@ -14,7 +14,6 @@ from app.models.evaluation import RuleEvaluation
 from app.models.job import JobOffer
 from app.filtering.presets import BUILTIN_SCORING_PRESETS, ScoringPreset
 from app.filtering.rules import load_rule_scoring_config, parse_rule_scoring_config
-from app.storage.files import profile_id_from_path
 from app.sql import load_sql
 
 
@@ -119,7 +118,6 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
     with _connect(db_path) as connection:
         connection.executescript(load_sql("schema/init.sql"))
         _migrate_multi_preset_scores(connection)
-        _migrate_profile_ids(connection)
         _migrate_exploration_metadata(connection)
         offer_columns = {
             row["name"]
@@ -177,12 +175,12 @@ def _migrate_multi_preset_scores(connection: sqlite3.Connection) -> None:
         """
         CREATE TABLE IF NOT EXISTS offer_scores (
             offer_id INTEGER NOT NULL,
-            profile_id TEXT NOT NULL DEFAULT 'default',
+            profile_path TEXT NOT NULL,
             preset_id TEXT NOT NULL,
             score INTEGER NOT NULL,
             signals_json TEXT,
             scored_at TEXT NOT NULL,
-            PRIMARY KEY (offer_id, profile_id, preset_id),
+            PRIMARY KEY (offer_id, profile_path, preset_id),
             FOREIGN KEY(offer_id) REFERENCES offers(id) ON DELETE CASCADE,
             FOREIGN KEY(preset_id) REFERENCES scoring_presets(id) ON DELETE CASCADE
         );
@@ -193,6 +191,40 @@ def _migrate_multi_preset_scores(connection: sqlite3.Connection) -> None:
         connection.execute(
             "ALTER TABLE offer_scores ADD COLUMN preset_id TEXT NOT NULL DEFAULT 'balanced';"
         )
+        offer_score_columns.add("preset_id")
+    if "profile_path" not in offer_score_columns:
+        connection.execute("ALTER TABLE offer_scores RENAME TO offer_scores_legacy;")
+        connection.execute(
+            """
+            CREATE TABLE offer_scores (
+                offer_id INTEGER NOT NULL,
+                profile_path TEXT NOT NULL,
+                preset_id TEXT NOT NULL,
+                score INTEGER NOT NULL,
+                signals_json TEXT,
+                scored_at TEXT NOT NULL,
+                PRIMARY KEY (offer_id, profile_path, preset_id),
+                FOREIGN KEY(offer_id) REFERENCES offers(id) ON DELETE CASCADE,
+                FOREIGN KEY(preset_id) REFERENCES scoring_presets(id) ON DELETE CASCADE
+            );
+            """
+        )
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO offer_scores (
+                offer_id, profile_path, preset_id, score, signals_json, scored_at
+            )
+            SELECT
+                offer_id,
+                COALESCE((SELECT profile_path FROM screening_results sr WHERE sr.offer_id = offer_scores_legacy.offer_id ORDER BY screened_at DESC LIMIT 1), ''),
+                preset_id,
+                score,
+                signals_json,
+                scored_at
+            FROM offer_scores_legacy;
+            """
+        )
+        connection.execute("DROP TABLE offer_scores_legacy;")
     connection.execute(
         """
         CREATE TABLE IF NOT EXISTS offer_ai_reviews (
@@ -213,7 +245,7 @@ def _migrate_multi_preset_scores(connection: sqlite3.Connection) -> None:
             "ALTER TABLE offer_ai_reviews ADD COLUMN preset_id TEXT NOT NULL DEFAULT 'balanced';"
         )
     connection.execute(
-        "CREATE INDEX IF NOT EXISTS idx_offer_scores_preset_score ON offer_scores(preset_id, score DESC);"
+        "CREATE INDEX IF NOT EXISTS idx_offer_scores_profile_preset_score ON offer_scores(profile_path, preset_id, score DESC);"
     )
     ai_columns = _table_columns(connection, "ai_reviews")
     if "preset_id" not in ai_columns:
@@ -250,165 +282,6 @@ def _migrate_multi_preset_scores(connection: sqlite3.Connection) -> None:
     )
 
 
-def _ensure_column(connection: sqlite3.Connection, table_name: str, column_sql: str) -> None:
-    column_name = column_sql.split()[0]
-    if column_name not in _table_columns(connection, table_name):
-        connection.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_sql};")
-
-
-def _profile_id_for_row_path(profile_path: str | None) -> str:
-    return profile_id_from_path(profile_path or "profiles/default.json")
-
-
-def _migrate_offer_scores_profile_key(connection: sqlite3.Connection) -> None:
-    columns = _table_columns(connection, "offer_scores")
-    pk_columns = [
-        row["name"]
-        for row in sorted(
-            connection.execute("PRAGMA table_info(offer_scores);").fetchall(),
-            key=lambda row: row["pk"],
-        )
-        if row["pk"]
-    ]
-    if "profile_id" in columns and pk_columns == ["offer_id", "profile_id", "preset_id"]:
-        return
-
-    rows = connection.execute(
-        """
-        SELECT offer_id, preset_id, score, signals_json, scored_at
-        FROM offer_scores;
-        """
-    ).fetchall()
-    profile_rows = connection.execute(
-        """
-        SELECT offer_id, profile_path, score, matched_signals_json, screened_at
-        FROM screening_results;
-        """
-    ).fetchall()
-    connection.execute("DROP TABLE IF EXISTS offer_scores_new;")
-    connection.execute(
-        """
-        CREATE TABLE offer_scores_new (
-            offer_id INTEGER NOT NULL,
-            profile_id TEXT NOT NULL DEFAULT 'default',
-            preset_id TEXT NOT NULL,
-            score INTEGER NOT NULL,
-            signals_json TEXT,
-            scored_at TEXT NOT NULL,
-            PRIMARY KEY (offer_id, profile_id, preset_id),
-            FOREIGN KEY(offer_id) REFERENCES offers(id) ON DELETE CASCADE,
-            FOREIGN KEY(preset_id) REFERENCES scoring_presets(id) ON DELETE CASCADE
-        );
-        """
-    )
-    for row in rows:
-        connection.execute(
-            """
-            INSERT OR IGNORE INTO offer_scores_new (
-                offer_id, profile_id, preset_id, score, signals_json, scored_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?);
-            """,
-            (
-                row["offer_id"],
-                "default",
-                row["preset_id"],
-                row["score"],
-                row["signals_json"],
-                row["scored_at"],
-            ),
-        )
-    for row in profile_rows:
-        connection.execute(
-            """
-            INSERT OR REPLACE INTO offer_scores_new (
-                offer_id, profile_id, preset_id, score, signals_json, scored_at
-            )
-            VALUES (?, ?, 'balanced', ?, ?, ?);
-            """,
-            (
-                row["offer_id"],
-                _profile_id_for_row_path(row["profile_path"]),
-                row["score"],
-                row["matched_signals_json"],
-                row["screened_at"],
-            ),
-        )
-    connection.execute("DROP TABLE offer_scores;")
-    connection.execute("ALTER TABLE offer_scores_new RENAME TO offer_scores;")
-
-
-def _migrate_profile_ids(connection: sqlite3.Connection) -> None:
-    for table_name in ("ranking_runs", "rankings", "screening_results", "ai_reviews"):
-        _ensure_column(connection, table_name, "profile_id TEXT NOT NULL DEFAULT 'default'")
-        if "profile_path" in _table_columns(connection, table_name):
-            rows = connection.execute(f"SELECT id, profile_path FROM {table_name};").fetchall()
-            for row in rows:
-                connection.execute(
-                    f"UPDATE {table_name} SET profile_id = ? WHERE id = ?;",
-                    (_profile_id_for_row_path(row["profile_path"]), row["id"]),
-                )
-
-    _migrate_offer_scores_profile_key(connection)
-
-    connection.execute("DROP INDEX IF EXISTS idx_offer_scores_preset_score;")
-    connection.execute(
-        "CREATE INDEX IF NOT EXISTS idx_offer_scores_profile_preset_score ON offer_scores(profile_id, preset_id, score DESC);"
-    )
-    connection.execute("DROP INDEX IF EXISTS idx_rankings_lookup;")
-    connection.execute(
-        """
-        CREATE INDEX IF NOT EXISTS idx_rankings_lookup
-        ON rankings(algorithm, model, profile_id, profile_path);
-        """
-    )
-    connection.execute("DROP INDEX IF EXISTS idx_rankings_unique_offer_algorithm_model_profile;")
-    connection.execute("DROP INDEX IF EXISTS idx_rankings_unique_offer_algorithm_model_profile_id;")
-    connection.execute(
-        """
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_rankings_unique_offer_algorithm_model_profile_id
-        ON rankings(offer_id, algorithm, COALESCE(model, ''), profile_id);
-        """
-    )
-    connection.execute("DROP INDEX IF EXISTS idx_screening_results_lookup;")
-    connection.execute(
-        """
-        CREATE INDEX IF NOT EXISTS idx_screening_results_lookup
-        ON screening_results(profile_id, profile_path, passed, score DESC);
-        """
-    )
-    connection.execute("DROP INDEX IF EXISTS idx_screening_results_unique_offer_profile;")
-    connection.execute("DROP INDEX IF EXISTS idx_screening_results_unique_offer_profile_id;")
-    connection.execute(
-        """
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_screening_results_unique_offer_profile_id
-        ON screening_results(offer_id, profile_id);
-        """
-    )
-    connection.execute("DROP INDEX IF EXISTS idx_ai_reviews_lookup;")
-    connection.execute(
-        """
-        CREATE INDEX IF NOT EXISTS idx_ai_reviews_lookup
-        ON ai_reviews(profile_id, profile_path, preset_id, provider, model, score DESC);
-        """
-    )
-    connection.execute("DROP INDEX IF EXISTS idx_ai_reviews_unique_offer_provider_model_profile;")
-    connection.execute("DROP INDEX IF EXISTS idx_ai_reviews_unique_offer_provider_model_profile_preset;")
-    connection.execute("DROP INDEX IF EXISTS idx_ai_reviews_unique_offer_provider_model_profile_id_preset;")
-    connection.execute(
-        """
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_reviews_unique_offer_provider_model_profile_id_preset
-        ON ai_reviews(offer_id, profile_id, preset_id, COALESCE(provider, ''), COALESCE(model, ''));
-        """
-    )
-    connection.execute(
-        """
-        CREATE INDEX IF NOT EXISTS idx_ai_reviews_profile_preset_lookup
-        ON ai_reviews(profile_id, preset_id, provider, model, score DESC);
-        """
-    )
-
-
 def _seed_builtin_scoring_presets(connection: sqlite3.Connection) -> None:
     for preset in BUILTIN_SCORING_PRESETS:
         connection.execute(
@@ -438,11 +311,11 @@ def _backfill_balanced_scores(connection: sqlite3.Connection) -> None:
     connection.execute(
         """
         INSERT OR IGNORE INTO offer_scores (
-            offer_id, profile_id, preset_id, score, signals_json, scored_at
+            offer_id, profile_path, preset_id, score, signals_json, scored_at
         )
         SELECT
             offer_id,
-            profile_id,
+            profile_path,
             'balanced',
             score,
             matched_signals_json,

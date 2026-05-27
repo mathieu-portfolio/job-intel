@@ -117,14 +117,6 @@
 
       <form class="filters" method="get" data-persist-key="jobIntel.aiReviewedFilters" data-sync-query="true">
         <label>
-          Profile
-          <select name="profile">
-            {% for profile in profiles %}
-              <option value="{{ profile.value }}" {% if filters.profile == profile.value %}selected{% endif %}>{{ profile.label }}</option>
-            {% endfor %}
-          </select>
-        </label>
-        <label>
           Recommendation
           <select name="recommendation">
             <option value="">Any</option>
@@ -148,6 +140,14 @@
             <option value="">Any</option>
             {% for value in options.sources %}
               <option value="{{ value }}" {% if filters.source == value %}selected{% endif %}>{{ value }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>
+          Profile
+          <select name="profile">
+            {% for profile in profiles %}
+              <option value="{{ profile.value }}" {% if filters.profile == profile.value %}selected{% endif %}>{{ profile.label }}</option>
             {% endfor %}
           </select>
         </label>

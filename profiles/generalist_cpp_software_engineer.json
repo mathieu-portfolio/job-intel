@@ -1,0 +1,22 @@
+{
+  "id": "generalist_cpp_software_engineer",
+  "target_seniority": "junior",
+  "search_queries": {
+    "en": [
+      "c++ developer",
+      "software engineer",
+      "c++ software engineer"
+    ],
+    "fr": [
+      "développeur C++",
+      "ingénieur logiciel",
+      "ingénieur logiciel C++"
+    ]
+  },
+  "focus": [
+    "C++",
+    "modular design",
+    "architecture thinking",
+    "technical curiosity"
+  ]
+}

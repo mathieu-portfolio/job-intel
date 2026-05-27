@@ -23,7 +23,7 @@ from app.models.job import JobOffer
 from app.models.profile import CandidateProfile
 from app.sources.adzuna import fetch_adzuna
 from app.sources.arbeitnow import fetch_arbeitnow
-from app.storage.files import load_profile, profile_id_from_path
+from app.storage.files import load_profile, resolve_profile_path
 from app.storage.connection import DEFAULT_DB_PATH, init_db, open_connection
 from app.storage.exploration import (
     get_exploration_metadata,
@@ -242,13 +242,11 @@ def _exploration_scope_payload(
     profile_path: Path,
     min_score: int | None,
 ) -> dict[str, object]:
-    profile_id = profile_id_from_path(profile_path)
     return {
         "source": source,
         "query": query,
         "country": country,
         "where": where or "",
-        "profile_id": profile_id,
         "profile_path": str(profile_path),
         "min_score": min_score,
     }

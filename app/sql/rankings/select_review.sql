@@ -3,7 +3,6 @@ SELECT
     rankings.offer_id,
     rankings.algorithm,
     rankings.model,
-    rankings.profile_id,
     rankings.profile_path,
     rankings.score,
     rankings.recommendation,

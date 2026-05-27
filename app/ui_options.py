@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from typing import Any
 
-from app.storage.files import discover_profiles as discover_profile_infos
+from app.storage.files import default_profile_path, discover_profile_paths
 
 
 ADZUNA_MARKETS: list[dict[str, str]] = [
@@ -31,15 +33,24 @@ def _readable_label(path: Path) -> str:
     return label.title() if label else path.name
 
 
+def _profile_label(path: Path) -> str:
+    try:
+        with path.open("r", encoding="utf-8") as file:
+            raw_profile: dict[str, Any] = json.load(file)
+    except (OSError, json.JSONDecodeError):
+        return _readable_label(path)
+    return str(raw_profile.get("name") or raw_profile.get("id") or _readable_label(path))
+
+
 def discover_profiles(profiles_dir: Path = Path("profiles")) -> list[dict[str, str]]:
     return [
-        {
-            "id": profile.profile_id,
-            "label": profile.label,
-            "value": str(profile.path).replace("\\", "/"),
-        }
-        for profile in discover_profile_infos(profiles_dir)
+        {"label": _profile_label(path), "value": str(path).replace("\\", "/")}
+        for path in discover_profile_paths(profiles_dir)
     ]
+
+
+def get_default_profile_value(profiles_dir: Path = Path("profiles")) -> str:
+    return str(default_profile_path(profiles_dir)).replace("\\", "/")
 
 
 def _discover_json_options(directory: Path) -> list[dict[str, str]]:

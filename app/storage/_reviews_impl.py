@@ -10,10 +10,8 @@ def create_ranking_run(
     model: str | None,
     profile_path: str,
     config: dict[str, Any],
-    profile_id: str | None = None,
 ) -> int:
     init_db(db_path)
-    profile_id = profile_id or profile_id_from_path(profile_path)
     with _connect(db_path) as connection:
         cursor = connection.execute(
             load_sql("ranking_runs/insert.sql"),
@@ -21,7 +19,6 @@ def create_ranking_run(
                 started_at,
                 algorithm,
                 model,
-                profile_id,
                 profile_path,
                 json.dumps(config, ensure_ascii=False),
             ),
@@ -41,16 +38,14 @@ def save_ranking(
     recommendation: Recommendation,
     summary: str,
     result: dict[str, Any],
-    profile_id: str | None = None,
     ranked_at: str | None = None,
 ) -> None:
     init_db(db_path)
     ranked_at = ranked_at or _now_iso()
-    profile_id = profile_id or profile_id_from_path(profile_path)
     with _connect(db_path) as connection:
         connection.execute(
             load_sql("rankings/delete_existing.sql"),
-            (offer_id, algorithm, model, profile_id),
+            (offer_id, algorithm, model, profile_path),
         )
         connection.execute(
             load_sql("rankings/insert.sql"),
@@ -59,7 +54,6 @@ def save_ranking(
                 offer_id,
                 algorithm,
                 model,
-                profile_id,
                 profile_path,
                 score,
                 recommendation,
@@ -100,17 +94,15 @@ def save_ai_review(
     recommendation: Recommendation,
     summary: str,
     result: dict[str, Any],
-    profile_id: str | None = None,
     preset_id: str = DEFAULT_SCORING_PRESET_ID,
     reviewed_at: str | None = None,
 ) -> None:
     init_db(db_path)
     reviewed_at = reviewed_at or _now_iso()
-    profile_id = profile_id or profile_id_from_path(profile_path)
     with _connect(db_path) as connection:
         connection.execute(
             load_sql("ai_reviews/delete_existing.sql"),
-            (offer_id, provider, model, profile_id, preset_id),
+            (offer_id, provider, model, profile_path, preset_id),
         )
         connection.execute(
             load_sql("ai_reviews/insert.sql"),
@@ -119,7 +111,6 @@ def save_ai_review(
                 offer_id,
                 provider,
                 model,
-                profile_id,
                 profile_path,
                 preset_id,
                 score,
@@ -165,7 +156,6 @@ def list_ranked_offers(
     source: str | None = None,
     location: str | None = None,
     ranking_mode: str | None = None,
-    profile_id: str | None = None,
     profile_path: str | None = None,
     only_recent_days: int | None = None,
     ai_only: bool = False,
@@ -191,12 +181,9 @@ def list_ranked_offers(
     if ranking_mode:
         clauses.append("rankings.algorithm = ?")
         params.append(ranking_mode)
-    if profile_id:
-        clauses.append("rankings.profile_id = ?")
-        params.append(profile_id)
-    elif profile_path:
-        clauses.append("rankings.profile_id = ?")
-        params.append(profile_id_from_path(profile_path))
+    if profile_path:
+        clauses.append("rankings.profile_path = ?")
+        params.append(profile_path)
     if ai_only:
         clauses.append(
             "("
