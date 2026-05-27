@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.models.evaluation import RuleEvaluation, WeightedTermMatch, recommendation_from_score
+from app.models.evaluation import CategoryScore, RuleEvaluation, WeightedTermMatch, recommendation_from_score
 from app.models.job import JobOffer
 from app.models.profile import CandidateProfile, ProfileSignalItem
 from app.filtering.seniority import evaluate_seniority
@@ -75,20 +75,18 @@ def _profile_signal_matches(
     text: str,
     profile: CandidateProfile | None,
     config: RuleScoringConfig,
-) -> tuple[list[WeightedTermMatch], list[WeightedTermMatch], float, float, list[str]]:
+) -> tuple[list[WeightedTermMatch], list[WeightedTermMatch], float, float, list[str], dict[str, CategoryScore]]:
     if profile is None:
-        return [], [], 0.0, 0.0, []
+        return [], [], 0.0, 0.0, [], {}
 
     positives: list[WeightedTermMatch] = []
     negatives: list[WeightedTermMatch] = []
     positive_score = 0.0
     negative_score = 0.0
     reasoning: list[str] = []
+    category_scores: dict[str, CategoryScore] = {}
 
     for category_name, category in profile.signals.items():
-        category_weight = config.category_weights.get(category_name, 0.0)
-        if category_weight == 0:
-            continue
         total_item_weight = sum(abs(item.weight) for item in category.items if item.term.strip())
         if total_item_weight <= 0:
             continue
@@ -100,8 +98,15 @@ def _profile_signal_matches(
             if match is not None
         ]
         matched_weight = sum(abs(item.weight) for item, _ in matched_items)
-        category_score = matched_weight / total_item_weight
-        contribution = category_score * category_weight
+        ratio = matched_weight / total_item_weight
+        category_scores[category_name] = CategoryScore(
+            matched_weight=matched_weight,
+            total_weight=total_item_weight,
+            ratio=ratio,
+        )
+
+        category_weight = config.category_weights.get(category_name, 0.0)
+        contribution = ratio * category_weight
         if category_weight >= 0:
             positive_score += contribution
             positives.extend(
@@ -110,8 +115,8 @@ def _profile_signal_matches(
                     term=item.term,
                     matched_alias=match.matched_alias,
                     language=match.language,
-                    weight=contribution * 100,
-                    contribution=contribution,
+                    weight=(abs(item.weight) / total_item_weight) * category_weight * 100,
+                    contribution=(abs(item.weight) / total_item_weight) * category_weight,
                 )
                 for item, match in matched_items
             )
@@ -123,8 +128,8 @@ def _profile_signal_matches(
                     term=item.term,
                     matched_alias=match.matched_alias,
                     language=match.language,
-                    weight=contribution * 100,
-                    contribution=contribution,
+                    weight=(abs(item.weight) / total_item_weight) * category_weight * 100,
+                    contribution=(abs(item.weight) / total_item_weight) * category_weight,
                 )
                 for item, match in matched_items
             )
@@ -134,7 +139,34 @@ def _profile_signal_matches(
                 f"for {contribution:+.2f}."
             )
 
-    return positives, negatives, positive_score, negative_score, reasoning
+    return positives, negatives, positive_score, negative_score, reasoning, category_scores
+
+
+def score_category_scores(
+    category_scores: dict[str, CategoryScore] | dict[str, object],
+    config: RuleScoringConfig,
+) -> tuple[int, int]:
+    positive_score = 0.0
+    negative_score = 0.0
+    for category_name, raw_category_score in category_scores.items():
+        if isinstance(raw_category_score, CategoryScore):
+            ratio = raw_category_score.ratio
+        elif isinstance(raw_category_score, dict):
+            ratio = float(raw_category_score.get("ratio", 0.0) or 0.0)
+        else:
+            ratio = 0.0
+        contribution = ratio * config.category_weights.get(category_name, 0.0)
+        if contribution >= 0:
+            positive_score += contribution
+        else:
+            negative_score += contribution
+    normalized_score = _normalized_score(
+        positive_score=positive_score,
+        negative_score=negative_score,
+        config=config,
+    )
+    raw_score = positive_score + negative_score
+    return round(raw_score), normalized_score
 
 
 def evaluate_job(
@@ -169,17 +201,19 @@ def evaluate_job(
     if must_match_failure:
         return RuleEvaluation(
             score=0,
+            raw_score=0.0,
             normalized_score=0,
             matched_positive_terms=[],
             matched_negative_terms=[],
             decision="skip",
             reasoning=[must_match_failure, *seniority_evaluation.reasoning],
             seniority=seniority_evaluation,
+            category_scores={},
         )
 
     configured_positives = _configured_term_matches(text=text, terms=config.positive_terms)
     configured_negatives = _configured_term_matches(text=text, terms=config.negative_terms)
-    profile_positives, profile_negatives, profile_positive_score, profile_negative_score, profile_reasoning = (
+    profile_positives, profile_negatives, profile_positive_score, profile_negative_score, profile_reasoning, category_scores = (
         _profile_signal_matches(text=text, profile=profile, config=config)
     )
     positives = [*configured_positives, *profile_positives]
@@ -203,10 +237,12 @@ def evaluate_job(
 
     return RuleEvaluation(
         score=round(score),
+        raw_score=score,
         normalized_score=normalized_score,
         matched_positive_terms=positives,
         matched_negative_terms=negatives,
         decision=recommendation_from_score(normalized_score),
         reasoning=reasoning,
         seniority=seniority_evaluation,
+        category_scores=category_scores,
     )

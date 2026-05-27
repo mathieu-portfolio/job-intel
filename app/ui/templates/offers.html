@@ -120,10 +120,6 @@
                 Profile queries
               </label>
 
-              <label>
-                Min score
-                <input name="min_score" type="number" min="0" max="100" value="40">
-              </label>
 
               <label>
                 Start page
@@ -183,10 +179,6 @@
                 <option value="{{ preset.id }}" {% if filters.preset == preset.id %}selected{% endif %}>{{ preset.name }}</option>
               {% endfor %}
             </select>
-          </label>
-          <label>
-            Min score
-            <input name="threshold" type="number" min="0" max="100" value="{{ filters.threshold }}">
           </label>
           <label>
             Sort

@@ -93,6 +93,7 @@ CREATE TABLE IF NOT EXISTS screening_results (
     passed INTEGER NOT NULL,
     matched_signals_json TEXT NOT NULL,
     reasoning_json TEXT NOT NULL,
+    category_scores_json TEXT NOT NULL DEFAULT '{}',
     screened_at TEXT NOT NULL,
     FOREIGN KEY(offer_id) REFERENCES offers(id) ON DELETE CASCADE
 );

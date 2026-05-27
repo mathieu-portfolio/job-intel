@@ -126,7 +126,7 @@ def save_screening_results_batch(
                 (row[3] if len(row) == 5 else row[2]).normalized_score,
                 (row[3] if len(row) == 5 else row[2]).decision,
                 row[4] if len(row) == 5 else row[3],
-                1 if (row[3] if len(row) == 5 else row[2]).normalized_score >= (row[4] if len(row) == 5 else row[3]) else 0,
+                0 if (row[3] if len(row) == 5 else row[2]).decision == "skip" else 1,
                 json.dumps(
                     {
                         "positive": [
@@ -141,6 +141,13 @@ def save_screening_results_batch(
                     ensure_ascii=False,
                 ),
                 json.dumps((row[3] if len(row) == 5 else row[2]).reasoning, ensure_ascii=False),
+                json.dumps(
+                    {
+                        name: score.model_dump(mode="json") if hasattr(score, "model_dump") else score
+                        for name, score in (row[3] if len(row) == 5 else row[2]).category_scores.items()
+                    },
+                    ensure_ascii=False,
+                ),
                 screened_at,
             )
             for row in rows
@@ -218,6 +225,24 @@ def find_screening_result_id(
     return int(row["id"]) if row is not None else None
 
 
+def _category_scores_from_json(raw: str | None) -> dict[str, Any]:
+    if not raw:
+        return {}
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _score_from_category_scores(raw: str | None, preset: ScoringPreset) -> tuple[int, int]:
+    return score_category_scores(_category_scores_from_json(raw), preset.weights)
+
+
+def _signals_json_for_row(row: sqlite3.Row) -> str:
+    return row["matched_signals_json"] or "{}"
+
+
 def select_screened_offers(
     *,
     db_path: Path = DEFAULT_DB_PATH,
@@ -232,28 +257,53 @@ def select_screened_offers(
 ) -> list[StoredOffer]:
     init_db(db_path)
     profile_id = profile_id or profile_id_from_path(profile_path)
-    params: list[Any] = [preset_id, profile_id]
-    min_score_clause = ""
-    if min_score is not None:
-        min_score_clause = "  AND offer_scores.score >= ?\n"
-        params.append(min_score)
-    params.extend([provider, model, profile_id, preset_id])
+    preset = get_scoring_preset(preset_id, db_path=db_path)
+    params: list[Any] = [profile_id, provider, model, profile_id, preset_id]
     recent_clause = ""
     if only_recent_days is not None:
         cutoff = (datetime.now() - timedelta(days=only_recent_days)).isoformat(timespec="seconds")
         recent_clause = "AND COALESCE(offers.published_at, offers.first_seen_at) >= ?"
         params.append(cutoff)
-    params.append(limit)
 
-    sql = (
-        load_sql("screening_results/select_screened_offers.sql")
-        .replace("/*MIN_SCORE_FILTER*/", min_score_clause)
-        .replace("/*RECENT_FILTER*/", recent_clause)
-    )
     with _connect(db_path) as connection:
-        rows = connection.execute(sql, params).fetchall()
+        rows = connection.execute(
+            f"""
+            SELECT
+                offers.*,
+                screening_results.category_scores_json
+            FROM offers
+            JOIN screening_results ON screening_results.offer_id = offers.id
+            WHERE screening_results.profile_id = ?
+              AND screening_results.passed = 1
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM ai_reviews
+                  WHERE ai_reviews.offer_id = offers.id
+                    AND ai_reviews.provider IS ?
+                    AND ai_reviews.model IS ?
+                    AND ai_reviews.profile_id = ?
+                    AND ai_reviews.preset_id = ?
+              )
+              {recent_clause}
+            """,
+            params,
+        ).fetchall()
 
-    return [StoredOffer(id=row["id"], job=_job_from_offer_row(row)) for row in rows]
+    sorted_rows = sorted(
+        rows,
+        key=lambda row: (
+            _score_from_category_scores(row["category_scores_json"], preset)[1],
+            row["published_at"] or "",
+            row["first_seen_at"] or "",
+        ),
+        reverse=True,
+    )
+    if min_score is not None:
+        sorted_rows = [
+            row for row in sorted_rows
+            if _score_from_category_scores(row["category_scores_json"], preset)[1] >= min_score
+        ]
+    return [StoredOffer(id=row["id"], job=_job_from_offer_row(row)) for row in sorted_rows[:limit]]
 
 
 def list_screened_offers(
@@ -261,7 +311,7 @@ def list_screened_offers(
     db_path: Path = DEFAULT_DB_PATH,
     preset_id: str = DEFAULT_SCORING_PRESET_ID,
     profile_id: str = "default",
-    threshold: int = 40,
+    threshold: int | None = None,
     show_all_matching_presets: bool = False,
     search: str | None = None,
     source: str | None = None,
@@ -269,13 +319,9 @@ def list_screened_offers(
     limit: int = 100,
 ) -> list[dict[str, Any]]:
     init_db(db_path)
-    clauses: list[str] = ["offer_scores.score >= ?"]
-    where_params: list[Any] = [threshold]
-    clauses.append("offer_scores.profile_id = ?")
-    where_params.append(profile_id)
-    if not show_all_matching_presets:
-        clauses.insert(0, "offer_scores.preset_id = ?")
-        where_params.insert(0, preset_id)
+    preset = get_scoring_preset(preset_id, db_path=db_path)
+    clauses: list[str] = ["screening_results.profile_id = ?", "screening_results.passed = 1"]
+    where_params: list[Any] = [profile_id]
     search_pattern = _like_pattern(search)
     if search_pattern:
         clauses.append(
@@ -290,13 +336,7 @@ def list_screened_offers(
         clauses.append("offers.source = ?")
         where_params.append(source)
     where_sql = " AND ".join(clauses)
-    order_by = {
-        "score_desc": "offer_scores.score DESC, offers.last_fetched_at DESC",
-        "offer_newest": "COALESCE(offers.published_at, offers.first_seen_at) DESC, offer_scores.score DESC",
-        "source": "offers.source ASC, offer_scores.score DESC",
-        "status": "offers.review_status ASC, offer_scores.score DESC",
-    }.get(sort, "offer_scores.score DESC, offers.last_fetched_at DESC")
-    params = [preset_id, profile_id, *where_params, limit]
+    params = [preset_id, preset_id, preset_id, preset_id, profile_id, *where_params]
     with _connect(db_path) as connection:
         rows = connection.execute(
             f"""
@@ -313,29 +353,43 @@ def list_screened_offers(
                 offers.last_seen_at,
                 offers.last_fetched_at,
                 offers.review_status,
-                offer_scores.preset_id,
+                ? AS preset_id,
+                ? AS selected_preset_id,
                 scoring_presets.name AS preset_name,
-                offer_scores.score AS fast_score,
-                offer_scores.signals_json,
+                screening_results.score AS stored_score,
+                screening_results.matched_signals_json,
+                screening_results.category_scores_json,
                 ai_reviews.score AS ai_score,
                 ai_reviews.recommendation AS ai_verdict,
                 ai_reviews.reviewed_at AS ai_reviewed_at
             FROM offers
-            JOIN offer_scores ON offer_scores.offer_id = offers.id
-            JOIN scoring_presets ON scoring_presets.id = offer_scores.preset_id
+            JOIN screening_results ON screening_results.offer_id = offers.id
+            JOIN scoring_presets ON scoring_presets.id = ?
             LEFT JOIN ai_reviews
              ON ai_reviews.offer_id = offers.id
              AND ai_reviews.preset_id = ?
              AND ai_reviews.profile_id = ?
-            WHERE {where_sql}
-            ORDER BY {order_by}
-            LIMIT ?;
+            WHERE {where_sql};
             """,
             params,
         ).fetchall()
+
     results: list[dict[str, Any]] = []
     for row in rows:
         item = dict(row)
-        item["main_signals"] = _main_signal_terms(row["signals_json"])
+        _, normalized_score = _score_from_category_scores(row["category_scores_json"], preset)
+        item["fast_score"] = normalized_score
+        item["main_signals"] = _main_signal_terms(_signals_json_for_row(row))
         results.append(item)
-    return results
+
+    def sort_key(item: dict[str, Any]) -> tuple[Any, ...]:
+        if sort == "offer_newest":
+            return (item["published_at"] or item["first_seen_at"] or "", item["fast_score"])
+        if sort == "source":
+            return (item["source"] or "", item["fast_score"])
+        if sort == "status":
+            return (item["review_status"] or "", item["fast_score"])
+        return (item["fast_score"], item["last_fetched_at"] or "")
+
+    reverse = sort not in {"source", "status"}
+    return sorted(results, key=sort_key, reverse=reverse)[:limit]

@@ -36,14 +36,22 @@ class SeniorityEvaluation(BaseModel):
     reasoning: list[str] = Field(default_factory=list)
 
 
+class CategoryScore(BaseModel):
+    matched_weight: float = 0.0
+    total_weight: float = 0.0
+    ratio: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
 class RuleEvaluation(BaseModel):
     score: int
+    raw_score: float = 0.0
     normalized_score: int = Field(ge=0, le=100)
     matched_positive_terms: list[WeightedTermMatch] = Field(default_factory=list)
     matched_negative_terms: list[WeightedTermMatch] = Field(default_factory=list)
     decision: Recommendation
     reasoning: list[str] = Field(default_factory=list)
     seniority: SeniorityEvaluation = Field(default_factory=lambda: SeniorityEvaluation(score=70, confidence=0))
+    category_scores: dict[str, CategoryScore] = Field(default_factory=dict)
 
 
 class AiJobEvaluation(BaseModel):

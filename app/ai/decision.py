@@ -55,7 +55,7 @@ def make_final_decision(
                 if message:
                     policy_adjustments.append(message)
         reasoning = [
-            f"Rule-only ranking from weighted term score {rule_evaluation.score}.",
+            f"Rule-only ranking from calibrated rule score {rule_component}/100.",
             f"Deterministic seniority component {seniority_component}/100.",
             *rule_evaluation.reasoning,
             *policy_adjustments,
@@ -80,7 +80,7 @@ def make_final_decision(
     )
 
     reasoning = [
-        f"Rule component {rule_component}/100 from weighted term score {rule_evaluation.score}.",
+        f"Rule component {rule_component}/100 from calibrated category signals.",
         f"AI semantic component {ai_component}/100.",
         f"Posting quality component {posting_quality_component}/100.",
         f"Deterministic seniority component {seniority_component}/100.",

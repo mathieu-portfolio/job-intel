@@ -250,7 +250,6 @@ def _exploration_scope_payload(
         "where": where or "",
         "profile_id": profile_id,
         "profile_path": str(profile_path),
-        "min_score": min_score,
     }
 
 

@@ -45,7 +45,6 @@ def fetch(
     where: str | None = typer.Option(None, help="Optional Adzuna location filter."),
     profile: Path = typer.Option(Path("profiles/default.json"), help="Candidate profile JSON path for fast screening."),
     db: Path = typer.Option(DEFAULT_DB_PATH, "--db", help="SQLite database path."),
-    min_score: int = typer.Option(40, help="Minimum calibrated rule score to print."),
     limit: int = typer.Option(20, help="Maximum number of matches to print."),
     explored_capacity: int = typer.Option(DEFAULT_EXPLORED_CAPACITY, help="Maximum explored-offer rows to keep."),
     unranked_capacity: int = typer.Option(DEFAULT_UNRANKED_CAPACITY, help="Maximum unranked offer rows to keep."),
@@ -75,7 +74,7 @@ def fetch(
             where=where,
             profile_path=profile,
             db_path=db,
-            min_score=min_score,
+            min_score=None,
             explored_capacity=explored_capacity,
             unranked_capacity=unranked_capacity,
             ranked_capacity=ranked_capacity,
@@ -106,7 +105,7 @@ def fetch(
         f"[magenta]Filtered out:[/magenta] {result.stats.filtered_out} | "
         f"[red]Errors:[/red] {result.stats.errors}"
     )
-    console.print(f"[green]Matched:[/green] {result.matched_count} jobs with calibrated score >= {min_score}\n")
+    console.print(f"[green]Screened:[/green] {result.matched_count} jobs passing must_match.any\n")
     console.print(
         f"[bold]Pruned:[/bold] explored {result.prune_stats.deleted_explored} | "
         f"unranked {result.prune_stats.deleted_unranked} | "

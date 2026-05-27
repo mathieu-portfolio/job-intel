@@ -249,7 +249,7 @@ def list_unranked_review_offers(
 ) -> list[dict[str, Any]]:
     init_db(db_path)
     clauses: list[str] = [
-        "EXISTS (SELECT 1 FROM offer_scores WHERE offer_scores.offer_id = offers.id AND offer_scores.profile_id = ?)",
+        "EXISTS (SELECT 1 FROM screening_results WHERE screening_results.offer_id = offers.id AND screening_results.profile_id = ? AND screening_results.passed = 1)",
         "NOT EXISTS (SELECT 1 FROM rankings WHERE rankings.offer_id = offers.id AND rankings.profile_id = ?)",
     ]
     params: list[Any] = [profile_id, profile_id]

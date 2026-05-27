@@ -217,7 +217,8 @@
               <div class="details-grid">
                 <section>
                   <h3>Rule scoring</h3>
-                  <p>Weighted score: {{ rule.get("score") }} ({{ rule.get("normalized_score") }}/100)</p>
+                  <p>Rule score: {{ rule.get("normalized_score") }}/100</p>
+                  <p>Raw category score: {{ "%+.2f"|format(rule.get("raw_score", rule.get("score", 0)) or 0) }}</p>
                   <p>Recommendation: {{ rule.get("decision") }}</p>
                   {% set seniority = rule.get("seniority") or {} %}
                   <p>
@@ -225,29 +226,44 @@
                     {{ seniority.get("target_seniority", "unknown") }} target
                     ({{ seniority.get("score", 70) }}/100)
                   </p>
-                  <h4>Positive terms</h4>
+
+                  <h4>Category coverage</h4>
+                  <ul>
+                    {% for name, category in (rule.get("category_scores") or {}).items() %}
+                      <li>
+                        {{ name.replace("_", " ") }}:
+                        {{ "%g"|format(category.get("matched_weight", 0) or 0) }}/{{ "%g"|format(category.get("total_weight", 0) or 0) }}
+                        matched
+                        <small>({{ "%d"|format(((category.get("ratio", 0) or 0) * 100)|round) }}%)</small>
+                      </li>
+                    {% else %}
+                      <li>No category coverage stored for this review.</li>
+                    {% endfor %}
+                  </ul>
+
+                  <h4>Positive signals</h4>
                   <ul>
                     {% for item in rule.get("matched_positive_terms") or [] %}
                       <li>
+                        {% if item.category %}<small>{{ item.category.replace("_", " ") }}</small> {% endif %}
                         {{ item.term }}
                         {% if item.matched_alias and (item.matched_alias != item.term or item.language) %}
                           <small>via {{ item.matched_alias }}{% if item.language %} / {{ item.language }}{% endif %}</small>
                         {% endif %}
-                        <span>{{ "%+g"|format(item.weight) }}</span>
                       </li>
                     {% else %}
                       <li>none</li>
                     {% endfor %}
                   </ul>
-                  <h4>Negative terms</h4>
+                  <h4>Negative signals</h4>
                   <ul>
                     {% for item in rule.get("matched_negative_terms") or [] %}
                       <li>
+                        {% if item.category %}<small>{{ item.category.replace("_", " ") }}</small> {% endif %}
                         {{ item.term }}
                         {% if item.matched_alias and (item.matched_alias != item.term or item.language) %}
                           <small>via {{ item.matched_alias }}{% if item.language %} / {{ item.language }}{% endif %}</small>
                         {% endif %}
-                        <span>{{ "%+g"|format(item.weight) }}</span>
                       </li>
                     {% else %}
                       <li>none</li>
@@ -278,9 +294,16 @@
                   <h3>Final decision</h3>
                   <p>Score: {{ final.get("final_score") }}/100</p>
                   <p>Recommendation: {{ final.get("recommendation") }}</p>
+                  {% if final.get("ai_component") is not none %}
+                    <p>Formula: 45% rule ({{ final.get("rule_component") }}/100) + 45% AI fit ({{ final.get("ai_component") }}/100) + 10% posting quality ({{ final.get("posting_quality_component") }}/100).</p>
+                  {% else %}
+                    <p>Formula: rule-only score ({{ final.get("rule_component") }}/100).</p>
+                  {% endif %}
                   <ul>
                     {% for reason in final.get("reasoning") or [] %}
-                      <li>{{ reason }}</li>
+                      {% if "weighted term score" not in reason and "weighted category score" not in reason %}
+                        <li>{{ reason }}</li>
+                      {% endif %}
                     {% endfor %}
                   </ul>
                   {% if final.get("policy_adjustments") %}

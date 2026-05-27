@@ -13,7 +13,7 @@ from app.models.evaluation import Recommendation
 from app.models.evaluation import RuleEvaluation
 from app.models.job import JobOffer
 from app.filtering.presets import BUILTIN_SCORING_PRESETS, ScoringPreset
-from app.filtering.rules import load_rule_scoring_config, parse_rule_scoring_config
+from app.filtering.rules import load_rule_scoring_config, parse_rule_scoring_config, score_category_scores
 from app.storage.files import profile_id_from_path
 from app.sql import load_sql
 
@@ -120,6 +120,7 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
         connection.executescript(load_sql("schema/init.sql"))
         _migrate_multi_preset_scores(connection)
         _migrate_profile_ids(connection)
+        _migrate_screening_category_scores(connection)
         _migrate_exploration_metadata(connection)
         offer_columns = {
             row["name"]
@@ -136,6 +137,11 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
         _migrate_profile_scoped_explored_offers(connection)
         _seed_builtin_scoring_presets(connection)
         _backfill_balanced_scores(connection)
+
+
+
+def _migrate_screening_category_scores(connection: sqlite3.Connection) -> None:
+    _ensure_column(connection, "screening_results", "category_scores_json TEXT NOT NULL DEFAULT '{}'")
 
 
 def _migrate_exploration_metadata(connection: sqlite3.Connection) -> None:

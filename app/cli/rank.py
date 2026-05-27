@@ -59,10 +59,10 @@ def _print_ranked_job(
         f"{str(job.url)}",
         "",
         "[bold]Rule scoring[/bold]",
-        f"Weighted score: {rule_evaluation.score} ({rule_evaluation.normalized_score}/100)",
+        f"Rule score: {rule_evaluation.normalized_score}/100 (raw category score {rule_evaluation.raw_score:+.2f})",
         f"Rule recommendation: {rule_evaluation.decision}",
-        f"Positive terms: {_format_term_matches(rule_evaluation.matched_positive_terms)}",
-        f"Negative terms: {_format_term_matches(rule_evaluation.matched_negative_terms)}",
+        f"Positive signals: {_format_term_matches(rule_evaluation.matched_positive_terms)}",
+        f"Negative signals: {_format_term_matches(rule_evaluation.matched_negative_terms)}",
         (
             "Seniority: "
             f"{rule_evaluation.seniority.offer_seniority} offer vs "
