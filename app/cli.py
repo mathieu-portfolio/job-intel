@@ -178,7 +178,7 @@ def _print_ranked_job(
     if ai_evaluation is not None:
         score_table.add_row(
             f"[bold]AI[/bold] {final_decision.ai_component}",
-            f"[bold]Penalties[/bold] {final_decision.penalty_component}",
+            f"[bold]Base[/bold] {final_decision.base_component}",
             f"[bold]Seniority[/bold] {final_decision.seniority_component}",
         )
 
@@ -214,8 +214,7 @@ def _print_ranked_job(
             f"domain {ai_evaluation.domain_fit_score}, "
             f"role interest {ai_evaluation.role_interest_score}, "
             f"learning {ai_evaluation.learning_potential_score}, "
-            f"portfolio {ai_evaluation.portfolio_alignment_score}, "
-            f"posting quality {ai_evaluation.posting_quality_score}"
+            f"portfolio {ai_evaluation.portfolio_alignment_score}"
         )
         body_lines.append(f"AI recommendation: {ai_evaluation.recommendation}")
         body_lines.extend(f"[green]-[/green] {reason}" for reason in ai_evaluation.reasoning)
@@ -231,7 +230,7 @@ def _print_ranked_job(
     body_lines.append("")
     body_lines.append("[bold]Final decision[/bold]")
     body_lines.append(f"Recommendation: {final_decision.recommendation}")
-    body_lines.append(f"Final weighted score: {final_decision.final_score}/100")
+    body_lines.append(f"Final score: {final_decision.final_score}/100")
     body_lines.extend(f"- {reason}" for reason in final_decision.reasoning)
     if final_decision.policy_adjustments:
         body_lines.append("")

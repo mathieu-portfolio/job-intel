@@ -12,7 +12,7 @@ SYSTEM_PROMPT = """You evaluate the semantic and qualitative fit of job offers.
 Do not evaluate seniority, location eligibility, contract eligibility, or other structured
 hard filters. Those are handled by deterministic rules outside the model.
 Focus on whether the posting describes relevant hands-on work, credible technical substance,
-domain alignment, portfolio/story alignment, learning value, and posting quality.
+domain alignment, portfolio/story alignment, and learning value.
 Use scores from 0 to 100 where higher is better.
 Use recommendation values exactly as: high, medium, low, skip.
 Keep recommendation consistent with semantic scores and reasoning. Use suggested_positioning
@@ -51,7 +51,6 @@ def build_job_evaluation_prompts(
                 "domain_fit_score": "Match with preferred domains and problem spaces.",
                 "role_interest_score": "How interesting and hands-on the responsibilities appear for this candidate.",
                 "learning_potential_score": "How much useful growth the role may offer.",
-                "posting_quality_score": "Specificity, clarity, and trustworthiness of the posting. Higher is better.",
                 "portfolio_alignment_score": "Fit with portfolio/project positioning.",
                 "summary": "One short sentence summarizing the evaluation.",
                 "recommendation": "One of: high, medium, low, skip. Must match the scores and reasoning.",

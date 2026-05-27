@@ -12,21 +12,16 @@ from app.models.evaluation import (
 
 @dataclass(frozen=True)
 class DecisionWeights:
-    rule: float = 0.45
-    ai: float = 0.45
-    posting_quality: float = 0.10
+    # Rule and AI build the base fit score. Seniority is then blended in as a
+    # separate suitability dimension so unclear/mismatched seniority cannot
+    # completely dominate an otherwise useful offer.
+    rule: float = 0.50
+    ai: float = 0.50
+    seniority: float = 0.10
 
 
 def _clamp_score(score: float) -> int:
     return max(0, min(100, round(score)))
-
-
-def _seniority_cap(score: int) -> tuple[int | None, str | None]:
-    if score < 35:
-        return 40, "Capped final score at 40 because deterministic seniority fit is a strong mismatch."
-    if score < 60:
-        return 65, "Capped final score at 65 because deterministic seniority fit is weak."
-    return None, None
 
 
 def _rule_cap(rule_evaluation: RuleEvaluation) -> tuple[int | None, str | None]:
@@ -37,6 +32,24 @@ def _rule_cap(rule_evaluation: RuleEvaluation) -> tuple[int | None, str | None]:
     return None, None
 
 
+def _weighted_base_score(rule_component: int, ai_component: int | None, weights: DecisionWeights) -> int:
+    if ai_component is None:
+        return rule_component
+
+    total_base_weight = weights.rule + weights.ai
+    if total_base_weight <= 0:
+        return _clamp_score((rule_component + ai_component) / 2)
+
+    return _clamp_score(
+        ((rule_component * weights.rule) + (ai_component * weights.ai)) / total_base_weight
+    )
+
+
+def _blend_seniority(base_score: int, seniority_component: int, seniority_weight: float) -> int:
+    weight = max(0.0, min(1.0, seniority_weight))
+    return _clamp_score(((1.0 - weight) * base_score) + (weight * seniority_component))
+
+
 def make_final_decision(
     *,
     rule_evaluation: RuleEvaluation,
@@ -44,58 +57,39 @@ def make_final_decision(
     weights: DecisionWeights = DecisionWeights(),
 ) -> FinalDecision:
     rule_component = rule_evaluation.normalized_score
+    ai_component = ai_evaluation.fit_score if ai_evaluation is not None else None
     seniority_component = rule_evaluation.seniority.score
 
-    if ai_evaluation is None:
-        final_score = rule_component
-        policy_adjustments: list[str] = []
-        for cap, message in (_seniority_cap(seniority_component), _rule_cap(rule_evaluation)):
-            if cap is not None and final_score > cap:
-                final_score = cap
-                if message:
-                    policy_adjustments.append(message)
+    base_score = _weighted_base_score(rule_component, ai_component, weights)
+    final_score = _blend_seniority(base_score, seniority_component, weights.seniority)
+
+    if ai_component is None:
         reasoning = [
-            f"Rule-only ranking from calibrated rule score {rule_component}/100.",
-            f"Deterministic seniority component {seniority_component}/100.",
+            f"Base score {base_score}/100 from calibrated rule score {rule_component}/100.",
+            (
+                f"Final score blends base score with deterministic seniority "
+                f"{seniority_component}/100 using seniority weight {weights.seniority:.0%}."
+            ),
             *rule_evaluation.reasoning,
-            *policy_adjustments,
         ]
-        return FinalDecision(
-            final_score=final_score,
-            recommendation=recommendation_from_score(final_score),
-            rule_component=rule_component,
-            seniority_component=seniority_component,
-            penalty_component=0,
-            seniority_mismatch_penalty=max(0, 100 - seniority_component),
-            policy_adjustments=policy_adjustments,
-            reasoning=reasoning,
-        )
-
-    ai_component = ai_evaluation.fit_score
-    posting_quality_component = ai_evaluation.posting_quality_score
-    final_score = _clamp_score(
-        (rule_component * weights.rule)
-        + (ai_component * weights.ai)
-        + (posting_quality_component * weights.posting_quality)
-    )
-
-    reasoning = [
-        f"Rule component {rule_component}/100 from calibrated category signals.",
-        f"AI semantic component {ai_component}/100.",
-        f"Posting quality component {posting_quality_component}/100.",
-        f"Deterministic seniority component {seniority_component}/100.",
-    ]
+    else:
+        reasoning = [
+            (
+                f"Base score {base_score}/100 from rule component {rule_component}/100 "
+                f"and AI semantic component {ai_component}/100."
+            ),
+            (
+                f"Final score blends base score with deterministic seniority "
+                f"{seniority_component}/100 using seniority weight {weights.seniority:.0%}."
+            ),
+        ]
 
     policy_adjustments: list[str] = []
-    for cap, message in (_seniority_cap(seniority_component), _rule_cap(rule_evaluation)):
-        if cap is not None and final_score > cap:
-            final_score = cap
-            if message:
-                policy_adjustments.append(message)
-
-    if posting_quality_component < 35 and final_score > 70:
-        final_score = 70
-        policy_adjustments.append("Capped final score at 70 because posting quality is poor.")
+    cap, message = _rule_cap(rule_evaluation)
+    if cap is not None and final_score > cap:
+        final_score = cap
+        if message:
+            policy_adjustments.append(message)
 
     reasoning.extend(policy_adjustments)
 
@@ -104,7 +98,7 @@ def make_final_decision(
         recommendation=recommendation_from_score(final_score),
         rule_component=rule_component,
         ai_component=ai_component,
-        posting_quality_component=posting_quality_component,
+        base_component=base_score,
         seniority_component=seniority_component,
         penalty_component=0,
         seniority_mismatch_penalty=max(0, 100 - seniority_component),

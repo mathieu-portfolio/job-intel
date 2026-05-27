@@ -60,7 +60,6 @@ class AiJobEvaluation(BaseModel):
     domain_fit_score: int = Field(ge=0, le=100)
     role_interest_score: int = Field(ge=0, le=100)
     learning_potential_score: int = Field(ge=0, le=100)
-    posting_quality_score: int = Field(ge=0, le=100)
     portfolio_alignment_score: int = Field(ge=0, le=100)
     summary: str
     recommendation: Recommendation
@@ -74,7 +73,7 @@ class FinalDecision(BaseModel):
     recommendation: Recommendation
     rule_component: int = Field(ge=0, le=100)
     ai_component: int | None = Field(default=None, ge=0, le=100)
-    posting_quality_component: int | None = Field(default=None, ge=0, le=100)
+    base_component: int | None = Field(default=None, ge=0, le=100)
     seniority_component: int = Field(ge=0, le=100)
     penalty_component: int = Field(ge=0, le=100)
     seniority_mismatch_penalty: int = Field(ge=0, le=100)

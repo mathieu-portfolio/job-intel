@@ -23,11 +23,10 @@ class MockLlmProvider:
         title = str(job.get("title", "Unknown role"))
         description = str(job.get("description", "")).lower()
 
-        posting_quality = 35 if any(term in description for term in ["rockstar", "ninja", "fast-paced"]) else 75
         technical = 80 if any(term in description for term in ["c++", "simulation", "systems"]) else 55
         domain = 75 if any(term in description for term in ["aerospace", "spatial", "defense", "simulation"]) else 55
         role_interest = 75 if any(term in description for term in ["develop", "build", "engineering", "software"]) else 55
-        fit = round((technical + domain + role_interest + 70 + posting_quality) / 5)
+        fit = round((technical + domain + role_interest + 70) / 4)
         recommendation = "high" if fit >= 75 else "medium" if fit >= 60 else "low" if fit >= 40 else "skip"
 
         return response_model.model_validate(
@@ -37,7 +36,6 @@ class MockLlmProvider:
                 "domain_fit_score": domain,
                 "role_interest_score": role_interest,
                 "learning_potential_score": 70,
-                "posting_quality_score": posting_quality,
                 "portfolio_alignment_score": 65,
                 "summary": f"Mock evaluation for {title}.",
                 "recommendation": recommendation,

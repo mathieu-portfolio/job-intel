@@ -278,7 +278,7 @@
                     <p>
                       Fit {{ ai.fit_score }} | Technical {{ ai.technical_fit_score }}
                       | Domain {{ ai.domain_fit_score }} | Role interest {{ ai.role_interest_score }}
-                      | Posting quality {{ ai.posting_quality_score }}
+                      | Learning {{ ai.learning_potential_score }} | Portfolio {{ ai.portfolio_alignment_score }}
                     </p>
                     <ul>
                       {% for reason in ai.reasoning %}
@@ -295,9 +295,11 @@
                   <p>Score: {{ final.get("final_score") }}/100</p>
                   <p>Recommendation: {{ final.get("recommendation") }}</p>
                   {% if final.get("ai_component") is not none %}
-                    <p>Formula: 45% rule ({{ final.get("rule_component") }}/100) + 45% AI fit ({{ final.get("ai_component") }}/100) + 10% posting quality ({{ final.get("posting_quality_component") }}/100).</p>
+                    <p>Base: 50% rule ({{ final.get("rule_component") }}/100) + 50% AI fit ({{ final.get("ai_component") }}/100) = {{ final.get("base_component") }}/100.</p>
+                    <p>Formula: 90% base ({{ final.get("base_component") }}/100) + 10% seniority ({{ final.get("seniority_component") }}/100).</p>
                   {% else %}
-                    <p>Formula: rule-only score ({{ final.get("rule_component") }}/100).</p>
+                    <p>Base: rule-only score ({{ final.get("base_component") or final.get("rule_component") }}/100).</p>
+                    <p>Formula: 90% base ({{ final.get("base_component") or final.get("rule_component") }}/100) + 10% seniority ({{ final.get("seniority_component") }}/100).</p>
                   {% endif %}
                   <ul>
                     {% for reason in final.get("reasoning") or [] %}
