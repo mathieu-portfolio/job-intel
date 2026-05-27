@@ -132,6 +132,7 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
         }
         if "keep_flag" not in explored_columns:
             connection.execute(load_sql("schema/add_explored_keep_flag.sql"))
+        _migrate_profile_scoped_explored_offers(connection)
         _seed_builtin_scoring_presets(connection)
         _backfill_balanced_scores(connection)
 
@@ -251,6 +252,36 @@ def _migrate_exploration_metadata(connection: sqlite3.Connection) -> None:
             updated_at TEXT NOT NULL
         );
         """
+    )
+
+
+def _migrate_profile_scoped_explored_offers(connection: sqlite3.Connection) -> None:
+    columns = _table_columns(connection, "explored_offers")
+    if "profile_id" not in columns:
+        connection.execute("ALTER TABLE explored_offers ADD COLUMN profile_id TEXT NOT NULL DEFAULT 'default';")
+    if "profile_path" not in columns:
+        connection.execute("ALTER TABLE explored_offers ADD COLUMN profile_path TEXT;")
+
+    # Old installations used global exploration rows. Keep them as default-profile rows,
+    # then enforce profile-scoped uniqueness so another profile can explore the same offer.
+    connection.execute("DROP INDEX IF EXISTS idx_explored_offers_provider_external_id;")
+    connection.execute("DROP INDEX IF EXISTS idx_explored_offers_provider_canonical_url;")
+    connection.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_explored_offers_provider_profile_external_id
+        ON explored_offers(provider, profile_id, external_id)
+        WHERE external_id IS NOT NULL;
+        """
+    )
+    connection.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_explored_offers_provider_profile_canonical_url
+        ON explored_offers(provider, profile_id, canonical_url)
+        WHERE canonical_url IS NOT NULL;
+        """
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_explored_offers_profile_last_seen ON explored_offers(profile_id, last_seen_at DESC);"
     )
 
 

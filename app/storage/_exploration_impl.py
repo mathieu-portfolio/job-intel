@@ -11,13 +11,14 @@ def has_explored_offer(
     provider: str,
     external_id: str | None,
     canonical_url: str | None,
+    profile_id: str = "default",
     db_path: Path = DEFAULT_DB_PATH,
 ) -> bool:
     init_db(db_path)
     with _connect(db_path) as connection:
         row = connection.execute(
             load_sql("explored_offers/select_by_identity.sql"),
-            (provider, external_id, canonical_url, external_id),
+            (provider, profile_id, external_id, canonical_url, external_id),
         ).fetchone()
     return row is not None
 
@@ -26,13 +27,15 @@ def has_explored_offers_batch(
     connection: sqlite3.Connection,
     provider: str,
     identities: list[tuple[str | None, str]],
+    *,
+    profile_id: str = "default",
 ) -> set[tuple[str | None, str]]:
     if not identities:
         return set()
     external_ids = sorted({external_id for external_id, _ in identities if external_id})
     urls = sorted({canonical_url for _, canonical_url in identities if canonical_url})
     clauses: list[str] = []
-    params: list[Any] = [provider]
+    params: list[Any] = [provider, profile_id]
     if external_ids:
         clauses.append(f"external_id IN ({', '.join(['?'] * len(external_ids))})")
         params.extend(external_ids)
@@ -46,6 +49,7 @@ def has_explored_offers_batch(
         SELECT external_id, canonical_url
         FROM explored_offers
         WHERE provider = ?
+          AND profile_id = ?
           AND ({' OR '.join(clauses)});
         """,
         params,
@@ -67,6 +71,8 @@ def record_explored_offer(
     status: str,
     reason: str | None = None,
     keep_flag: bool = False,
+    profile_id: str = "default",
+    profile_path: str | None = None,
     db_path: Path = DEFAULT_DB_PATH,
     seen_at: str | None = None,
 ) -> None:
@@ -75,7 +81,7 @@ def record_explored_offer(
     with _connect(db_path) as connection:
         row = connection.execute(
             load_sql("explored_offers/select_by_identity.sql"),
-            (provider, external_id, canonical_url, external_id),
+            (provider, profile_id, external_id, canonical_url, external_id),
         ).fetchone()
         if row is None:
             connection.execute(
@@ -84,6 +90,8 @@ def record_explored_offer(
                     provider,
                     external_id,
                     canonical_url,
+                    profile_id,
+                    profile_path,
                     seen_at,
                     seen_at,
                     status,
@@ -94,7 +102,7 @@ def record_explored_offer(
         else:
             connection.execute(
                 load_sql("explored_offers/update.sql"),
-                (external_id, canonical_url, seen_at, status, reason, 1 if keep_flag else 0, row["id"]),
+                (external_id, canonical_url, profile_path, seen_at, status, reason, 1 if keep_flag else 0, row["id"]),
             )
 
 
@@ -104,6 +112,8 @@ def record_explored_job(
     status: str,
     reason: str | None = None,
     keep_flag: bool = False,
+    profile_id: str = "default",
+    profile_path: str | None = None,
     db_path: Path = DEFAULT_DB_PATH,
     seen_at: str | None = None,
 ) -> None:
@@ -114,6 +124,8 @@ def record_explored_job(
         status=status,
         reason=reason,
         keep_flag=keep_flag,
+        profile_id=profile_id,
+        profile_path=profile_path,
         db_path=db_path,
         seen_at=seen_at,
     )
@@ -123,6 +135,8 @@ def record_explored_jobs_batch(
     connection: sqlite3.Connection,
     records: list[tuple[JobOffer, str, str | None, bool]],
     *,
+    profile_id: str = "default",
+    profile_path: str | None = None,
     seen_at: str | None = None,
 ) -> None:
     seen_at = seen_at or _now_iso()
@@ -130,7 +144,7 @@ def record_explored_jobs_batch(
         canonical_url = _canonical_url(job)
         row = connection.execute(
             load_sql("explored_offers/select_by_identity.sql"),
-            (job.source, job.source_id, canonical_url, job.source_id),
+            (job.source, profile_id, job.source_id, canonical_url, job.source_id),
         ).fetchone()
         if row is None:
             connection.execute(
@@ -139,6 +153,8 @@ def record_explored_jobs_batch(
                     job.source,
                     job.source_id,
                     canonical_url,
+                    profile_id,
+                    profile_path,
                     seen_at,
                     seen_at,
                     status,
@@ -149,7 +165,7 @@ def record_explored_jobs_batch(
         else:
             connection.execute(
                 load_sql("explored_offers/update.sql"),
-                (job.source_id, canonical_url, seen_at, status, reason, 1 if keep_flag else 0, row["id"]),
+                (job.source_id, canonical_url, profile_path, seen_at, status, reason, 1 if keep_flag else 0, row["id"]),
             )
 
 

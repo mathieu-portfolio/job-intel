@@ -119,6 +119,21 @@ def fetch_offers(
                 progress=progress,
                 cancelled=cancelled,
             )
+            _emit(
+                messages,
+                progress,
+                f"Provider {source} search completed: {_format_search_request(search_request)}.",
+            )
+            return result
+
+        def merge_search_result(result: FetchWorkflowResult) -> None:
+            nonlocal aggregate_stats
+            nonlocal aggregate_prune
+            nonlocal aggregate_deleted_explored
+            nonlocal aggregate_deleted_unranked
+            nonlocal aggregate_deleted_ranked
+            nonlocal duplicate_provider_rows_across_requests
+
             request_duplicate_keys = aggregate_provider_keys.intersection(result.provider_keys)
             duplicate_provider_rows_across_requests += len(request_duplicate_keys)
             aggregate_provider_keys.update(result.provider_keys)
@@ -141,6 +156,59 @@ def fetch_offers(
             aggregate_deleted_explored += result.prune_stats.deleted_explored
             aggregate_deleted_unranked += result.prune_stats.deleted_unranked
             aggregate_deleted_ranked += result.prune_stats.deleted_ranked
+
+        if new_offers is None and fetch_concurrency > 1:
+            _emit(
+                messages,
+                progress,
+                f"Starting {len(search_requests)} provider search requests with concurrency {fetch_concurrency}.",
+            )
+            with ThreadPoolExecutor(max_workers=min(fetch_concurrency, len(search_requests))) as executor:
+                futures = {
+                    executor.submit(fetch_search_request, search_request, None): index
+                    for index, search_request in enumerate(search_requests)
+                }
+                indexed_results: dict[int, FetchWorkflowResult] = {}
+                for future in as_completed(futures):
+                    _raise_if_cancelled(cancelled)
+                    index = futures[future]
+                    try:
+                        indexed_results[index] = future.result()
+                    except Exception as error:
+                        aggregate_stats = UpsertStats(
+                            fetched=aggregate_stats.fetched,
+                            inserted=aggregate_stats.inserted,
+                            updated=aggregate_stats.updated,
+                            skipped_existing=aggregate_stats.skipped_existing,
+                            pages_scanned=aggregate_stats.pages_scanned,
+                            explored=aggregate_stats.explored,
+                            newly_explored=aggregate_stats.newly_explored,
+                            already_seen=aggregate_stats.already_seen,
+                            filtered_out=aggregate_stats.filtered_out,
+                            errors=aggregate_stats.errors + 1,
+                        )
+                        _emit(messages, progress, f"Provider search request failed: {error}")
+                search_results = [indexed_results[index] for index in sorted(indexed_results)]
+        else:
+            for search_request in search_requests:
+                remaining_new_offers = (
+                    None
+                    if new_offers is None
+                    else max(0, new_offers - aggregate_stats.newly_explored)
+                )
+                if remaining_new_offers == 0:
+                    break
+                merge_search_result(fetch_search_request(search_request, remaining_new_offers))
+
+        for result in search_results:
+            remaining_new_offers = (
+                None
+                if new_offers is None
+                else max(0, new_offers - aggregate_stats.newly_explored)
+            )
+            if remaining_new_offers == 0:
+                break
+            merge_search_result(result)
 
         if aggregate_prune is None:
             aggregate_prune = prune_storage(
@@ -184,8 +252,8 @@ def fetch_offers(
     query = search_requests[0].query
     where = search_requests[0].where
 
-    target_new_offers = new_offers
-    page_limit = max_pages if target_new_offers is not None else pages
+    target_unexplored_offers = new_offers
+    page_limit = max_pages if target_unexplored_offers is not None else pages
     if page_limit is None:
         page_limit = pages
 
@@ -194,7 +262,7 @@ def fetch_offers(
         progress,
         (
             f"Fetching jobs from {source}; "
-            f"target {target_new_offers or 'page scan'} newly explored offers; max pages {page_limit}."
+            f"target {target_unexplored_offers or 'page scan'} new/unexplored offers; max pages {page_limit}."
         ),
     )
     _raise_if_cancelled(cancelled)
@@ -285,6 +353,7 @@ def fetch_offers(
                 connection,
                 jobs[0].source,
                 [(job.source_id, str(job.url)) for job in jobs],
+                profile_id=profile_id,
             )
             timing["explored_lookup"] += time.perf_counter() - lookup_started_at
 
@@ -301,11 +370,11 @@ def fetch_offers(
 
                 newly_explored += 1
                 page_counts["newly_explored"] += 1
-                if target_new_offers is not None:
+                if target_unexplored_offers is not None:
                     _emit(
                         messages,
                         progress,
-                        f"Processed {newly_explored}/{target_new_offers} newly explored offers.",
+                        f"Processed {newly_explored}/{target_unexplored_offers} new/unexplored offers.",
                     )
 
                 if not job.description.strip():
@@ -314,7 +383,7 @@ def fetch_offers(
                 else:
                     jobs_to_score.append(job)
 
-                if target_new_offers is not None and newly_explored >= target_new_offers:
+                if target_unexplored_offers is not None and newly_explored >= target_unexplored_offers:
                     stop_after_page = True
                     break
 
@@ -394,7 +463,12 @@ def fetch_offers(
             timing["screened_persistence"] += time.perf_counter() - screened_started_at
 
             explored_started_at = time.perf_counter()
-            record_explored_jobs_batch(connection, explored_records)
+            record_explored_jobs_batch(
+                connection,
+                explored_records,
+                profile_id=profile_id,
+                profile_path=str(profile_path),
+            )
             timing["explored_persistence"] += time.perf_counter() - explored_started_at
 
         _emit(
@@ -407,75 +481,100 @@ def fetch_offers(
         )
         return stop_after_page
 
-    if target_new_offers is None and not fast_backfill_active and fetch_concurrency > 1:
-        page_numbers = list(range(page, page + page_limit))
-        page_results: dict[int, list[JobOffer]] = {}
-        failed_pages: set[int] = set()
+    if not fast_backfill_active and fetch_concurrency > 1:
+        last_page_to_fetch = page + page_limit - 1
+        next_page_to_submit = page
+        pending: dict[object, int] = {}
+        stop_fetching = False
         _emit(
             messages,
             progress,
-            f"Fetching provider pages with concurrency {fetch_concurrency}.",
+            f"Provider {source} starting page tasks with fetch concurrency {fetch_concurrency}.",
         )
         with ThreadPoolExecutor(max_workers=fetch_concurrency) as executor:
-            futures = {
-                executor.submit(fetch_provider_page, fetch_page): fetch_page
-                for fetch_page in page_numbers
-            }
-            for future in as_completed(futures):
+            def submit_next_pages() -> None:
+                nonlocal next_page_to_submit
+                while (
+                    not stop_fetching
+                    and next_page_to_submit <= last_page_to_fetch
+                    and len(pending) < fetch_concurrency
+                    and (
+                        target_unexplored_offers is None
+                        or newly_explored < target_unexplored_offers
+                    )
+                ):
+                    fetch_page = next_page_to_submit
+                    next_page_to_submit += 1
+                    _emit(messages, progress, f"Provider {source} page {fetch_page} started.")
+                    pending[executor.submit(fetch_provider_page, fetch_page)] = fetch_page
+
+            submit_next_pages()
+            while pending:
                 _raise_if_cancelled(cancelled)
-                completed_page = futures[future]
+                for future in as_completed(list(pending)):
+                    completed_page = pending.pop(future)
+                    break
                 try:
-                    page_jobs, page_elapsed = future.result()
-                    page_results[completed_page] = page_jobs
+                    jobs, page_elapsed = future.result()
                     timing["provider_fetch"] += page_elapsed
                     _emit(
                         messages,
                         progress,
-                        f"Fetched provider page {completed_page}: {len(page_results[completed_page])} offers.",
+                        (
+                            f"Provider {source} page {completed_page} completed: "
+                            f"{len(jobs)} offers in {page_elapsed:.2f}s."
+                        ),
                     )
                 except Exception as error:
                     errors += 1
-                    failed_pages.add(completed_page)
-                    page_results[completed_page] = []
+                    pages_scanned += 1
                     _emit(messages, progress, f"Provider page {completed_page} failed: {error}")
+                    submit_next_pages()
+                    continue
 
-        for fetched_page in page_numbers:
-            _raise_if_cancelled(cancelled)
-            jobs = page_results.get(fetched_page, [])
-            if fetched_page in failed_pages:
                 pages_scanned += 1
-                continue
-
-            pages_scanned += 1
-            last_scanned_page = fetched_page
-            fetched += len(jobs)
-            for job in jobs:
-                provider_key = _offer_provider_key(job)
-                if provider_key in provider_keys:
-                    duplicate_provider_rows += 1
-                provider_keys.add(provider_key)
-            _emit(messages, progress, f"Scanned page {fetched_page}: {len(jobs)} offers.")
-            if not jobs:
-                _emit(messages, progress, "Provider returned no more offers.")
-                break
-
-            if first_seen_identity is None:
-                first_seen_identity = _offer_exploration_id(jobs[0])
-            last_seen_identity = _offer_exploration_id(jobs[-1])
-
-            page_counts = {"already_seen": 0, "newly_explored": 0}
-            process_jobs_batch(jobs, page_counts=page_counts)
-            if page_counts["already_seen"] == len(jobs) and page_counts["newly_explored"] == 0:
-                consecutive_seen_pages += 1
-                if consecutive_seen_pages >= max_seen_pages:
-                    _emit(
-                        messages,
-                        progress,
-                        f"Stopped after {consecutive_seen_pages} consecutive pages with only already-seen offers.",
-                    )
+                last_scanned_page = completed_page
+                fetched += len(jobs)
+                for job in jobs:
+                    provider_key = _offer_provider_key(job)
+                    if provider_key in provider_keys:
+                        duplicate_provider_rows += 1
+                    provider_keys.add(provider_key)
+                _emit(messages, progress, f"Scanned page {completed_page}: {len(jobs)} offers.")
+                if not jobs:
+                    _emit(messages, progress, "Provider returned no more offers.")
+                    stop_fetching = True
+                    for pending_future in pending:
+                        pending_future.cancel()
+                    pending.clear()
                     break
-            else:
-                consecutive_seen_pages = 0
+
+                if first_seen_identity is None:
+                    first_seen_identity = _offer_exploration_id(jobs[0])
+                last_seen_identity = _offer_exploration_id(jobs[-1])
+
+                page_counts = {"already_seen": 0, "newly_explored": 0}
+                stop_after_page = process_jobs_batch(jobs, page_counts=page_counts)
+                if page_counts["already_seen"] == len(jobs) and page_counts["newly_explored"] == 0:
+                    consecutive_seen_pages += 1
+                    if consecutive_seen_pages >= max_seen_pages:
+                        _emit(
+                            messages,
+                            progress,
+                            f"Stopped after {consecutive_seen_pages} consecutive pages with only already-seen offers.",
+                        )
+                        stop_fetching = True
+                else:
+                    consecutive_seen_pages = 0
+                if stop_after_page or (target_unexplored_offers is not None and newly_explored >= target_unexplored_offers):
+                    _emit(messages, progress, f"Processed {newly_explored} new/unexplored offers.")
+                    stop_fetching = True
+                if stop_fetching:
+                    for pending_future in pending:
+                        pending_future.cancel()
+                    pending.clear()
+                    break
+                submit_next_pages()
 
     while pages_scanned < page_limit and not (
         target_new_offers is None and not fast_backfill_active and fetch_concurrency > 1
@@ -552,8 +651,8 @@ def fetch_offers(
                 break
         else:
             consecutive_seen_pages = 0
-        if target_new_offers is not None and newly_explored >= target_new_offers:
-            _emit(messages, progress, f"Processed {newly_explored} newly explored offers.")
+        if target_unexplored_offers is not None and newly_explored >= target_unexplored_offers:
+            _emit(messages, progress, f"Processed {newly_explored} new/unexplored offers.")
             break
         if jump_page is not None:
             current_page = jump_page

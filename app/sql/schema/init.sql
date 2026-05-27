@@ -19,6 +19,8 @@ CREATE TABLE IF NOT EXISTS explored_offers (
     provider TEXT NOT NULL,
     external_id TEXT,
     canonical_url TEXT,
+    profile_id TEXT NOT NULL DEFAULT 'default',
+    profile_path TEXT,
     first_seen_at TEXT NOT NULL,
     last_seen_at TEXT NOT NULL,
     status TEXT NOT NULL,
@@ -140,11 +142,8 @@ CREATE INDEX IF NOT EXISTS idx_offers_newest
 CREATE INDEX IF NOT EXISTS idx_offers_source_source_id
     ON offers(source, source_id)
     WHERE source_id IS NOT NULL;
-CREATE UNIQUE INDEX IF NOT EXISTS idx_explored_offers_provider_external_id
-    ON explored_offers(provider, external_id)
-    WHERE external_id IS NOT NULL;
-CREATE UNIQUE INDEX IF NOT EXISTS idx_explored_offers_provider_canonical_url
-    ON explored_offers(provider, canonical_url)
-    WHERE canonical_url IS NOT NULL;
+-- Profile-scoped explored-offer indexes are created in the storage migration.
+-- Keeping them out of the base schema lets existing databases add profile_id
+-- before SQLite evaluates indexes that reference it.
 CREATE INDEX IF NOT EXISTS idx_explored_offers_last_seen
     ON explored_offers(last_seen_at DESC);

@@ -107,8 +107,9 @@ def _record_workflow_progress(request: Request, token: str, message: str) -> Non
             progress["remaining"] = total
         except ValueError:
             pass
-    elif message.startswith("Processed ") and "/" in message and " newly explored offers" in message:
-        prefix = message.removeprefix("Processed ").split(" newly explored offers", 1)[0]
+    elif message.startswith("Processed ") and "/" in message and (" newly explored offers" in message or " new/unexplored offers" in message):
+        suffix = " new/unexplored offers" if " new/unexplored offers" in message else " newly explored offers"
+        prefix = message.removeprefix("Processed ").split(suffix, 1)[0]
         try:
             current_text, total_text = prefix.split("/", 1)
             current = int(current_text)

@@ -244,8 +244,8 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
         progress = lambda message: _record_workflow_progress(request, token, message)
         try:
             preview_limit = _positive_int(form.get("limit"), 20)
-            target_new_offers = _positive_int(form.get("new_offers"), 20)
-            progress(f"Processed 0/{target_new_offers} newly explored offers.")
+            target_unexplored_offers = _positive_int(form.get("new_offers"), 20)
+            progress(f"Processed 0/{target_unexplored_offers} new/unexplored offers.")
             source = form.get("source") or "arbeitnow"
             country = (form.get("country") or "").strip()
             if source == "adzuna" and not country:
@@ -254,7 +254,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 fetch_offers,
                 source=source,  # type: ignore[arg-type]
                 page=_positive_int(form.get("page"), 1),
-                new_offers=target_new_offers,
+                new_offers=target_unexplored_offers,
                 max_pages=_positive_int(form.get("max_pages"), 10),
                 max_seen_pages=_positive_int(form.get("max_seen_pages"), 50),
                 query=(form.get("query") or "").strip(),

@@ -1,6 +1,7 @@
 SELECT id
 FROM explored_offers
 WHERE provider = ?
+  AND profile_id = ?
   AND (
     (external_id IS NOT NULL AND external_id = ?)
     OR (canonical_url IS NOT NULL AND canonical_url = ?)

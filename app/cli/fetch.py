@@ -33,7 +33,7 @@ def fetch(
     source: FetchSource = "arbeitnow",
     page: int = typer.Option(1, help="Starting result page to fetch."),
     pages: int = typer.Option(1, "--pages", help="Debug page scan count when --new-offers is not set."),
-    new_offers: int | None = typer.Option(None, "--new-offers", help="Target number of newly explored provider offers to process."),
+    new_offers: int | None = typer.Option(None, "--new-offers", help="Target number of new, previously unexplored provider offers to evaluate for the selected profile."),
     max_pages: int = typer.Option(10, "--max-pages", help="Maximum provider pages to scan."),
     max_seen_pages: int = typer.Option(
         5,
@@ -60,7 +60,7 @@ def fetch(
     provider_retry_attempts: int = typer.Option(1, min=1, help="Provider fetch retry attempts per page."),
     provider_retry_backoff: float = typer.Option(0.0, min=0.0, help="Provider retry backoff seconds, multiplied by attempt."),
 ) -> None:
-    """Fetch jobs from one source, track newly explored offers, and print a shortlist."""
+    """Fetch jobs from one source, evaluate new/unexplored offers, and print a shortlist."""
 
     try:
         result = fetch_offers(
