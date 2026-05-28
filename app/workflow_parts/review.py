@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.workflow_parts.common import *  # noqa: F401,F403
+from app.workflow_parts.review_persistence import ai_evaluation_from_saved_review, save_ranked_result
 
 def rank_offers(
     *,
@@ -130,44 +131,22 @@ def rank_offers(
     )
 
 
-    def ai_evaluation_from_saved_review(review_row: dict[str, object]) -> AiJobEvaluation | None:
-        raw_review = review_row.get("review")
-        if not isinstance(raw_review, dict):
-            return None
-        candidate = raw_review.get("raw_ai_evaluation")
-        if candidate is None:
-            candidate = raw_review.get("ai_evaluation")
-        if candidate is None:
-            candidate = raw_review
-        if not isinstance(candidate, dict):
-            return None
-        try:
-            return AiJobEvaluation.model_validate(candidate)
-        except Exception:
-            return None
-
     if ranking_mode == "rules":
         for stored_offer, rule_evaluation in candidates:
             _raise_if_cancelled(cancelled)
             final_decision = make_final_decision(rule_evaluation=rule_evaluation)
-            result_payload = ranking_result_payload(
+            save_ranked_result(
+                db_path=db_path,
+                run_id=run_id,
                 stored_offer=stored_offer,
                 rule_evaluation=rule_evaluation,
                 ai_evaluation=None,
                 final_decision=final_decision,
-            )
-            save_ranking(
-                db_path=db_path,
-                run_id=run_id,
-                offer_id=stored_offer.id,
-                algorithm=ranking_mode,
-                model=model_name,
-                profile_path=str(profile_path),
+                ranking_mode=ranking_mode,
+                model_name=model_name,
+                profile_path=profile_path,
                 profile_id=profile_id,
-                score=final_decision.final_score,
-                recommendation=final_decision.recommendation,
                 summary="Rule-only ranking.",
-                result=result_payload,
             )
             ranked.append((stored_offer, rule_evaluation, None, final_decision))
     else:
@@ -209,24 +188,18 @@ def rank_offers(
                 rule_evaluation=rule_evaluation,
                 ai_evaluation=ai_evaluation,
             )
-            result_payload = ranking_result_payload(
+            save_ranked_result(
+                db_path=db_path,
+                run_id=run_id,
                 stored_offer=stored_offer,
                 rule_evaluation=rule_evaluation,
                 ai_evaluation=ai_evaluation,
                 final_decision=final_decision,
-            )
-            save_ranking(
-                db_path=db_path,
-                run_id=run_id,
-                offer_id=stored_offer.id,
-                algorithm=ranking_mode,
-                model=model_name,
-                profile_path=str(profile_path),
+                ranking_mode=ranking_mode,
+                model_name=model_name,
+                profile_path=profile_path,
                 profile_id=profile_id,
-                score=final_decision.final_score,
-                recommendation=final_decision.recommendation,
                 summary=ai_evaluation.summary,
-                result=result_payload,
             )
             ranked.append((stored_offer, rule_evaluation, ai_evaluation, final_decision))
             reused_ai += 1
@@ -314,24 +287,18 @@ def rank_offers(
                 completed_ai += 1
                 _emit(messages, progress, f"AI task {index}/{len(remaining_candidates)} completed: {stored_offer.job.title}")
                 _emit(messages, progress, f"Model response parsed in {elapsed:.1f}s.")
-                result_payload = ranking_result_payload(
+                save_ranked_result(
+                    db_path=db_path,
+                    run_id=run_id,
                     stored_offer=stored_offer,
                     rule_evaluation=rule_evaluation,
                     ai_evaluation=ai_evaluation,
                     final_decision=final_decision,
-                )
-                save_ranking(
-                    db_path=db_path,
-                    run_id=run_id,
-                    offer_id=stored_offer.id,
-                    algorithm=ranking_mode,
-                    model=model_name,
-                    profile_path=str(profile_path),
+                    ranking_mode=ranking_mode,
+                    model_name=model_name,
+                    profile_path=profile_path,
                     profile_id=profile_id,
-                    score=final_decision.final_score,
-                    recommendation=final_decision.recommendation,
                     summary=ai_evaluation.summary,
-                    result=result_payload,
                 )
                 save_ai_review(
                     db_path=db_path,
