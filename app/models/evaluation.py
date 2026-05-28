@@ -40,6 +40,7 @@ class CategoryScore(BaseModel):
     matched_weight: float = 0.0
     total_weight: float = 0.0
     ratio: float = Field(default=0.0, ge=0.0, le=1.0)
+    mode: Literal["cumulative", "exclusive"] = "cumulative"
 
 
 class RuleEvaluation(BaseModel):

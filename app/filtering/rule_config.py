@@ -16,6 +16,11 @@ class RuleScoringConfig(BaseModel):
     negative_terms: dict[str, int] = Field(default_factory=dict)
     must_match: MustMatchRule = Field(default_factory=MustMatchRule)
     category_weights: dict[str, float]
+    # Cumulative categories score by matched weight / total category weight.
+    # Exclusive categories score by the highest matched item weight, because
+    # their item weights are already normalized suitability values.
+    cumulative_categories: set[str] = Field(default_factory=set)
+    exclusive_categories: set[str] = Field(default_factory=lambda: {"location", "location_preferences"})
     no_signal_score: int
     positive_score_scale: float
     negative_score_scale: float

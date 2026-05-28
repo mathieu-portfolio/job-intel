@@ -70,6 +70,31 @@ def _configured_term_matches(
     ]
 
 
+def _category_mode(category_name: str, config: RuleScoringConfig) -> str:
+    if category_name in config.exclusive_categories:
+        return "exclusive"
+    return "cumulative"
+
+
+def _category_ratio(
+    *,
+    mode: str,
+    matched_weights: list[float],
+    total_item_weight: float,
+) -> tuple[float, float, float]:
+    if not matched_weights:
+        return 0.0, 0.0, total_item_weight if mode == "cumulative" else 1.0
+    if mode == "exclusive":
+        # Exclusive categories represent mutually exclusive choices such as
+        # location. Item weights are already normalized suitability values, so
+        # the category score is simply the best matched item.
+        matched_weight = max(matched_weights)
+        return max(0.0, min(1.0, matched_weight)), matched_weight, 1.0
+    matched_weight = sum(matched_weights)
+    ratio = matched_weight / total_item_weight if total_item_weight > 0 else 0.0
+    return max(0.0, min(1.0, ratio)), matched_weight, total_item_weight
+
+
 def _profile_signal_matches(
     *,
     text: str,
@@ -87,26 +112,36 @@ def _profile_signal_matches(
     category_scores: dict[str, CategoryScore] = {}
 
     for category_name, category in profile.signals.items():
-        total_item_weight = sum(abs(item.weight) for item in category.items if item.term.strip())
+        weighted_items = [item for item in category.items if item.term.strip()]
+        total_item_weight = sum(abs(item.weight) for item in weighted_items)
         if total_item_weight <= 0:
             continue
         matched_items = [
             (item, match)
-            for item in category.items
-            if item.term.strip()
+            for item in weighted_items
             for match in [match_signal_item(text, item)]
             if match is not None
         ]
-        matched_weight = sum(abs(item.weight) for item, _ in matched_items)
-        ratio = matched_weight / total_item_weight
+        mode = _category_mode(category_name, config)
+        matched_weights = [abs(item.weight) for item, _ in matched_items]
+        ratio, matched_weight, stored_total_weight = _category_ratio(
+            mode=mode,
+            matched_weights=matched_weights,
+            total_item_weight=total_item_weight,
+        )
         category_scores[category_name] = CategoryScore(
             matched_weight=matched_weight,
-            total_weight=total_item_weight,
+            total_weight=stored_total_weight,
             ratio=ratio,
+            mode=mode,
         )
 
         category_weight = config.category_weights.get(category_name, 0.0)
         contribution = ratio * category_weight
+        scoring_matches = matched_items
+        if mode == "exclusive" and matched_items:
+            best_weight = max(matched_weights)
+            scoring_matches = [(item, match) for item, match in matched_items if abs(item.weight) == best_weight]
         if category_weight >= 0:
             positive_score += contribution
             positives.extend(
@@ -115,10 +150,10 @@ def _profile_signal_matches(
                     term=item.term,
                     matched_alias=match.matched_alias,
                     language=match.language,
-                    weight=(abs(item.weight) / total_item_weight) * category_weight * 100,
-                    contribution=(abs(item.weight) / total_item_weight) * category_weight,
+                    weight=(ratio if mode == "exclusive" else abs(item.weight) / total_item_weight) * category_weight * 100,
+                    contribution=(ratio if mode == "exclusive" else abs(item.weight) / total_item_weight) * category_weight,
                 )
-                for item, match in matched_items
+                for item, match in scoring_matches
             )
         else:
             negative_score += contribution
@@ -128,16 +163,22 @@ def _profile_signal_matches(
                     term=item.term,
                     matched_alias=match.matched_alias,
                     language=match.language,
-                    weight=(abs(item.weight) / total_item_weight) * category_weight * 100,
-                    contribution=(abs(item.weight) / total_item_weight) * category_weight,
+                    weight=(ratio if mode == "exclusive" else abs(item.weight) / total_item_weight) * category_weight * 100,
+                    contribution=(ratio if mode == "exclusive" else abs(item.weight) / total_item_weight) * category_weight,
                 )
-                for item, match in matched_items
+                for item, match in scoring_matches
             )
         if matched_items:
-            reasoning.append(
-                f"Matched {len(matched_items)}/{len(category.items)} items in {category_name} "
-                f"for {contribution:+.2f}."
-            )
+            if mode == "exclusive":
+                reasoning.append(
+                    f"Matched {len(matched_items)}/{len(weighted_items)} items in {category_name}; "
+                    f"used best exclusive weight {ratio:.2f} for {contribution:+.2f}."
+                )
+            else:
+                reasoning.append(
+                    f"Matched {len(matched_items)}/{len(weighted_items)} items in {category_name} "
+                    f"for {contribution:+.2f}."
+                )
 
     return positives, negatives, positive_score, negative_score, reasoning, category_scores
 
@@ -155,6 +196,7 @@ def score_category_scores(
             ratio = float(raw_category_score.get("ratio", 0.0) or 0.0)
         else:
             ratio = 0.0
+        ratio = max(0.0, min(1.0, ratio))
         contribution = ratio * config.category_weights.get(category_name, 0.0)
         if contribution >= 0:
             positive_score += contribution
