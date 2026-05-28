@@ -2,16 +2,18 @@
   "id": "simulation_software_engineer",
   "search_queries": {
     "en": [
+      "C++ developer",
+      "software engineer",
+      "systems engineer",
       "simulation engineer",
-      "scientific software engineer",
-      "numerical software engineer",
-      "c++ simulation"
+      "embedded software engineer"
     ],
     "fr": [
+      "développeur C++",
+      "ingénieur logiciel",
+      "ingénieur systèmes",
       "ingénieur simulation",
-      "ingénieur logiciel scientifique",
-      "ingénieur logiciel numérique",
-      "simulation C++"
+      "ingénieur logiciel embarqué"
     ]
   },
   "must_match": {

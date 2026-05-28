@@ -2,16 +2,18 @@
   "id": "systems_software_engineer",
   "search_queries": {
     "en": [
-      "systems software engineer",
-      "c++ systems engineer",
-      "platform engineer",
-      "infrastructure software engineer"
+      "C++ developer",
+      "software engineer",
+      "systems engineer",
+      "simulation engineer",
+      "embedded software engineer"
     ],
     "fr": [
-      "ingénieur logiciel systèmes",
-      "ingénieur systèmes C++",
-      "ingénieur plateforme",
-      "ingénieur infrastructure logicielle"
+      "développeur C++",
+      "ingénieur logiciel",
+      "ingénieur systèmes",
+      "ingénieur simulation",
+      "ingénieur logiciel embarqué"
     ]
   },
   "must_match": {

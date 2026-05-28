@@ -271,12 +271,11 @@ def _dedupe_preserve_order(values: list[str]) -> list[str]:
 
 
 def _profile_search_locations(profile: CandidateProfile) -> list[str | None]:
-    terms: list[str] = [str(location) for location in profile.location_preferences]
-    location_category = profile.signals.get("location_preferences")
-    if location_category is not None:
-        terms.extend(item.term for item in location_category.items)
-    locations = _dedupe_preserve_order(terms)
-    return locations or [None]
+    # Profile location preferences are scoring/screening signals, not provider-side
+    # search filters. Sending niche values like "remote Europe" to Adzuna can make
+    # broad exploration return zero rows before the local rules get a chance to run.
+    # Only an explicit manual `where` value should constrain provider location.
+    return [None]
 
 
 def iter_profile_search_requests(

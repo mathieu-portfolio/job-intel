@@ -4,13 +4,15 @@
       "C++ developer",
       "software engineer",
       "systems engineer",
-      "simulation engineer"
+      "simulation engineer",
+      "embedded software engineer"
     ],
     "fr": [
       "développeur C++",
       "ingénieur logiciel",
       "ingénieur systèmes",
-      "ingénieur simulation"
+      "ingénieur simulation",
+      "ingénieur logiciel embarqué"
     ]
   },
   "must_match": {
@@ -18,22 +20,42 @@
       {
         "term": "software",
         "aliases": {
-          "en": ["software", "software development", "software engineer", "engineering"],
-          "fr": ["logiciel", "développement logiciel", "ingénieur logiciel", "ingénierie"]
+          "en": [
+            "software",
+            "software development",
+            "software engineer",
+            "engineering"
+          ],
+          "fr": [
+            "logiciel",
+            "développement logiciel",
+            "ingénieur logiciel",
+            "ingénierie"
+          ]
         }
       },
       {
         "term": "developer",
         "aliases": {
-          "en": ["developer", "developper"],
-          "fr": ["développeur", "développeuse"]
+          "en": [
+            "developer",
+            "developper"
+          ],
+          "fr": [
+            "développeur",
+            "développeuse"
+          ]
         }
       },
       {
         "term": "C++",
         "aliases": {
-          "en": ["C++"],
-          "fr": ["C++"]
+          "en": [
+            "C++"
+          ],
+          "fr": [
+            "C++"
+          ]
         }
       }
     ]
@@ -44,24 +66,44 @@
         "term": "systems",
         "weight": 1.0,
         "aliases": {
-          "en": ["systems", "system programming", "systems engineering"],
-          "fr": ["systèmes", "programmation système", "ingénierie système"]
+          "en": [
+            "systems",
+            "system programming",
+            "systems engineering"
+          ],
+          "fr": [
+            "systèmes",
+            "programmation système",
+            "ingénierie système"
+          ]
         }
       },
       {
         "term": "simulation",
         "weight": 1.0,
         "aliases": {
-          "en": ["simulation", "numerical simulation"],
-          "fr": ["simulation", "simulation numérique"]
+          "en": [
+            "simulation",
+            "numerical simulation"
+          ],
+          "fr": [
+            "simulation",
+            "simulation numérique"
+          ]
         }
       },
       {
         "term": "infrastructure",
         "weight": 1.0,
         "aliases": {
-          "en": ["infrastructure", "platform engineering"],
-          "fr": ["infrastructure", "ingénierie plateforme"]
+          "en": [
+            "infrastructure",
+            "platform engineering"
+          ],
+          "fr": [
+            "infrastructure",
+            "ingénierie plateforme"
+          ]
         }
       }
     ],
@@ -70,8 +112,14 @@
         "term": "C++",
         "weight": 1.0,
         "aliases": {
-          "en": ["C++", "modern C++"],
-          "fr": ["C++", "C++ moderne"]
+          "en": [
+            "C++",
+            "modern C++"
+          ],
+          "fr": [
+            "C++",
+            "C++ moderne"
+          ]
         }
       }
     ],
@@ -80,16 +128,30 @@
         "term": "generic CRUD",
         "weight": 1.0,
         "aliases": {
-          "en": ["generic CRUD", "basic CRUD", "admin forms"],
-          "fr": ["CRUD générique", "formulaires métier", "back-office basique"]
+          "en": [
+            "generic CRUD",
+            "basic CRUD",
+            "admin forms"
+          ],
+          "fr": [
+            "CRUD générique",
+            "formulaires métier",
+            "back-office basique"
+          ]
         }
       },
       {
         "term": "pure consulting",
         "weight": 1.0,
         "aliases": {
-          "en": ["pure consulting", "client consulting"],
-          "fr": ["conseil pur", "mission de conseil"]
+          "en": [
+            "pure consulting",
+            "client consulting"
+          ],
+          "fr": [
+            "conseil pur",
+            "mission de conseil"
+          ]
         }
       }
     ]

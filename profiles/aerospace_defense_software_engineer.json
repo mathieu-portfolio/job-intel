@@ -2,14 +2,18 @@
   "id": "aerospace_defense_software_engineer",
   "search_queries": {
     "en": [
-      "aerospace software engineer",
-      "defense software engineer",
-      "simulation engineer aerospace"
+      "C++ developer",
+      "software engineer",
+      "systems engineer",
+      "simulation engineer",
+      "embedded software engineer"
     ],
     "fr": [
-      "ingénieur logiciel aérospatial",
-      "ingénieur logiciel défense",
-      "ingénieur simulation aérospatial"
+      "développeur C++",
+      "ingénieur logiciel",
+      "ingénieur systèmes",
+      "ingénieur simulation",
+      "ingénieur logiciel embarqué"
     ]
   },
   "must_match": {

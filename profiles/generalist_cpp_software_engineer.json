@@ -2,14 +2,18 @@
   "id": "generalist_cpp_software_engineer",
   "search_queries": {
     "en": [
-      "c++ developer",
+      "C++ developer",
       "software engineer",
-      "c++ software engineer"
+      "systems engineer",
+      "simulation engineer",
+      "embedded software engineer"
     ],
     "fr": [
       "développeur C++",
       "ingénieur logiciel",
-      "ingénieur logiciel C++"
+      "ingénieur systèmes",
+      "ingénieur simulation",
+      "ingénieur logiciel embarqué"
     ]
   },
   "must_match": {

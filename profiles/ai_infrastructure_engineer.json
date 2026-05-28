@@ -2,16 +2,18 @@
   "id": "ai_infrastructure_engineer",
   "search_queries": {
     "en": [
-      "ai infrastructure engineer",
-      "ml platform engineer",
-      "inference engineer",
-      "ai systems engineer"
+      "C++ developer",
+      "software engineer",
+      "systems engineer",
+      "simulation engineer",
+      "embedded software engineer"
     ],
     "fr": [
-      "ingénieur infrastructure IA",
-      "ingénieur plateforme ML",
-      "ingénieur inférence",
-      "ingénieur systèmes IA"
+      "développeur C++",
+      "ingénieur logiciel",
+      "ingénieur systèmes",
+      "ingénieur simulation",
+      "ingénieur logiciel embarqué"
     ]
   },
   "must_match": {

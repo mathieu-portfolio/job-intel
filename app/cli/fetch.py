@@ -40,7 +40,7 @@ def fetch(
         "--max-seen-pages",
         help="Stop after this many consecutive pages contain only already-seen offers.",
     ),
-    query: str = typer.Option("", help="Manual search query for sources that support it. Overrides profile search queries."),
+    query: str = typer.Option("", help="Manual broad search query for sources that support it. Overrides profile search queries."),
     country: str = typer.Option("fr", help="Adzuna country code, for example fr, gb, us."),
     where: str | None = typer.Option(None, help="Optional Adzuna location filter."),
     profile: Path = typer.Option(Path("profiles/default.json"), help="Candidate profile JSON path for fast screening."),
@@ -53,7 +53,7 @@ def fetch(
     use_profile_queries: bool = typer.Option(
         True,
         "--profile-queries/--broad-exploration",
-        help="Use profile-owned provider search queries when supported, or disable them for broad exploration.",
+        help="Use profile-owned broad provider queries when supported, or disable them for one broad exploration request.",
     ),
     fetch_concurrency: int = typer.Option(1, min=1, help="Maximum provider pages to fetch in parallel for safe page scans."),
     provider_retry_attempts: int = typer.Option(1, min=1, help="Provider fetch retry attempts per page."),
