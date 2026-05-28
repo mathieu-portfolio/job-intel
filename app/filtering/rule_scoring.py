@@ -145,7 +145,7 @@ def _profile_signal_matches(
 def score_category_scores(
     category_scores: dict[str, CategoryScore] | dict[str, object],
     config: RuleScoringConfig,
-) -> tuple[int, int]:
+) -> tuple[float, int]:
     positive_score = 0.0
     negative_score = 0.0
     for category_name, raw_category_score in category_scores.items():
@@ -166,7 +166,7 @@ def score_category_scores(
         config=config,
     )
     raw_score = positive_score + negative_score
-    return round(raw_score), normalized_score
+    return round(raw_score, 2), normalized_score
 
 
 def evaluate_job(

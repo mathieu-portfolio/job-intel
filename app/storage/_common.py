@@ -12,7 +12,7 @@ from typing import Any, Literal
 from app.models.evaluation import Recommendation
 from app.models.evaluation import RuleEvaluation
 from app.models.job import JobOffer
-from app.filtering.presets import BUILTIN_SCORING_PRESETS, ScoringPreset
+from app.filtering.presets import ScoringPreset, load_builtin_scoring_presets
 from app.filtering.rules import load_rule_scoring_config, parse_rule_scoring_config, score_category_scores
 from app.storage.files import profile_id_from_path
 from app.sql import load_sql
@@ -452,7 +452,7 @@ def _migrate_profile_ids(connection: sqlite3.Connection) -> None:
 
 
 def _seed_builtin_scoring_presets(connection: sqlite3.Connection) -> None:
-    for preset in BUILTIN_SCORING_PRESETS:
+    for preset in load_builtin_scoring_presets():
         connection.execute(
             """
             INSERT INTO scoring_presets (

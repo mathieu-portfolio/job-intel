@@ -4,6 +4,7 @@ from app.storage._common import *  # noqa: F401,F403
 from app.storage._offers_impl import _job_from_offer_row
 from app.storage._reviews_impl import _main_signal_terms, _like_pattern
 from app.ai.decision import DecisionWeights, blend_seniority
+from app.filtering.presets import load_builtin_scoring_presets
 
 SCREENED_DECISION_WEIGHTS = DecisionWeights(ai=0.0, seniority=0.30)
 
@@ -164,36 +165,17 @@ def list_scoring_presets(
     *,
     enabled_only: bool = False,
 ) -> list[ScoringPreset]:
-    init_db(db_path)
-    where_sql = "WHERE enabled = 1" if enabled_only else ""
-    with _connect(db_path) as connection:
-        rows = connection.execute(
-            f"""
-            SELECT id, name, description, weights_json, is_builtin, enabled
-            FROM scoring_presets
-            {where_sql}
-            ORDER BY name ASC;
-            """
-        ).fetchall()
+    """Return scoring presets from config/scoring_presets.
 
-    presets: list[ScoringPreset] = []
-    builtin_orders = {preset.id: preset.order for preset in BUILTIN_SCORING_PRESETS}
-    for row in rows:
-        try:
-            weights = parse_rule_scoring_config(json.loads(row["weights_json"]))
-        except (json.JSONDecodeError, RuntimeError, ValueError):
-            weights = load_rule_scoring_config()
-        presets.append(
-            ScoringPreset(
-                id=row["id"],
-                name=row["name"],
-                description=row["description"] or "",
-                weights=weights,
-                is_builtin=bool(row["is_builtin"]),
-                enabled=bool(row["enabled"]),
-                order=builtin_orders.get(row["id"], 100),
-            )
-        )
+    Presets are configuration, not application data. The database may still
+    contain legacy scoring_presets rows from older versions, but those rows are
+    intentionally ignored so removing a JSON file immediately removes the
+    preset from the UI and from runtime scoring.
+    """
+    del db_path  # Kept for API compatibility with callers.
+    presets = list(load_builtin_scoring_presets())
+    if enabled_only:
+        presets = [preset for preset in presets if preset.enabled]
     return sorted(presets, key=lambda preset: (preset.order, preset.name.lower()))
 
 
@@ -202,7 +184,8 @@ def get_scoring_preset(
     *,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> ScoringPreset:
-    presets = list_scoring_presets(db_path, enabled_only=False)
+    del db_path  # Kept for API compatibility with callers.
+    presets = list_scoring_presets(enabled_only=False)
     for preset in presets:
         if preset.id == preset_id:
             return preset
@@ -239,7 +222,7 @@ def _category_scores_from_json(raw: str | None) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def _score_from_category_scores(raw: str | None, preset: ScoringPreset) -> tuple[int, int]:
+def _score_from_category_scores(raw: str | None, preset: ScoringPreset) -> tuple[float, int]:
     return score_category_scores(_category_scores_from_json(raw), preset.weights)
 
 
@@ -267,48 +250,85 @@ def _seniority_from_json(raw: str | None) -> dict[str, Any]:
     return value
 
 
+def _category_score_breakdown(raw: str | None, preset: ScoringPreset) -> dict[str, Any]:
+    """Build the same weighted category breakdown used for rule scoring.
+
+    The stored screening result keeps match ratios per profile category. The
+    selected preset decides how much each category matters. Keeping this helper
+    as the single display path prevents the UI from showing ratios from one
+    source and contributions from another.
+    """
+    category_scores = _category_scores_from_json(raw)
+    details: list[dict[str, Any]] = []
+    raw_score = 0.0
+
+    for name, raw_category_score in category_scores.items():
+        if isinstance(raw_category_score, dict):
+            ratio = float(raw_category_score.get("ratio", 0.0) or 0.0)
+            matched = float(raw_category_score.get("matched_weight", 0.0) or 0.0)
+            total = float(raw_category_score.get("total_weight", 0.0) or 0.0)
+        else:
+            ratio = 0.0
+            matched = 0.0
+            total = 0.0
+
+        weight = float(preset.weights.category_weights.get(name, 0.0) or 0.0)
+        contribution = ratio * weight
+        raw_score += contribution
+
+        if not contribution and not matched:
+            continue
+        details.append(
+            {
+                "name": name.replace("_", " "),
+                "ratio": round(ratio * 100, 2),
+                "matched_weight": matched,
+                "total_weight": total,
+                "preset_weight": round(weight, 4),
+                "preset_weight_percent": round(weight * 100, 2),
+                "contribution": round(contribution, 4),
+                "contribution_percent": round(contribution * 100, 2),
+                "is_weighted": weight != 0.0,
+            }
+        )
+
+    return {
+        "raw_score": round(raw_score, 4),
+        "details": sorted(
+            details,
+            key=lambda item: (not item["is_weighted"], -abs(item["contribution"]), item["name"]),
+        ),
+        "preset_name": preset.name,
+        "no_signal_score": preset.weights.no_signal_score,
+        "positive_score_scale": preset.weights.positive_score_scale,
+        "negative_score_scale": preset.weights.negative_score_scale,
+    }
+
+
 def _screened_score_details(row: sqlite3.Row, preset: ScoringPreset) -> dict[str, Any]:
+    breakdown = _category_score_breakdown(row["category_scores_json"], preset)
     raw_score, rule_score = _score_from_category_scores(row["category_scores_json"], preset)
     seniority = _seniority_from_json(row["seniority_json"] if "seniority_json" in row.keys() else None)
     seniority_score = int(seniority["score"])
     final_score = blend_seniority(rule_score, seniority_score, SCREENED_DECISION_WEIGHTS.seniority)
     return {
         "rule_score": rule_score,
-        "raw_category_score": raw_score,
+        "raw_category_score": round(float(breakdown["raw_score"]), 4),
         "seniority_score": seniority_score,
         "seniority": seniority,
         "final_score": final_score,
         "base_score": rule_score,
         "base_weight": int(round((1.0 - SCREENED_DECISION_WEIGHTS.seniority) * 100)),
         "seniority_weight": int(round(SCREENED_DECISION_WEIGHTS.seniority * 100)),
+        "preset_name": breakdown["preset_name"],
+        "no_signal_score": breakdown["no_signal_score"],
+        "positive_score_scale": breakdown["positive_score_scale"],
+        "negative_score_scale": breakdown["negative_score_scale"],
     }
 
 
 def _category_score_details(raw: str | None, preset: ScoringPreset) -> list[dict[str, Any]]:
-    details: list[dict[str, Any]] = []
-    for name, raw_category_score in _category_scores_from_json(raw).items():
-        if isinstance(raw_category_score, dict):
-            ratio = float(raw_category_score.get("ratio", 0.0) or 0.0)
-            matched = raw_category_score.get("matched_weight", 0.0) or 0.0
-            total = raw_category_score.get("total_weight", 0.0) or 0.0
-        else:
-            ratio = 0.0
-            matched = 0.0
-            total = 0.0
-        weight = preset.weights.category_weights.get(name, 0.0)
-        contribution = ratio * weight
-        if not contribution and not matched:
-            continue
-        details.append(
-            {
-                "name": name.replace("_", " "),
-                "ratio": round(ratio * 100),
-                "matched_weight": matched,
-                "total_weight": total,
-                "contribution": round(contribution),
-            }
-        )
-    return sorted(details, key=lambda item: abs(item["contribution"]), reverse=True)
+    return _category_score_breakdown(raw, preset)["details"]
 
 
 def _signals_json_for_row(row: sqlite3.Row) -> str:
@@ -409,7 +429,7 @@ def list_screened_offers(
         clauses.append("offers.source = ?")
         where_params.append(source)
     where_sql = " AND ".join(clauses)
-    params = [preset_id, preset_id, preset_id, preset_id, profile_id, *where_params]
+    params = [preset_id, preset_id, preset.name, preset_id, profile_id, *where_params]
     with _connect(db_path) as connection:
         rows = connection.execute(
             f"""
@@ -428,7 +448,7 @@ def list_screened_offers(
                 offers.review_status,
                 ? AS preset_id,
                 ? AS selected_preset_id,
-                scoring_presets.name AS preset_name,
+                ? AS preset_name,
                 screening_results.score AS stored_score,
                 screening_results.matched_signals_json,
                 screening_results.category_scores_json,
@@ -439,7 +459,6 @@ def list_screened_offers(
                 ai_reviews.reviewed_at AS ai_reviewed_at
             FROM offers
             JOIN screening_results ON screening_results.offer_id = offers.id
-            JOIN scoring_presets ON scoring_presets.id = ?
             LEFT JOIN ai_reviews
              ON ai_reviews.offer_id = offers.id
              AND ai_reviews.preset_id = ?

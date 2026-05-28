@@ -57,4 +57,7 @@ def load_builtin_scoring_presets(directory: Path = SCORING_PRESET_DIR) -> tuple[
     return tuple(sorted(presets, key=lambda preset: (preset.order, preset.name.lower())))
 
 
-BUILTIN_SCORING_PRESETS: tuple[ScoringPreset, ...] = load_builtin_scoring_presets()
+# Backwards-compatible name for old imports. Do not load presets at import time:
+# callers must use load_builtin_scoring_presets() so config/scoring_presets is
+# the runtime source of truth.
+BUILTIN_SCORING_PRESETS: tuple[ScoringPreset, ...] = ()

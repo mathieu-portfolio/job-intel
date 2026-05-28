@@ -218,8 +218,7 @@
                 <section>
                   <h3>Rule scoring</h3>
                   <p>Rule score: {{ rule.get("normalized_score") }}/100</p>
-                  <p>Raw category score: {{ "%+.2f"|format(rule.get("raw_score", rule.get("score", 0)) or 0) }}</p>
-                  <p>Recommendation: {{ rule.get("decision") }}</p>
+                                    <p>Recommendation: {{ rule.get("decision") }}</p>
                   {% set seniority = rule.get("seniority") or {} %}
                   <p>
                     Seniority: {{ seniority.get("offer_seniority", "unknown") }} offer vs

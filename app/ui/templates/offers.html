@@ -282,16 +282,18 @@
                   </section>
 
                   <section>
-                    <h3>Rule signals</h3>
-                    <p>Raw category score: {{ offer.score_details.raw_category_score }}</p>
+                    <h3>Matching summary</h3>
+                    <p>Rule score: {{ offer.rule_score }}/100</p>
                     {% if offer.category_score_details %}
                       <ul>
                         {% for category in offer.category_score_details %}
-                          <li>{{ category.name }}: {{ category.contribution }} points ({{ category.ratio }}% matched)</li>
+                          {% if (category.ratio or 0) > 0 %}
+                          <li>{{ category.name }}: {{ "%.0f"|format(category.ratio or 0) }}% matched</li>
+                          {% endif %}
                         {% endfor %}
                       </ul>
                     {% else %}
-                      <p>No weighted rule signal was recorded.</p>
+                      <p>No stored matching details.</p>
                     {% endif %}
                   </section>
                 </div>
