@@ -731,21 +731,100 @@ li span {
   margin-top: 1rem;
 }
 
+/* Active profile switcher: sober, right-anchored dropdown. */
 .active-profile-form {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 0.5rem;
+  position: relative;
 }
 
-.active-profile-form label {
-  display: grid;
-  gap: 0.25rem;
-  font-size: 0.8rem;
+.profile-picker-label {
   color: var(--muted);
+  font-size: 0.8rem;
 }
 
-.active-profile-form select {
+.profile-picker {
+  position: relative;
+}
+
+.profile-picker summary {
+  position: relative;
   min-width: 12rem;
+  max-width: min(22rem, calc(100vw - 2rem));
+  padding: 0.5rem 2rem 0.5rem 0.75rem;
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  list-style: none;
+  cursor: pointer;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.profile-picker summary:hover,
+.profile-picker summary:focus-visible {
+  background: var(--bg);
+  outline: none;
+}
+
+.profile-picker summary::-webkit-details-marker {
+  display: none;
+}
+
+.profile-picker summary::after {
+  content: "⌄";
+  position: absolute;
+  top: 50%;
+  right: 0.75rem;
+  color: var(--muted);
+  transform: translateY(-50%);
+}
+
+.profile-picker-menu {
+  position: absolute;
+  top: calc(100% + 0.25rem);
+  right: 0;
+  z-index: 50;
+  min-width: 100%;
+  max-width: min(24rem, calc(100vw - 2rem));
+  max-height: min(70vh, 28rem);
+  padding: 0.25rem;
+  overflow: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.profile-picker-option {
+  display: block;
+  width: 100%;
+  padding: 0.45rem 0.65rem;
+  font: inherit;
+  color: var(--text);
+  text-align: left;
+  white-space: nowrap;
+  appearance: none;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+}
+
+.profile-picker-option:hover,
+.profile-picker-option:focus-visible {
+  background: var(--bg);
+  color: var(--text);
+  outline: none;
+}
+
+.profile-picker-option.active {
+  font-weight: 600;
+  background: var(--bg);
+  color: var(--text);
 }
 
 .profile-note {

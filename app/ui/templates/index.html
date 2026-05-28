@@ -21,14 +21,20 @@
       <div class="header-actions">
         <form class="active-profile-form" method="post" action="/settings/profile">
           <input type="hidden" name="redirect_to" value="{{ request.url.path }}">
-          <label>
-            Active profile
-            <select name="active_profile" onchange="this.form.submit()">
+          <span class="profile-picker-label">Active profile</span>
+          <details class="profile-picker">
+            <summary title="{{ active_profile.label }}">{{ active_profile.label }}</summary>
+            <div class="profile-picker-menu" role="menu">
               {% for profile in profiles %}
-                <option value="{{ profile.value }}" {% if active_profile.value == profile.value %}selected{% endif %}>{{ profile.label }}</option>
+                <button
+                  type="submit"
+                  name="active_profile"
+                  value="{{ profile.value }}"
+                  class="profile-picker-option{% if active_profile.value == profile.value %} active{% endif %}" role="menuitem"
+                >{{ profile.label }}</button>
               {% endfor %}
-            </select>
-          </label>
+            </div>
+          </details>
         </form>
         <div class="count">{{ offers|length }} AI reviewed offers</div>
       </div>
