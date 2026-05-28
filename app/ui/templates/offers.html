@@ -131,9 +131,16 @@
         class="filters offers-filters"
         method="get"
         action="{{ listing_path }}"
-        data-persist-key="{% if active_page == 'screened' %}jobIntel.screenedFilters{% else %}jobIntel.exploreFilters{% endif %}"
+        data-persist-key="jobIntel.offersFilters"
         data-sync-query="true"
       >
+        <label>
+          View
+          <select name="view">
+            <option value="ready" {% if filters.view == "ready" %}selected{% endif %}>Ready for AI review</option>
+            <option value="screened" {% if filters.view == "screened" %}selected{% endif %}>All screened</option>
+          </select>
+        </label>
         <label class="wide-filter">
           Search
           <input name="q" type="search" value="{{ filters.q }}" placeholder="Title, company, description">
@@ -171,11 +178,12 @@
           </label>
         {% endif %}
         <label>
-          Limit
-          <input name="limit" type="number" min="1" max="500" value="{{ filters.limit }}">
+          Per page
+          <input name="page_size" type="number" min="1" max="100" value="{{ filters.page_size }}">
         </label>
+        <input type="hidden" name="page" value="1">
         <button type="submit">Apply</button>
-        <a class="clear" href="{{ listing_path }}" data-reset-prefs data-reset-extra-keys="{% if active_page == 'explore' %}jobIntel.fetchPrefs{% endif %}">Reset filters/preferences</a>
+        <a class="clear" href="{{ listing_path }}" data-reset-prefs data-reset-extra-keys="jobIntel.fetchPrefs">Reset filters/preferences</a>
       </form>
 
       <datalist id="location-suggestions">
@@ -183,6 +191,8 @@
           <option value="{{ location }}"></option>
         {% endfor %}
       </datalist>
+
+      {% include "_pagination.html" %}
 
       <section class="list">
         {% if show_screened_filters and filters.show_all_presets %}
@@ -283,6 +293,8 @@
         {% endfor %}
       </section>
 
+      {% include "_pagination.html" %}
+
       <section class="danger-zone">
         <div>
           <h2>Danger zone</h2>
@@ -295,7 +307,7 @@
           data-confirm-message="Delete screened offers? Dependent AI review rows will also be removed. Explored tracking will remain."
         >
           <input type="hidden" name="scope" value="offers">
-          <input type="hidden" name="redirect_to" value="/explore">
+          <input type="hidden" name="redirect_to" value="/offers">
           <button class="danger subtle" type="submit">Clear screened offers</button>
         </form>
       </section>

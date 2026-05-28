@@ -315,6 +315,7 @@ def list_ranked_offers(
     ai_only: bool = False,
     sort: str = "score_desc",
     limit: int = 100,
+    offset: int = 0,
 ) -> list[dict[str, Any]]:
     init_db(db_path)
     clauses: list[str] = []
@@ -363,7 +364,8 @@ def list_ranked_offers(
         "source": "offers.source ASC, rankings.score DESC",
     }.get(sort, "rankings.score DESC, rankings.ranked_at DESC")
 
-    fetch_limit = max(limit * 10, 1000)
+    safe_offset = max(offset, 0)
+    fetch_limit = max((safe_offset + limit) * 10, 1000)
     params.append(fetch_limit)
     with _connect(db_path) as connection:
         sql = (
@@ -401,7 +403,7 @@ def list_ranked_offers(
         return (item.get("score") or 0, item.get("ranked_at") or "")
 
     reverse = sort not in {"status", "source", "recommendation"}
-    return sorted(results, key=display_sort_key, reverse=reverse)[:limit]
+    return sorted(results, key=display_sort_key, reverse=reverse)[safe_offset:safe_offset + limit]
 
 
 def list_unranked_review_offers(
@@ -411,6 +413,7 @@ def list_unranked_review_offers(
     source: str | None = None,
     profile_id: str = "default",
     limit: int = 100,
+    offset: int = 0,
 ) -> list[dict[str, Any]]:
     init_db(db_path)
     clauses: list[str] = [
@@ -434,6 +437,7 @@ def list_unranked_review_offers(
 
     where_sql = f"WHERE {' AND '.join(clauses)}"
     params.append(limit)
+    params.append(max(offset, 0))
     with _connect(db_path) as connection:
         rows = connection.execute(
             f"""
@@ -456,7 +460,7 @@ def list_unranked_review_offers(
                 CASE WHEN offers.published_at IS NULL THEN 1 ELSE 0 END,
                 offers.published_at DESC,
                 offers.first_seen_at DESC
-            LIMIT ?;
+            LIMIT ? OFFSET ?;
             """,
             params,
         ).fetchall()

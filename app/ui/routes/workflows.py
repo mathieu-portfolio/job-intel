@@ -91,7 +91,7 @@ def register_workflow_routes(app: FastAPI) -> None:
         finally:
             _clear_cancellation_event(request, token)
             _clear_workflow_progress(request, token)
-        return RedirectResponse("/explore", status_code=303)
+        return RedirectResponse("/offers?view=ready", status_code=303)
 
     @app.post("/workflows/rank")
     async def run_rank(request: Request):
@@ -136,7 +136,7 @@ def register_workflow_routes(app: FastAPI) -> None:
         finally:
             _clear_cancellation_event(request, token)
             _clear_workflow_progress(request, token)
-        return RedirectResponse("/", status_code=303)
+        return RedirectResponse("/ai-reviewed", status_code=303)
 
     @app.get("/workflows/progress/{token}")
     async def workflow_progress(request: Request, token: str):

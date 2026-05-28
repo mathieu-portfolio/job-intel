@@ -416,6 +416,7 @@ def list_screened_offers(
     source: str | None = None,
     sort: str = "score_desc",
     limit: int = 100,
+    offset: int = 0,
 ) -> list[dict[str, Any]]:
     init_db(db_path)
     preset = get_scoring_preset(preset_id, db_path=db_path)
@@ -495,4 +496,5 @@ def list_screened_offers(
         return (item["fast_score"], item["last_fetched_at"] or "")
 
     reverse = sort not in {"source", "status"}
-    return sorted(results, key=sort_key, reverse=reverse)[:limit]
+    safe_offset = max(offset, 0)
+    return sorted(results, key=sort_key, reverse=reverse)[safe_offset:safe_offset + limit]

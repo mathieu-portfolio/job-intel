@@ -2,3 +2,39 @@
 @import url("./css/profile-switcher.css");
 @import url("./css/settings-menu.css");
 @import url("./css/app-chrome.css");
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 1rem 0;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.pagination-summary {
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.pagination-actions {
+  display: flex;
+  gap: 0.65rem;
+  align-items: center;
+}
+
+.pagination-actions a,
+.pagination-actions .disabled {
+  padding: 0.45rem 0.8rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  text-decoration: none;
+}
+
+.pagination-actions .disabled {
+  color: var(--muted);
+  opacity: 0.55;
+}

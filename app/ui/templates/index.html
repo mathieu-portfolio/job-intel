@@ -142,11 +142,12 @@
           </select>
         </label>
         <label>
-          Limit
-          <input name="limit" type="number" min="1" max="500" value="{{ filters.limit }}">
+          Per page
+          <input name="page_size" type="number" min="1" max="100" value="{{ filters.page_size }}">
         </label>
+        <input type="hidden" name="page" value="1">
         <button type="submit">Apply</button>
-        <a class="clear" href="/" data-reset-prefs data-reset-extra-keys="jobIntel.aiReviewPrefs">Reset filters/preferences</a>
+        <a class="clear" href="/ai-reviewed" data-reset-prefs data-reset-extra-keys="jobIntel.aiReviewPrefs">Reset filters/preferences</a>
       </form>
 
       <datalist id="location-suggestions">
@@ -154,6 +155,8 @@
           <option value="{{ location }}"></option>
         {% endfor %}
       </datalist>
+
+      {% include "_pagination.html" %}
 
       <section class="list">
         {% for offer in offers %}
@@ -302,6 +305,8 @@
         {% endfor %}
       </section>
 
+      {% include "_pagination.html" %}
+
       <section class="danger-zone">
         <div>
           <h2>Danger zone</h2>
@@ -314,7 +319,7 @@
           data-confirm-message="Delete all AI review rows? Screened offers and explored tracking will remain."
         >
           <input type="hidden" name="scope" value="rankings">
-          <input type="hidden" name="redirect_to" value="/">
+          <input type="hidden" name="redirect_to" value="/ai-reviewed">
           <button class="danger subtle" type="submit">Clear AI reviews</button>
         </form>
       </section>
