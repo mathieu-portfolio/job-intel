@@ -1,0 +1,265 @@
+/* Two-layer application chrome. */
+.hero-bar {
+  position: sticky;
+  top: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 22px 32px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  box-shadow: 0 1px 6px rgba(15, 23, 42, 0.06);
+}
+
+.hero-bar p {
+  color: var(--muted);
+}
+
+.hero-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.hero-title {
+  color: inherit;
+  text-decoration: none;
+}
+
+.hero-title:hover h1,
+.hero-title:focus-visible h1 {
+  color: var(--accent);
+}
+
+.back-to-app {
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 12px;
+  color: var(--text);
+  background: var(--panel);
+  text-decoration: none;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.back-to-app:hover,
+.back-to-app:focus-visible {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  outline: none;
+}
+
+.settings-page-label {
+  font-weight: 800;
+  color: var(--accent);
+}
+
+.settings-button {
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 14px;
+  color: var(--text);
+  background: var(--panel);
+  text-decoration: none;
+  font-weight: 700;
+}
+
+.settings-button:hover,
+.settings-button:focus-visible,
+.settings-button.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  outline: none;
+}
+
+.workflow-nav {
+  position: sticky;
+  top: 82px;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 32px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(10px);
+  flex-wrap: wrap;
+}
+
+.workflow-nav-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.workflow-nav-links a,
+.settings-tabs a {
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 10px;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.workflow-nav-links a.active,
+.settings-tabs a.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.workflow-context {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.settings-page-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.settings-tabs {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 16px;
+  flex-wrap: wrap;
+}
+
+.settings-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  gap: 16px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.inline-settings-form {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 0;
+}
+
+.new-item-form {
+  padding-left: 16px;
+  border-left: 1px solid var(--line);
+}
+
+@media (max-width: 760px) {
+  .hero-bar,
+  .workflow-nav {
+    position: static;
+    padding: 16px;
+  }
+
+  .hero-left {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .workflow-context {
+    align-items: flex-start;
+  }
+
+  .settings-toolbar,
+  .inline-settings-form {
+    align-items: stretch;
+  }
+
+  .new-item-form {
+    padding-left: 0;
+    border-left: 0;
+  }
+}
+
+
+.settings-grid-two {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.settings-grid-single {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
+
+.settings-data-card-wide {
+  max-width: 860px;
+}
+
+.settings-data-card {
+  display: grid;
+  gap: 16px;
+}
+
+.settings-summary-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.settings-summary-list div {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 10px;
+  align-items: baseline;
+}
+
+.settings-summary-list dt {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.settings-summary-list dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.settings-actions-row,
+.import-form {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.import-form {
+  align-items: start;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+
+.import-form label {
+  flex: 1 1 260px;
+}
+
+.import-form .profile-note {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+@media (max-width: 900px) {
+  .settings-grid-two {
+    grid-template-columns: 1fr;
+  }
+}

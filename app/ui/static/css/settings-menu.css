@@ -1,0 +1,77 @@
+/* Global settings menu in the workflow navigation. */
+.settings-menu {
+  position: relative;
+}
+
+.settings-menu summary {
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 28px 5px 10px;
+  color: var(--text);
+  text-decoration: none;
+  list-style: none;
+  cursor: pointer;
+  background: var(--panel);
+  position: relative;
+}
+
+.settings-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.settings-menu summary::after {
+  content: "⌄";
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  color: var(--muted);
+  transform: translateY(-50%);
+}
+
+.settings-menu summary:hover,
+.settings-menu summary:focus-visible {
+  background: var(--bg);
+  outline: none;
+}
+
+.settings-menu summary.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.settings-menu-panel {
+  position: absolute;
+  top: calc(100% + 0.25rem);
+  left: 0;
+  z-index: 60;
+  min-width: 12rem;
+  padding: 0.25rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.12);
+}
+
+.nav-links .settings-menu-panel a {
+  display: block;
+  min-height: auto;
+  padding: 0.45rem 0.65rem;
+  border: 0;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.nav-links .settings-menu-panel a:hover,
+.nav-links .settings-menu-panel a:focus-visible {
+  background: var(--bg);
+  outline: none;
+}
+
+.nav-links .settings-menu-panel a.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
