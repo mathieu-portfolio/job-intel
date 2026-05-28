@@ -832,3 +832,133 @@ li span {
   color: var(--muted);
   font-size: 0.9rem;
 }
+.profile-editor {
+  display: grid;
+  gap: 20px;
+}
+
+.profile-meta-card {
+  margin-bottom: 0;
+}
+
+.profile-section {
+  display: grid;
+  gap: 14px;
+  padding: 20px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.profile-section-head,
+.profile-category-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.profile-section-head h2 {
+  font-size: 18px;
+}
+
+.profile-section-head p {
+  margin-top: 4px;
+  color: var(--muted);
+}
+
+.profile-category-list,
+.profile-items {
+  display: grid;
+  gap: 12px;
+}
+
+.profile-category-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.profile-category-head label {
+  flex: 1 1 260px;
+}
+
+.profile-category-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.profile-item-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.2fr) minmax(180px, 0.8fr) minmax(220px, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+  padding: 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.profile-item-row.compact {
+  grid-template-columns: minmax(220px, 1fr) auto;
+}
+
+.profile-term-label,
+.profile-weight-label {
+  flex: none;
+}
+
+.profile-weight-label input[type="range"] {
+  width: 100%;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.profile-aliases {
+  min-width: 0;
+}
+
+.profile-aliases summary {
+  min-height: 36px;
+  padding: 8px 10px;
+  color: var(--muted);
+  cursor: pointer;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+textarea {
+  width: 100%;
+  min-height: 88px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  color: var(--text);
+  font: inherit;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  resize: vertical;
+}
+
+@media (max-width: 900px) {
+  .profile-section-head,
+  .profile-category-head {
+    display: grid;
+  }
+
+  .profile-category-actions {
+    justify-content: flex-start;
+  }
+
+  .profile-item-row,
+  .profile-item-row.compact {
+    grid-template-columns: 1fr;
+  }
+}

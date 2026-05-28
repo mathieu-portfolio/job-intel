@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from threading import Lock
 
@@ -10,7 +11,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
 from app.storage.connection import DEFAULT_DB_PATH
-from app.storage.files import profile_id_from_path
+from app.storage.files import load_profile, profile_id_from_path
 from app.storage.maintenance import (
     DEFAULT_EXPLORED_CAPACITY,
     DEFAULT_RANKED_CAPACITY,
@@ -26,6 +27,7 @@ from app.storage.reviews import (
     list_unranked_review_offers,
 )
 from app.storage.scoring import get_scoring_preset, list_scoring_presets, list_screened_offers
+from app.models.profile import CandidateProfile
 from app.ui_options import ADZUNA_MARKETS, discover_profiles
 from app.workflows import WorkflowCancelled, fetch_offers, rank_offers
 from app.ui.state import (
@@ -81,6 +83,24 @@ def _common_template_context(request: Request) -> dict[str, object]:
     }
 
 
+
+
+def _profile_payload(profile_path: str) -> dict[str, object]:
+    path = Path(profile_path)
+    profile = load_profile(path)
+    raw = profile.model_dump(mode="json", exclude_none=True)
+    return {
+        "path": str(path).replace("\\", "/"),
+        "profile": raw,
+        "payload_json": json.dumps(raw, ensure_ascii=False),
+    }
+
+
+def _write_profile(path: Path, payload: dict[str, object]) -> None:
+    profile = load_profile(path).model_copy(update=CandidateProfile.model_validate(payload).model_dump())
+    normalized = profile.model_dump(mode="json", exclude_none=True)
+    path.write_text(json.dumps(normalized, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
 def _normalize_review_result(result: dict[str, object]) -> None:
     """Fill display-only score fields for older saved review JSON.
 
@@ -131,6 +151,44 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
         response = RedirectResponse(redirect_to, status_code=303)
         response.set_cookie("job_intel_active_profile", selected, max_age=60 * 60 * 24 * 365, samesite="lax")
         return response
+
+
+    @app.get("/profile", response_class=HTMLResponse)
+    def profile_editor(request: Request) -> HTMLResponse:
+        active_profile = _active_profile_path(request)
+        return templates.TemplateResponse(
+            request,
+            "profile.html",
+            {
+                **_common_template_context(request),
+                **_profile_payload(active_profile),
+                "db_path": request.app.state.db_path,
+                "workflow_notice": _consume_workflow_notice(request),
+                "active_page": "profile",
+            },
+        )
+
+    @app.post("/profile")
+    async def save_profile(request: Request):
+        form = await _form_data(request)
+        active_profile = Path(_active_profile_path(request))
+        try:
+            payload = json.loads(form.get("profile_payload") or "{}")
+            if not isinstance(payload, dict):
+                raise ValueError("Profile payload must be an object.")
+            _write_profile(active_profile, payload)
+            request.app.state.workflow_notice = _workflow_notice(
+                "success",
+                "Profile saved",
+                {"Profile": str(active_profile).replace("\\", "/")},
+            )
+        except Exception as error:
+            request.app.state.workflow_notice = _workflow_notice(
+                "error",
+                "Profile save failed",
+                {"Error": str(error)},
+            )
+        return RedirectResponse("/profile", status_code=303)
 
     @app.get("/", response_class=HTMLResponse)
     @app.get("/ai-reviewed", response_class=HTMLResponse)
