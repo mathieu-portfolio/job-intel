@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Presets - Job Intel Review</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='styles.css') }}">
+    <script defer src="{{ url_for('static', path='preset-editor.js') }}"></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>Job Intel Review</h1>
+        <p>{{ db_path }}</p>
+        <nav class="nav-links">
+          <a class="{% if active_page == 'explore' %}active{% endif %}" href="/explore">Explore</a>
+          <a class="{% if active_page == 'screened' %}active{% endif %}" href="/screened">Screened</a>
+          <a class="{% if active_page == 'ai_reviewed' %}active{% endif %}" href="/">AI Reviewed</a>
+          <a class="{% if active_page == 'profile' %}active{% endif %}" href="/profile">Profile</a>
+          <a class="{% if active_page == 'presets' %}active{% endif %}" href="/presets">Presets</a>
+          <a class="{% if active_page == 'maintenance' %}active{% endif %}" href="/maintenance">Maintenance</a>
+        </nav>
+      </div>
+      <div class="header-actions">
+        <form class="active-profile-form" method="get" action="/presets">
+          <span class="profile-picker-label">Preset</span>
+          <details class="profile-picker">
+            <summary title="{{ selected_preset.name }}">{{ selected_preset.name }}</summary>
+            <div class="profile-picker-menu" role="menu">
+              {% for scoring_preset in scoring_presets %}
+                <button type="submit" name="preset" value="{{ scoring_preset.id }}" class="profile-picker-option{% if selected_preset.id == scoring_preset.id %} active{% endif %}" role="menuitem">{{ scoring_preset.name }}</button>
+              {% endfor %}
+            </div>
+          </details>
+        </form>
+      </div>
+    </header>
+
+    <main>
+      {% if workflow_notice %}
+        <section class="workflow-notice {{ workflow_notice.kind }}">
+          <h2>{{ workflow_notice.title }}</h2>
+          <dl>
+            {% for key, value in workflow_notice.summary.items() %}
+              <div><dt>{{ key }}</dt><dd>{{ value }}</dd></div>
+            {% endfor %}
+          </dl>
+        </section>
+      {% endif %}
+
+      <form id="preset-editor" class="profile-editor" method="post" action="/presets" data-preset='{{ preset|tojson }}'>
+        <input type="hidden" name="original_preset_id" value="{{ selected_preset.id }}">
+        <input id="preset-payload" type="hidden" name="preset_payload" value="{{ payload_json|e }}">
+
+        <section class="workflow-card profile-meta-card">
+          <div class="workflow-head">
+            <div>
+              <h2>Preset editor</h2>
+              <p class="profile-note">Editing {{ selected_preset.id }}. Presets define rule scoring weights.</p>
+            </div>
+            <button type="submit">Save preset</button>
+          </div>
+          <div class="workflow-grid">
+            <label>
+              ID
+              <input data-preset-field="id" type="text" required>
+            </label>
+            <label>
+              Name
+              <input data-preset-field="name" type="text" required>
+            </label>
+            <label>
+              Order
+              <input data-preset-field="order" type="number" min="0">
+            </label>
+            <label class="checkbox-filter">
+              <input data-preset-field="enabled" type="checkbox" value="true">
+              Enabled
+            </label>
+            <label class="checkbox-filter">
+              <input data-preset-field="is_builtin" type="checkbox" value="true">
+              Built-in
+            </label>
+          </div>
+          <label>
+            Description
+            <textarea data-preset-field="description" rows="3"></textarea>
+          </label>
+        </section>
+
+        <section class="profile-section">
+          <div class="profile-section-head">
+            <div>
+              <h2>Category weights</h2>
+              <p>How strongly each profile signal category influences rule scoring. Negative values penalize matches.</p>
+            </div>
+            <button type="button" class="subtle" data-add-category-weight>Add category</button>
+          </div>
+          <div id="category-weights" class="profile-items"></div>
+        </section>
+
+        <section class="profile-section">
+          <div class="profile-section-head">
+            <div>
+              <h2>Term weights</h2>
+              <p>Global positive and negative keyword signals used by the rule scorer.</p>
+            </div>
+          </div>
+          <div class="preset-two-column">
+            <article class="profile-category-card">
+              <div class="profile-category-head">
+                <h3>Positive terms</h3>
+                <button type="button" class="subtle" data-add-positive-term>Add term</button>
+              </div>
+              <div id="positive-terms" class="profile-items"></div>
+            </article>
+            <article class="profile-category-card">
+              <div class="profile-category-head">
+                <h3>Negative terms</h3>
+                <button type="button" class="subtle" data-add-negative-term>Add term</button>
+              </div>
+              <div id="negative-terms" class="profile-items"></div>
+            </article>
+          </div>
+        </section>
+
+        <section class="profile-section">
+          <div class="profile-section-head">
+            <div>
+              <h2>Category behavior</h2>
+              <p>Cumulative categories add matched item weights. Exclusive categories use the best matched item.</p>
+            </div>
+          </div>
+          <div class="preset-two-column">
+            <article class="profile-category-card">
+              <div class="profile-category-head">
+                <h3>Cumulative categories</h3>
+                <button type="button" class="subtle" data-add-cumulative>Add category</button>
+              </div>
+              <div id="cumulative-categories" class="profile-items"></div>
+            </article>
+            <article class="profile-category-card">
+              <div class="profile-category-head">
+                <h3>Exclusive categories</h3>
+                <button type="button" class="subtle" data-add-exclusive>Add category</button>
+              </div>
+              <div id="exclusive-categories" class="profile-items"></div>
+            </article>
+          </div>
+        </section>
+
+        <section class="profile-section">
+          <div class="profile-section-head">
+            <div>
+              <h2>Scoring parameters</h2>
+              <p>Calibration values for converting matched signals into normalized scores.</p>
+            </div>
+          </div>
+          <div class="workflow-grid">
+            <label>No signal score <input data-weight-field="no_signal_score" type="number" min="0" max="100"></label>
+            <label>Positive score scale <input data-weight-field="positive_score_scale" type="number" min="0" step="1"></label>
+            <label>Negative score scale <input data-weight-field="negative_score_scale" type="number" min="0" step="1"></label>
+            <label>Strong negative threshold <input data-weight-field="strong_negative_threshold" type="number" min="-1" max="0" step="0.01"></label>
+            <label>Strong negative score cap <input data-weight-field="strong_negative_score_cap" type="number" min="0" max="100"></label>
+          </div>
+        </section>
+      </form>
+    </main>
+  </body>
+</html>

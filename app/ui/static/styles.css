@@ -962,3 +962,23 @@ textarea {
     grid-template-columns: 1fr;
   }
 }
+
+.preset-two-column {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.preset-weight-row {
+  grid-template-columns: minmax(180px, 1fr) minmax(180px, 0.8fr) auto;
+}
+
+@media (max-width: 900px) {
+  .preset-two-column {
+    grid-template-columns: 1fr;
+  }
+
+  .preset-weight-row {
+    grid-template-columns: 1fr;
+  }
+}

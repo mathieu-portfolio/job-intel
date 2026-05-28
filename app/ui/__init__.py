@@ -27,6 +27,7 @@ from app.storage.reviews import (
     list_unranked_review_offers,
 )
 from app.storage.scoring import get_scoring_preset, list_scoring_presets, list_screened_offers
+from app.filtering.presets import SCORING_PRESET_DIR, ScoringPresetFile
 from app.models.profile import CandidateProfile
 from app.ui_options import ADZUNA_MARKETS, discover_profiles
 from app.workflows import WorkflowCancelled, fetch_offers, rank_offers
@@ -101,6 +102,43 @@ def _write_profile(path: Path, payload: dict[str, object]) -> None:
     normalized = profile.model_dump(mode="json", exclude_none=True)
     path.write_text(json.dumps(normalized, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
+
+
+def _preset_file_path(preset_id: str) -> Path:
+    safe_id = preset_id.strip()
+    if not safe_id or "/" in safe_id or "\\" in safe_id or safe_id in {".", ".."}:
+        raise ValueError("Invalid preset id.")
+    return SCORING_PRESET_DIR / f"{safe_id}.json"
+
+
+def _preset_payload(preset_id: str) -> dict[str, object]:
+    preset = get_scoring_preset(preset_id)
+    raw = {
+        "id": preset.id,
+        "name": preset.name,
+        "description": preset.description,
+        "order": preset.order,
+        "is_builtin": preset.is_builtin,
+        "enabled": preset.enabled,
+        "weights": preset.weights.model_dump(mode="json"),
+    }
+    return {
+        "preset": raw,
+        "payload_json": json.dumps(raw, ensure_ascii=False),
+    }
+
+
+def _write_preset(original_id: str, payload: dict[str, object]) -> Path:
+    preset_file = ScoringPresetFile.model_validate(payload)
+    normalized = preset_file.model_dump(mode="json", exclude_none=True)
+    SCORING_PRESET_DIR.mkdir(parents=True, exist_ok=True)
+    path = _preset_file_path(preset_file.id)
+    old_path = _preset_file_path(original_id)
+    if old_path != path and old_path.exists():
+        old_path.unlink()
+    path.write_text(json.dumps(normalized, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return path
+
 def _normalize_review_result(result: dict[str, object]) -> None:
     """Fill display-only score fields for older saved review JSON.
 
@@ -152,6 +190,50 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
         response.set_cookie("job_intel_active_profile", selected, max_age=60 * 60 * 24 * 365, samesite="lax")
         return response
 
+
+
+
+    @app.get("/presets", response_class=HTMLResponse)
+    def presets_editor(request: Request, preset: str = "balanced") -> HTMLResponse:
+        scoring_presets = list_scoring_presets(request.app.state.db_path, enabled_only=False)
+        selected = get_scoring_preset(preset, db_path=request.app.state.db_path)
+        return templates.TemplateResponse(
+            request,
+            "presets.html",
+            {
+                **_common_template_context(request),
+                **_preset_payload(selected.id),
+                "scoring_presets": scoring_presets,
+                "selected_preset": selected,
+                "db_path": request.app.state.db_path,
+                "workflow_notice": _consume_workflow_notice(request),
+                "active_page": "presets",
+            },
+        )
+
+    @app.post("/presets")
+    async def save_preset(request: Request):
+        form = await _form_data(request)
+        original_id = (form.get("original_preset_id") or "").strip()
+        try:
+            payload = json.loads(form.get("preset_payload") or "{}")
+            if not isinstance(payload, dict):
+                raise ValueError("Preset payload must be an object.")
+            path = _write_preset(original_id, payload)
+            preset_id = str(payload.get("id") or original_id)
+            request.app.state.workflow_notice = _workflow_notice(
+                "success",
+                "Preset saved",
+                {"Preset": preset_id, "File": str(path).replace("\\", "/")},
+            )
+        except Exception as error:
+            preset_id = original_id or "balanced"
+            request.app.state.workflow_notice = _workflow_notice(
+                "error",
+                "Preset save failed",
+                {"Error": str(error)},
+            )
+        return RedirectResponse(f"/presets?preset={preset_id}", status_code=303)
 
     @app.get("/profile", response_class=HTMLResponse)
     def profile_editor(request: Request) -> HTMLResponse:
