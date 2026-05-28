@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import shutil
+import tempfile
+import zipfile
 from pathlib import Path
 from threading import Lock
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
@@ -191,6 +194,127 @@ def _write_new_preset(preset_id: str, source_preset: str, name: str | None, db_p
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return path
 
+
+def _config_export_paths() -> list[Path]:
+    roots = [Path("profiles"), SCORING_PRESET_DIR]
+    files: list[Path] = []
+    for root in roots:
+        if root.exists():
+            files.extend(path for path in root.rglob("*.json") if path.is_file())
+    return sorted(files)
+
+
+def _config_archive_name(path: Path) -> str:
+    profile_root = Path("profiles")
+    try:
+        return path.relative_to(profile_root.parent).as_posix()
+    except ValueError:
+        pass
+    try:
+        return (Path("config") / "scoring_presets" / path.name).as_posix()
+    except ValueError:
+        return path.name
+
+
+
+def _profile_export_paths() -> list[Path]:
+    root = Path("profiles")
+    if not root.exists():
+        return []
+    return sorted(path for path in root.rglob("*.json") if path.is_file())
+
+
+def _preset_export_paths() -> list[Path]:
+    if not SCORING_PRESET_DIR.exists():
+        return []
+    return sorted(path for path in SCORING_PRESET_DIR.rglob("*.json") if path.is_file())
+
+
+def _export_json_zip(files: list[Path], filename: str) -> FileResponse:
+    if not files:
+        raise HTTPException(status_code=404, detail="No JSON files found to export.")
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp:
+        archive_path = Path(tmp.name)
+    with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for path in files:
+            archive.write(path, _config_archive_name(path))
+    return FileResponse(archive_path, media_type="application/zip", filename=filename, background=None)
+
+
+def _import_config_zip_kind(path: Path, expected_kind: str) -> dict[str, int]:
+    counts = {"profiles": 0, "presets": 0, "skipped": 0}
+    with zipfile.ZipFile(path) as archive:
+        for member in archive.infolist():
+            if member.is_dir():
+                continue
+            destination = _safe_import_member(member.filename)
+            if destination is None:
+                counts["skipped"] += 1
+                continue
+            kind, output_path = destination
+            if kind != expected_kind:
+                counts["skipped"] += 1
+                continue
+            raw = archive.read(member)
+            try:
+                payload = json.loads(raw.decode("utf-8"))
+                if kind == "profile":
+                    CandidateProfile.model_validate(payload)
+                    counts["profiles"] += 1
+                else:
+                    ScoringPresetFile.model_validate(payload)
+                    counts["presets"] += 1
+            except Exception as error:
+                raise ValueError(f"Invalid {kind} file in archive: {member.filename}: {error}") from error
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_bytes(raw)
+    return counts
+
+def _validate_sqlite_file(path: Path) -> None:
+    with path.open("rb") as file:
+        header = file.read(16)
+    if header != b"SQLite format 3\x00":
+        raise ValueError("The uploaded file does not look like a SQLite database.")
+
+
+def _safe_import_member(name: str) -> tuple[str, Path] | None:
+    normalized = name.replace("\\", "/").lstrip("/")
+    target = Path(normalized)
+    if ".." in target.parts or target.suffix.lower() != ".json":
+        return None
+    if len(target.parts) == 2 and target.parts[0] == "profiles":
+        return "profile", Path("profiles") / target.name
+    if len(target.parts) == 3 and target.parts[0] == "config" and target.parts[1] == "scoring_presets":
+        return "preset", SCORING_PRESET_DIR / target.name
+    return None
+
+
+def _import_config_zip(path: Path) -> dict[str, int]:
+    counts = {"profiles": 0, "presets": 0, "skipped": 0}
+    with zipfile.ZipFile(path) as archive:
+        for member in archive.infolist():
+            if member.is_dir():
+                continue
+            destination = _safe_import_member(member.filename)
+            if destination is None:
+                counts["skipped"] += 1
+                continue
+            kind, output_path = destination
+            raw = archive.read(member)
+            try:
+                payload = json.loads(raw.decode("utf-8"))
+                if kind == "profile":
+                    CandidateProfile.model_validate(payload)
+                    counts["profiles"] += 1
+                else:
+                    ScoringPresetFile.model_validate(payload)
+                    counts["presets"] += 1
+            except Exception as error:
+                raise ValueError(f"Invalid {kind} file in archive: {member.filename}: {error}") from error
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_bytes(raw)
+    return counts
+
 def _normalize_review_result(result: dict[str, object]) -> None:
     """Fill display-only score fields for older saved review JSON.
 
@@ -244,7 +368,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
 
     @app.get("/settings", response_class=HTMLResponse)
     def settings_page(request: Request, tab: str = "profiles", profile: str | None = None, preset: str = "balanced", return_to: str = "/") -> HTMLResponse:
-        settings_tab = "presets" if tab == "presets" else "profiles"
+        settings_tab = tab if tab in {"profiles", "presets", "data"} else "profiles"
         return_to = _safe_local_path(return_to)
         selected_profile_path = profile if profile in {item["value"] for item in discover_profiles()} else _active_profile_path(request)
         scoring_presets = list_scoring_presets(request.app.state.db_path, enabled_only=False)
@@ -263,6 +387,9 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 "selected_preset": selected_preset,
                 "preset": preset_payload["preset"],
                 "preset_payload_json": preset_payload["payload_json"],
+                "profile_export_count": len(_profile_export_paths()),
+                "preset_export_count": len(_preset_export_paths()),
+                "db_exists": request.app.state.db_path.exists(),
                 "db_path": request.app.state.db_path,
                 "workflow_notice": _consume_workflow_notice(request),
                 "active_page": "settings",
@@ -329,6 +456,136 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
         except Exception as error:
             request.app.state.workflow_notice = _workflow_notice("error", "Preset creation failed", {"Error": str(error)})
             return RedirectResponse(f"/settings?tab=presets&return_to={return_to}", status_code=303)
+
+
+    @app.get("/settings/profiles/export")
+    def export_profiles(request: Request):
+        return _export_json_zip(_profile_export_paths(), "job_intel_profiles.zip")
+
+    @app.post("/settings/profiles/import")
+    async def import_profiles(request: Request):
+        try:
+            form = await request.form()
+            config_file = form.get("profile_config_file")
+            if config_file is None or not hasattr(config_file, "file"):
+                raise ValueError("Choose a profiles zip to import.")
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp:
+                temp_path = Path(tmp.name)
+                shutil.copyfileobj(config_file.file, tmp)
+            counts = _import_config_zip_kind(temp_path, "profile")
+            request.app.state.workflow_notice = _workflow_notice("success", "Profiles imported", {"Profiles": counts["profiles"], "Skipped files": counts["skipped"]})
+        except Exception as error:
+            request.app.state.workflow_notice = _workflow_notice("error", "Profile import failed", {"Error": str(error)})
+        finally:
+            try:
+                temp_path.unlink()  # type: ignore[name-defined]
+            except Exception:
+                pass
+        return RedirectResponse("/settings?tab=profiles", status_code=303)
+
+    @app.get("/settings/presets/export")
+    def export_presets(request: Request):
+        return _export_json_zip(_preset_export_paths(), "job_intel_presets.zip")
+
+    @app.post("/settings/presets/import")
+    async def import_presets(request: Request):
+        try:
+            form = await request.form()
+            config_file = form.get("preset_config_file")
+            if config_file is None or not hasattr(config_file, "file"):
+                raise ValueError("Choose a presets zip to import.")
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp:
+                temp_path = Path(tmp.name)
+                shutil.copyfileobj(config_file.file, tmp)
+            counts = _import_config_zip_kind(temp_path, "preset")
+            request.app.state.workflow_notice = _workflow_notice("success", "Presets imported", {"Presets": counts["presets"], "Skipped files": counts["skipped"]})
+        except Exception as error:
+            request.app.state.workflow_notice = _workflow_notice("error", "Preset import failed", {"Error": str(error)})
+        finally:
+            try:
+                temp_path.unlink()  # type: ignore[name-defined]
+            except Exception:
+                pass
+        return RedirectResponse("/settings?tab=presets", status_code=303)
+
+
+
+    @app.get("/settings/database/export")
+    def export_database(request: Request):
+        db_file = request.app.state.db_path
+        if not db_file.exists():
+            raise HTTPException(status_code=404, detail="Database file does not exist yet.")
+        return FileResponse(
+            db_file,
+            media_type="application/vnd.sqlite3",
+            filename=f"{db_file.stem}.sqlite",
+        )
+
+    @app.post("/settings/database/import")
+    async def import_database(request: Request):
+        try:
+            form = await request.form()
+            database_file = form.get("database_file")
+            if database_file is None or not hasattr(database_file, "file"):
+                raise ValueError("Choose a database file to load.")
+            suffix = Path(getattr(database_file, "filename", "database.sqlite") or "database.sqlite").suffix or ".sqlite"
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                temp_path = Path(tmp.name)
+                shutil.copyfileobj(database_file.file, tmp)
+            _validate_sqlite_file(temp_path)
+            db_file = request.app.state.db_path
+            db_file.parent.mkdir(parents=True, exist_ok=True)
+            if db_file.exists():
+                backup_path = db_file.with_suffix(db_file.suffix + ".bak")
+                shutil.copy2(db_file, backup_path)
+            shutil.move(str(temp_path), db_file)
+            request.app.state.workflow_notice = _workflow_notice("success", "Database loaded", {"File": str(db_file), "Backup": str(db_file.with_suffix(db_file.suffix + ".bak")) if db_file.with_suffix(db_file.suffix + ".bak").exists() else "none"})
+        except Exception as error:
+            request.app.state.workflow_notice = _workflow_notice("error", "Database load failed", {"Error": str(error)})
+        finally:
+            try:
+                temp_path.unlink()  # type: ignore[name-defined]
+            except Exception:
+                pass
+        return RedirectResponse("/settings?tab=data", status_code=303)
+
+    @app.get("/settings/config/export")
+    def export_config(request: Request):
+        files = _config_export_paths()
+        if not files:
+            raise HTTPException(status_code=404, detail="No profile or preset JSON files found.")
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp:
+            archive_path = Path(tmp.name)
+        with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for path in files:
+                archive.write(path, _config_archive_name(path))
+        return FileResponse(
+            archive_path,
+            media_type="application/zip",
+            filename="job_intel_config.zip",
+            background=None,
+        )
+
+    @app.post("/settings/config/import")
+    async def import_config(request: Request):
+        try:
+            form = await request.form()
+            config_file = form.get("config_file")
+            if config_file is None or not hasattr(config_file, "file"):
+                raise ValueError("Choose a config zip to import.")
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp:
+                temp_path = Path(tmp.name)
+                shutil.copyfileobj(config_file.file, tmp)
+            counts = _import_config_zip(temp_path)
+            request.app.state.workflow_notice = _workflow_notice("success", "Configuration imported", {"Profiles": counts["profiles"], "Presets": counts["presets"], "Skipped files": counts["skipped"]})
+        except Exception as error:
+            request.app.state.workflow_notice = _workflow_notice("error", "Configuration import failed", {"Error": str(error)})
+        finally:
+            try:
+                temp_path.unlink()  # type: ignore[name-defined]
+            except Exception:
+                pass
+        return RedirectResponse("/settings?tab=data", status_code=303)
 
 
     @app.get("/presets", response_class=HTMLResponse)

@@ -1251,3 +1251,77 @@ textarea {
     border-left: 0;
   }
 }
+
+
+.settings-grid-two {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.settings-grid-single {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
+
+.settings-data-card-wide {
+  max-width: 860px;
+}
+
+.settings-data-card {
+  display: grid;
+  gap: 16px;
+}
+
+.settings-summary-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.settings-summary-list div {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 10px;
+  align-items: baseline;
+}
+
+.settings-summary-list dt {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.settings-summary-list dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.settings-actions-row,
+.import-form {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.import-form {
+  align-items: start;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+
+.import-form label {
+  flex: 1 1 260px;
+}
+
+.import-form .profile-note {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+@media (max-width: 900px) {
+  .settings-grid-two {
+    grid-template-columns: 1fr;
+  }
+}

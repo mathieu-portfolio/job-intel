@@ -33,6 +33,7 @@
       <nav class="settings-tabs" aria-label="Settings sections">
         <a class="{% if settings_tab == 'profiles' %}active{% endif %}" href="/settings?tab=profiles&return_to={{ return_to }}">Profile editor</a>
         <a class="{% if settings_tab == 'presets' %}active{% endif %}" href="/settings?tab=presets&return_to={{ return_to }}">Preset editor</a>
+        <a class="{% if settings_tab == 'data' %}active{% endif %}" href="/settings?tab=data&return_to={{ return_to }}">Save / Load</a>
       </nav>
 
       {% if settings_tab == 'profiles' %}
@@ -62,6 +63,36 @@
             <input type="hidden" name="return_to" value="{{ return_to }}">
             <button type="submit">Create profile</button>
           </form>
+        </section>
+
+        <section class="settings-grid-single config-editor-actions">
+          <article class="workflow-card settings-data-card settings-data-card-wide">
+            <div class="workflow-head">
+              <div>
+                <h2>Profile import / export</h2>
+                <p class="profile-note">Move profile JSON files between projects or machines.</p>
+              </div>
+            </div>
+            <dl class="settings-summary-list">
+              <div><dt>Profiles available</dt><dd>{{ profile_export_count|default(0) }}</dd></div>
+              <div><dt>Archive folder</dt><dd><code>profiles/</code></dd></div>
+            </dl>
+            <div class="settings-actions-row">
+              {% if profile_export_count|default(0) > 0 %}
+                <a class="primary" href="/settings/profiles/export">Export profiles</a>
+              {% else %}
+                <button type="button" disabled>Export profiles</button>
+              {% endif %}
+            </div>
+            <form method="post" action="/settings/profiles/import" enctype="multipart/form-data" class="import-form">
+              <label>
+                Import profiles archive
+                <input name="profile_config_file" type="file" accept=".zip,application/zip" required>
+              </label>
+              <p class="profile-note">Imports a zip containing <code>profiles/*.json</code>. Existing files with the same name are overwritten.</p>
+              <button type="submit">Import profiles</button>
+            </form>
+          </article>
         </section>
 
         <form id="profile-editor" class="profile-editor" method="post" action="/settings/profiles" data-profile='{{ profile|tojson }}'>
@@ -97,7 +128,7 @@
             <div id="signal-categories" class="profile-category-list"></div>
           </section>
         </form>
-      {% else %}
+      {% elif settings_tab == 'presets' %}
         <section class="settings-toolbar workflow-card">
           <form method="get" action="/settings" class="inline-settings-form">
             <input type="hidden" name="tab" value="presets">
@@ -118,6 +149,36 @@
             <input type="hidden" name="return_to" value="{{ return_to }}">
             <button type="submit">Create preset</button>
           </form>
+        </section>
+
+        <section class="settings-grid-single config-editor-actions">
+          <article class="workflow-card settings-data-card settings-data-card-wide">
+            <div class="workflow-head">
+              <div>
+                <h2>Preset import / export</h2>
+                <p class="profile-note">Move scoring preset JSON files between projects or machines.</p>
+              </div>
+            </div>
+            <dl class="settings-summary-list">
+              <div><dt>Presets available</dt><dd>{{ preset_export_count|default(0) }}</dd></div>
+              <div><dt>Archive folder</dt><dd><code>config/scoring_presets/</code></dd></div>
+            </dl>
+            <div class="settings-actions-row">
+              {% if preset_export_count|default(0) > 0 %}
+                <a class="primary" href="/settings/presets/export">Export presets</a>
+              {% else %}
+                <button type="button" disabled>Export presets</button>
+              {% endif %}
+            </div>
+            <form method="post" action="/settings/presets/import" enctype="multipart/form-data" class="import-form">
+              <label>
+                Import presets archive
+                <input name="preset_config_file" type="file" accept=".zip,application/zip" required>
+              </label>
+              <p class="profile-note">Imports a zip containing <code>config/scoring_presets/*.json</code>. Existing files with the same name are overwritten.</p>
+              <button type="submit">Import presets</button>
+            </form>
+          </article>
         </section>
 
         <form id="preset-editor" class="profile-editor" method="post" action="/settings/presets" data-preset='{{ preset|tojson }}'>
@@ -142,7 +203,40 @@
           <section class="profile-section"><div class="profile-section-head"><div><h2>Category behavior</h2><p>Cumulative categories add matched item weights. Exclusive categories use the best matched item.</p></div></div><div class="preset-two-column"><article class="profile-category-card"><div class="profile-category-head"><h3>Cumulative categories</h3><button type="button" class="subtle" data-add-cumulative>Add category</button></div><div id="cumulative-categories" class="profile-items"></div></article><article class="profile-category-card"><div class="profile-category-head"><h3>Exclusive categories</h3><button type="button" class="subtle" data-add-exclusive>Add category</button></div><div id="exclusive-categories" class="profile-items"></div></article></div></section>
           <section class="profile-section"><div class="profile-section-head"><div><h2>Scoring parameters</h2><p>Calibration values for converting matched signals into normalized scores.</p></div></div><div class="workflow-grid"><label>No signal score <input data-weight-field="no_signal_score" type="number" min="0" max="100"></label><label>Positive score scale <input data-weight-field="positive_score_scale" type="number" min="0" step="1"></label><label>Negative score scale <input data-weight-field="negative_score_scale" type="number" min="0" step="1"></label><label>Strong negative threshold <input data-weight-field="strong_negative_threshold" type="number" min="-1" max="0" step="0.01"></label><label>Strong negative score cap <input data-weight-field="strong_negative_score_cap" type="number" min="0" max="100"></label></div></section>
         </form>
+
+      {% else %}
+        <section class="settings-grid-single">
+          <article class="workflow-card settings-data-card settings-data-card-wide">
+            <div class="workflow-head">
+              <div>
+                <h2>Data saving system</h2>
+                <p class="profile-note">Save or load the SQLite database containing fetched offers, screened states, AI reviews, statuses, and run data.</p>
+              </div>
+            </div>
+            <dl class="settings-summary-list">
+              <div><dt>Database path</dt><dd>{{ db_path }}</dd></div>
+              <div><dt>Status</dt><dd>{{ 'Available' if db_exists else 'Not created yet' }}</dd></div>
+            </dl>
+            <div class="settings-actions-row">
+              {% if db_exists %}
+                <a class="primary" href="/settings/database/export">Save database</a>
+              {% else %}
+                <button type="button" disabled>Save database</button>
+              {% endif %}
+            </div>
+            <form method="post" action="/settings/database/import" enctype="multipart/form-data" class="import-form">
+              <label>
+                Load database snapshot
+                <input name="database_file" type="file" accept=".sqlite,.sqlite3,.db,application/vnd.sqlite3" required>
+              </label>
+              <p class="profile-note">Loading replaces the current database file. A <code>.bak</code> copy is created first when an existing database is present.</p>
+              <button type="submit">Load database</button>
+            </form>
+          </article>
+
+        </section>
       {% endif %}
+
     </main>
   </body>
 </html>
