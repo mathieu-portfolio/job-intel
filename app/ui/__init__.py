@@ -84,6 +84,12 @@ def _common_template_context(request: Request) -> dict[str, object]:
     }
 
 
+def _safe_local_path(value: str | None, default: str = "/") -> str:
+    path = (value or default).strip()
+    if not path.startswith("/") or path.startswith("//"):
+        return default
+    return path
+
 
 
 def _profile_payload(profile_path: str) -> dict[str, object]:
@@ -139,6 +145,52 @@ def _write_preset(original_id: str, payload: dict[str, object]) -> Path:
     path.write_text(json.dumps(normalized, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return path
 
+
+def _safe_config_id(value: str) -> str:
+    cleaned = value.strip().lower().replace(" ", "_").replace("-", "_")
+    if not cleaned or any(char not in "abcdefghijklmnopqrstuvwxyz0123456789_" for char in cleaned):
+        raise ValueError("Use only lowercase letters, numbers, and underscores for the ID.")
+    return cleaned
+
+
+def _profile_file_path(profile_id: str) -> Path:
+    return Path("profiles") / f"{_safe_config_id(profile_id)}.json"
+
+
+def _write_new_profile(profile_id: str, source_profile: str, name: str | None) -> Path:
+    path = _profile_file_path(profile_id)
+    if path.exists():
+        raise ValueError(f"Profile already exists: {path}")
+    source = Path(source_profile or "profiles/default.json")
+    payload = load_profile(source).model_dump(mode="json", exclude_none=True)
+    if name and name.strip():
+        payload["name"] = name.strip()
+    elif not payload.get("name"):
+        payload["name"] = _safe_config_id(profile_id).replace("_", " ").title()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return path
+
+
+def _write_new_preset(preset_id: str, source_preset: str, name: str | None, db_path: Path) -> Path:
+    safe_id = _safe_config_id(preset_id)
+    path = _preset_file_path(safe_id)
+    if path.exists():
+        raise ValueError(f"Preset already exists: {path}")
+    source = get_scoring_preset(source_preset or "balanced", db_path=db_path)
+    payload = {
+        "id": safe_id,
+        "name": name.strip() if name and name.strip() else safe_id.replace("_", " ").title(),
+        "description": source.description,
+        "order": source.order + 1,
+        "is_builtin": False,
+        "enabled": True,
+        "weights": source.weights.model_dump(mode="json"),
+    }
+    SCORING_PRESET_DIR.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return path
+
 def _normalize_review_result(result: dict[str, object]) -> None:
     """Fill display-only score fields for older saved review JSON.
 
@@ -190,26 +242,98 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
         response.set_cookie("job_intel_active_profile", selected, max_age=60 * 60 * 24 * 365, samesite="lax")
         return response
 
+    @app.get("/settings", response_class=HTMLResponse)
+    def settings_page(request: Request, tab: str = "profiles", profile: str | None = None, preset: str = "balanced", return_to: str = "/") -> HTMLResponse:
+        settings_tab = "presets" if tab == "presets" else "profiles"
+        return_to = _safe_local_path(return_to)
+        selected_profile_path = profile if profile in {item["value"] for item in discover_profiles()} else _active_profile_path(request)
+        scoring_presets = list_scoring_presets(request.app.state.db_path, enabled_only=False)
+        selected_preset = get_scoring_preset(preset, db_path=request.app.state.db_path)
+        profile_payload = _profile_payload(selected_profile_path)
+        preset_payload = _preset_payload(selected_preset.id)
+        return templates.TemplateResponse(
+            request,
+            "settings.html",
+            {
+                **_common_template_context(request),
+                **profile_payload,
+                "selected_profile_path": selected_profile_path,
+                "settings_tab": settings_tab,
+                "scoring_presets": scoring_presets,
+                "selected_preset": selected_preset,
+                "preset": preset_payload["preset"],
+                "preset_payload_json": preset_payload["payload_json"],
+                "db_path": request.app.state.db_path,
+                "workflow_notice": _consume_workflow_notice(request),
+                "active_page": "settings",
+                "return_to": return_to,
+            },
+        )
 
+    @app.post("/settings/profiles")
+    async def save_profile_from_settings(request: Request):
+        form = await _form_data(request)
+        return_to = _safe_local_path(form.get("return_to"))
+        profile_path = (form.get("profile_path") or _active_profile_path(request)).strip()
+        try:
+            payload = json.loads(form.get("profile_payload") or "{}")
+            if not isinstance(payload, dict):
+                raise ValueError("Profile payload must be an object.")
+            _write_profile(Path(profile_path), payload)
+            request.app.state.workflow_notice = _workflow_notice("success", "Profile saved", {"Profile": profile_path})
+        except Exception as error:
+            request.app.state.workflow_notice = _workflow_notice("error", "Profile save failed", {"Error": str(error)})
+        return RedirectResponse(f"/settings?tab=profiles&profile={profile_path}&return_to={return_to}", status_code=303)
+
+    @app.post("/settings/profiles/new")
+    async def create_profile_from_settings(request: Request):
+        form = await _form_data(request)
+        return_to = _safe_local_path(form.get("return_to"))
+        try:
+            path = _write_new_profile(form.get("profile_id") or "", form.get("source_profile") or _active_profile_path(request), form.get("name"))
+            profile_path = str(path).replace("\\", "/")
+            request.app.state.workflow_notice = _workflow_notice("success", "Profile created", {"Profile": profile_path})
+            response = RedirectResponse(f"/settings?tab=profiles&profile={profile_path}&return_to={return_to}", status_code=303)
+            response.set_cookie("job_intel_active_profile", profile_path, max_age=60 * 60 * 24 * 365, samesite="lax")
+            return response
+        except Exception as error:
+            request.app.state.workflow_notice = _workflow_notice("error", "Profile creation failed", {"Error": str(error)})
+            return RedirectResponse(f"/settings?tab=profiles&return_to={return_to}", status_code=303)
+
+    @app.post("/settings/presets")
+    async def save_preset_from_settings(request: Request):
+        form = await _form_data(request)
+        return_to = _safe_local_path(form.get("return_to"))
+        original_id = (form.get("original_preset_id") or "balanced").strip()
+        try:
+            payload = json.loads(form.get("preset_payload") or "{}")
+            if not isinstance(payload, dict):
+                raise ValueError("Preset payload must be an object.")
+            path = _write_preset(original_id, payload)
+            preset_id = str(payload.get("id") or original_id)
+            request.app.state.workflow_notice = _workflow_notice("success", "Preset saved", {"Preset": preset_id, "File": str(path).replace("\\", "/")})
+        except Exception as error:
+            preset_id = original_id
+            request.app.state.workflow_notice = _workflow_notice("error", "Preset save failed", {"Error": str(error)})
+        return RedirectResponse(f"/settings?tab=presets&preset={preset_id}&return_to={return_to}", status_code=303)
+
+    @app.post("/settings/presets/new")
+    async def create_preset_from_settings(request: Request):
+        form = await _form_data(request)
+        return_to = _safe_local_path(form.get("return_to"))
+        try:
+            path = _write_new_preset(form.get("preset_id") or "", form.get("source_preset") or "balanced", form.get("name"), request.app.state.db_path)
+            preset_id = path.stem
+            request.app.state.workflow_notice = _workflow_notice("success", "Preset created", {"Preset": preset_id})
+            return RedirectResponse(f"/settings?tab=presets&preset={preset_id}&return_to={return_to}", status_code=303)
+        except Exception as error:
+            request.app.state.workflow_notice = _workflow_notice("error", "Preset creation failed", {"Error": str(error)})
+            return RedirectResponse(f"/settings?tab=presets&return_to={return_to}", status_code=303)
 
 
     @app.get("/presets", response_class=HTMLResponse)
-    def presets_editor(request: Request, preset: str = "balanced") -> HTMLResponse:
-        scoring_presets = list_scoring_presets(request.app.state.db_path, enabled_only=False)
-        selected = get_scoring_preset(preset, db_path=request.app.state.db_path)
-        return templates.TemplateResponse(
-            request,
-            "presets.html",
-            {
-                **_common_template_context(request),
-                **_preset_payload(selected.id),
-                "scoring_presets": scoring_presets,
-                "selected_preset": selected,
-                "db_path": request.app.state.db_path,
-                "workflow_notice": _consume_workflow_notice(request),
-                "active_page": "presets",
-            },
-        )
+    def presets_editor(request: Request, preset: str = "balanced") -> RedirectResponse:
+        return RedirectResponse(f"/settings?tab=presets&preset={preset}", status_code=303)
 
     @app.post("/presets")
     async def save_preset(request: Request):
@@ -236,19 +360,8 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
         return RedirectResponse(f"/presets?preset={preset_id}", status_code=303)
 
     @app.get("/profile", response_class=HTMLResponse)
-    def profile_editor(request: Request) -> HTMLResponse:
-        active_profile = _active_profile_path(request)
-        return templates.TemplateResponse(
-            request,
-            "profile.html",
-            {
-                **_common_template_context(request),
-                **_profile_payload(active_profile),
-                "db_path": request.app.state.db_path,
-                "workflow_notice": _consume_workflow_notice(request),
-                "active_page": "profile",
-            },
-        )
+    def profile_editor(request: Request) -> RedirectResponse:
+        return RedirectResponse("/settings?tab=profiles", status_code=303)
 
     @app.post("/profile")
     async def save_profile(request: Request):
@@ -329,6 +442,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 "location_suggestions": list_offer_locations(request.app.state.db_path),
                 "db_path": request.app.state.db_path,
                 "workflow_notice": _consume_workflow_notice(request),
+                "workflow_count_label": f"{len(offers)} AI reviewed offers",
                 "active_page": "ai_reviewed",
             },
         )
@@ -374,6 +488,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 "page_title": "Explore",
                 "empty_message": "No screened offers match these filters.",
                 "listing_path": "/explore",
+                "workflow_count_label": f"{len(offers)} offers",
                 "active_page": "explore",
             },
         )
@@ -430,6 +545,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 "page_title": "Screened",
                 "empty_message": "No screened offers match these filters.",
                 "listing_path": "/screened",
+                "workflow_count_label": f"{len(offers)} screened",
                 "active_page": "screened",
             },
         )
@@ -448,6 +564,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 ),
                 "clear_summaries": CLEAR_SUMMARIES,
                 **_common_template_context(request),
+                "workflow_count_label": "Maintenance",
                 "active_page": "maintenance",
             },
         )

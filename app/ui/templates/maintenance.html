@@ -7,40 +7,8 @@
     <link rel="stylesheet" href="{{ url_for('static', path='styles.css') }}">
   </head>
   <body>
-    <header class="topbar">
-      <div>
-        <h1>Job Intel Review</h1>
-        <p>{{ db_path }}</p>
-        <nav class="nav-links">
-          <a class="{% if active_page == 'explore' %}active{% endif %}" href="/explore">Explore</a>
-          <a class="{% if active_page == 'screened' %}active{% endif %}" href="/screened">Screened</a>
-          <a class="{% if active_page == 'ai_reviewed' %}active{% endif %}" href="/">AI Reviewed</a>
-          <a class="{% if active_page == 'profile' %}active{% endif %}" href="/profile">Profile</a>
-          <a class="{% if active_page == 'presets' %}active{% endif %}" href="/presets">Presets</a>
-          <a class="{% if active_page == 'maintenance' %}active{% endif %}" href="/maintenance">Maintenance</a>
-        </nav>
-      </div>
-      <div class="header-actions">
-        <form class="active-profile-form" method="post" action="/settings/profile">
-          <input type="hidden" name="redirect_to" value="{{ request.url.path }}">
-          <span class="profile-picker-label">Active profile</span>
-          <details class="profile-picker">
-            <summary title="{{ active_profile.label }}">{{ active_profile.label }}</summary>
-            <div class="profile-picker-menu" role="menu">
-              {% for profile in profiles %}
-                <button
-                  type="submit"
-                  name="active_profile"
-                  value="{{ profile.value }}"
-                  class="profile-picker-option{% if active_profile.value == profile.value %} active{% endif %}" role="menuitem"
-                >{{ profile.label }}</button>
-              {% endfor %}
-            </div>
-          </details>
-        </form>
-        <div class="count">Maintenance</div>
-      </div>
-    </header>
+    {% include "_hero_bar.html" %}
+    {% include "_workflow_nav.html" %}
 
     <main>
       <section class="maintenance-grid">

@@ -1,0 +1,16 @@
+<header class="hero-bar">
+  <div class="hero-left">
+    {% if active_page == 'settings' %}
+      <a class="back-to-app" href="{{ return_to or '/' }}">← Back to app</a>
+    {% endif %}
+    <a class="hero-title" href="{{ return_to if active_page == 'settings' and return_to else '/' }}" aria-label="Go to main app">
+      <h1>Job Intel Review</h1>
+      <p>{{ db_path }}</p>
+    </a>
+  </div>
+  {% if active_page == 'settings' %}
+    <span class="settings-page-label">Settings</span>
+  {% else %}
+    <a class="settings-button" href="/settings?return_to={{ request.url.path }}">Settings</a>
+  {% endif %}
+</header>

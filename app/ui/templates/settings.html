@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Settings - Job Intel Review</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='styles.css') }}">
+    <script defer src="{{ url_for('static', path='profile-editor.js') }}"></script>
+    <script defer src="{{ url_for('static', path='preset-editor.js') }}"></script>
+  </head>
+  <body>
+    {% include "_hero_bar.html" %}
+
+    <main>
+      <section class="settings-page-head">
+        <div>
+          <h2>Settings</h2>
+          <p class="profile-note">Global configuration for the whole review workflow.</p>
+        </div>
+      </section>
+
+      {% if workflow_notice %}
+        <section class="workflow-notice {{ workflow_notice.kind }}">
+          <h2>{{ workflow_notice.title }}</h2>
+          <dl>
+            {% for key, value in workflow_notice.summary.items() %}
+              <div><dt>{{ key }}</dt><dd>{{ value }}</dd></div>
+            {% endfor %}
+          </dl>
+        </section>
+      {% endif %}
+
+      <nav class="settings-tabs" aria-label="Settings sections">
+        <a class="{% if settings_tab == 'profiles' %}active{% endif %}" href="/settings?tab=profiles&return_to={{ return_to }}">Profile editor</a>
+        <a class="{% if settings_tab == 'presets' %}active{% endif %}" href="/settings?tab=presets&return_to={{ return_to }}">Preset editor</a>
+      </nav>
+
+      {% if settings_tab == 'profiles' %}
+        <section class="settings-toolbar workflow-card">
+          <form method="get" action="/settings" class="inline-settings-form">
+            <input type="hidden" name="tab" value="profiles">
+            <input type="hidden" name="return_to" value="{{ return_to }}">
+            <label>
+              Edit profile
+              <select name="profile" onchange="this.form.submit()">
+                {% for candidate in profiles %}
+                  <option value="{{ candidate.value }}" {% if selected_profile_path == candidate.value %}selected{% endif %}>{{ candidate.label }}</option>
+                {% endfor %}
+              </select>
+            </label>
+          </form>
+          <form method="post" action="/settings/profiles/new" class="inline-settings-form new-item-form">
+            <label>
+              New profile ID
+              <input name="profile_id" type="text" placeholder="backend_engineer" required>
+            </label>
+            <label>
+              Name
+              <input name="name" type="text" placeholder="Backend Engineer">
+            </label>
+            <input type="hidden" name="source_profile" value="{{ selected_profile_path }}">
+            <input type="hidden" name="return_to" value="{{ return_to }}">
+            <button type="submit">Create profile</button>
+          </form>
+        </section>
+
+        <form id="profile-editor" class="profile-editor" method="post" action="/settings/profiles" data-profile='{{ profile|tojson }}'>
+          <input type="hidden" name="profile_path" value="{{ selected_profile_path }}">
+          <input type="hidden" name="return_to" value="{{ return_to }}">
+          <input id="profile-payload" type="hidden" name="profile_payload" value="{{ payload_json|e }}">
+
+          <section class="workflow-card profile-meta-card">
+            <div class="workflow-head">
+              <div>
+                <h2>Profile editor</h2>
+                <p class="profile-note">Editing {{ selected_profile_path }}</p>
+              </div>
+              <button type="submit">Save profile</button>
+            </div>
+            <div class="workflow-grid">
+              <label>Name <input data-profile-field="name" type="text"></label>
+              <label>Target seniority <input data-profile-field="target_seniority" type="text" placeholder="junior, mid, senior..."></label>
+              <label>Screening threshold <input data-profile-field="screening_threshold" type="number" min="0" max="100"></label>
+            </div>
+          </section>
+
+          <section class="profile-section">
+            <div class="profile-section-head"><div><h2>Fetch query categories</h2><p>Non-weighted lists used to search providers. Examples: en, fr, backend, cpp.</p></div><button type="button" class="subtle" data-add-query-category>Add query category</button></div>
+            <div id="query-categories" class="profile-category-list"></div>
+          </section>
+          <section class="profile-section">
+            <div class="profile-section-head"><div><h2>Must-match terms</h2><p>Weighted terms that represent minimum relevance signals.</p></div><button type="button" class="subtle" data-add-must-match>Add term</button></div>
+            <div id="must-match-items" class="profile-items"></div>
+          </section>
+          <section class="profile-section">
+            <div class="profile-section-head"><div><h2>Weighted signal categories</h2><p>Each field has a weight slider from 0 to 2. Use 1 as a neutral/default strength.</p></div><button type="button" class="subtle" data-add-signal-category>Add signal category</button></div>
+            <div id="signal-categories" class="profile-category-list"></div>
+          </section>
+        </form>
+      {% else %}
+        <section class="settings-toolbar workflow-card">
+          <form method="get" action="/settings" class="inline-settings-form">
+            <input type="hidden" name="tab" value="presets">
+            <input type="hidden" name="return_to" value="{{ return_to }}">
+            <label>
+              Edit preset
+              <select name="preset" onchange="this.form.submit()">
+                {% for scoring_preset in scoring_presets %}
+                  <option value="{{ scoring_preset.id }}" {% if selected_preset.id == scoring_preset.id %}selected{% endif %}>{{ scoring_preset.name }}</option>
+                {% endfor %}
+              </select>
+            </label>
+          </form>
+          <form method="post" action="/settings/presets/new" class="inline-settings-form new-item-form">
+            <label>New preset ID <input name="preset_id" type="text" placeholder="remote_focus" required></label>
+            <label>Name <input name="name" type="text" placeholder="Remote Focus"></label>
+            <input type="hidden" name="source_preset" value="{{ selected_preset.id }}">
+            <input type="hidden" name="return_to" value="{{ return_to }}">
+            <button type="submit">Create preset</button>
+          </form>
+        </section>
+
+        <form id="preset-editor" class="profile-editor" method="post" action="/settings/presets" data-preset='{{ preset|tojson }}'>
+          <input type="hidden" name="original_preset_id" value="{{ selected_preset.id }}">
+          <input type="hidden" name="return_to" value="{{ return_to }}">
+          <input id="preset-payload" type="hidden" name="preset_payload" value="{{ preset_payload_json|e }}">
+
+          <section class="workflow-card profile-meta-card">
+            <div class="workflow-head"><div><h2>Preset editor</h2><p class="profile-note">Editing {{ selected_preset.id }}. Presets define rule scoring weights.</p></div><button type="submit">Save preset</button></div>
+            <div class="workflow-grid">
+              <label>ID <input data-preset-field="id" type="text" required></label>
+              <label>Name <input data-preset-field="name" type="text" required></label>
+              <label>Order <input data-preset-field="order" type="number" min="0"></label>
+              <label class="checkbox-filter"><input data-preset-field="enabled" type="checkbox" value="true"> Enabled</label>
+              <label class="checkbox-filter"><input data-preset-field="is_builtin" type="checkbox" value="true"> Built-in</label>
+            </div>
+            <label>Description <textarea data-preset-field="description" rows="3"></textarea></label>
+          </section>
+
+          <section class="profile-section"><div class="profile-section-head"><div><h2>Category weights</h2><p>How strongly each profile signal category influences rule scoring. Negative values penalize matches.</p></div><button type="button" class="subtle" data-add-category-weight>Add category</button></div><div id="category-weights" class="profile-items"></div></section>
+          <section class="profile-section"><div class="profile-section-head"><div><h2>Term weights</h2><p>Global positive and negative keyword signals used by the rule scorer.</p></div></div><div class="preset-two-column"><article class="profile-category-card"><div class="profile-category-head"><h3>Positive terms</h3><button type="button" class="subtle" data-add-positive-term>Add term</button></div><div id="positive-terms" class="profile-items"></div></article><article class="profile-category-card"><div class="profile-category-head"><h3>Negative terms</h3><button type="button" class="subtle" data-add-negative-term>Add term</button></div><div id="negative-terms" class="profile-items"></div></article></div></section>
+          <section class="profile-section"><div class="profile-section-head"><div><h2>Category behavior</h2><p>Cumulative categories add matched item weights. Exclusive categories use the best matched item.</p></div></div><div class="preset-two-column"><article class="profile-category-card"><div class="profile-category-head"><h3>Cumulative categories</h3><button type="button" class="subtle" data-add-cumulative>Add category</button></div><div id="cumulative-categories" class="profile-items"></div></article><article class="profile-category-card"><div class="profile-category-head"><h3>Exclusive categories</h3><button type="button" class="subtle" data-add-exclusive>Add category</button></div><div id="exclusive-categories" class="profile-items"></div></article></div></section>
+          <section class="profile-section"><div class="profile-section-head"><div><h2>Scoring parameters</h2><p>Calibration values for converting matched signals into normalized scores.</p></div></div><div class="workflow-grid"><label>No signal score <input data-weight-field="no_signal_score" type="number" min="0" max="100"></label><label>Positive score scale <input data-weight-field="positive_score_scale" type="number" min="0" step="1"></label><label>Negative score scale <input data-weight-field="negative_score_scale" type="number" min="0" step="1"></label><label>Strong negative threshold <input data-weight-field="strong_negative_threshold" type="number" min="-1" max="0" step="0.01"></label><label>Strong negative score cap <input data-weight-field="strong_negative_score_cap" type="number" min="0" max="100"></label></div></section>
+        </form>
+      {% endif %}
+    </main>
+  </body>
+</html>

@@ -16,9 +16,14 @@
           <a class="{% if active_page == 'explore' %}active{% endif %}" href="/explore">Explore</a>
           <a class="{% if active_page == 'screened' %}active{% endif %}" href="/screened">Screened</a>
           <a class="{% if active_page == 'ai_reviewed' %}active{% endif %}" href="/">AI Reviewed</a>
-          <a class="{% if active_page == 'profile' %}active{% endif %}" href="/profile">Profile</a>
-          <a class="{% if active_page == 'presets' %}active{% endif %}" href="/presets">Presets</a>
-          <a class="{% if active_page == 'maintenance' %}active{% endif %}" href="/maintenance">Maintenance</a>
+          <details class="settings-menu">
+            <summary class="{% if active_page in ['profile', 'presets', 'maintenance'] %}active{% endif %}">Settings</summary>
+            <div class="settings-menu-panel" role="menu">
+              <a class="{% if active_page == 'profile' %}active{% endif %}" href="/profile" role="menuitem">Profiles</a>
+              <a class="{% if active_page == 'presets' %}active{% endif %}" href="/presets" role="menuitem">Presets</a>
+              <a class="{% if active_page == 'maintenance' %}active{% endif %}" href="/maintenance" role="menuitem">Maintenance</a>
+            </div>
+          </details>
         </nav>
       </div>
       <div class="header-actions">
