@@ -54,8 +54,9 @@ def rank_offers(
         min_score=min_score if ranking_mode == "hybrid" else None,
         limit=limit,
         only_recent_days=only_recent_days,
+        exclude_ai_reviewed=(ranking_mode == "rules"),
     )
-    _emit(messages, progress, f"Selected {len(selected_offers)} scored offers for preset {scoring_preset.id}.")
+    _emit(messages, progress, f"Selected {len(selected_offers)} screened offers.")
     _raise_if_cancelled(cancelled)
 
     evaluated_jobs: list[tuple[StoredOffer, RuleEvaluation]] = []
@@ -128,6 +129,23 @@ def rank_offers(
         config=config_payload,
     )
 
+
+    def ai_evaluation_from_saved_review(review_row: dict[str, object]) -> AiJobEvaluation | None:
+        raw_review = review_row.get("review")
+        if not isinstance(raw_review, dict):
+            return None
+        candidate = raw_review.get("raw_ai_evaluation")
+        if candidate is None:
+            candidate = raw_review.get("ai_evaluation")
+        if candidate is None:
+            candidate = raw_review
+        if not isinstance(candidate, dict):
+            return None
+        try:
+            return AiJobEvaluation.model_validate(candidate)
+        except Exception:
+            return None
+
     if ranking_mode == "rules":
         for stored_offer, rule_evaluation in candidates:
             _raise_if_cancelled(cancelled)
@@ -169,6 +187,57 @@ def rank_offers(
             _raise_if_cancelled(cancelled)
             llm_provider.check_ready()
 
+        existing_reviews = list_ai_reviews_for_offers(
+            db_path=db_path,
+            offer_ids=[stored_offer.id for stored_offer, _rule_evaluation in candidates],
+            provider=provider_name,
+            model=model_name,
+            profile_id=profile_id,
+        )
+        remaining_candidates: list[tuple[StoredOffer, RuleEvaluation]] = []
+        reused_ai = 0
+
+        for stored_offer, rule_evaluation in candidates:
+            _raise_if_cancelled(cancelled)
+            saved_review = existing_reviews.get(stored_offer.id)
+            ai_evaluation = ai_evaluation_from_saved_review(saved_review) if saved_review else None
+            if ai_evaluation is None:
+                remaining_candidates.append((stored_offer, rule_evaluation))
+                continue
+
+            final_decision = make_final_decision(
+                rule_evaluation=rule_evaluation,
+                ai_evaluation=ai_evaluation,
+            )
+            result_payload = ranking_result_payload(
+                stored_offer=stored_offer,
+                rule_evaluation=rule_evaluation,
+                ai_evaluation=ai_evaluation,
+                final_decision=final_decision,
+            )
+            save_ranking(
+                db_path=db_path,
+                run_id=run_id,
+                offer_id=stored_offer.id,
+                algorithm=ranking_mode,
+                model=model_name,
+                profile_path=str(profile_path),
+                profile_id=profile_id,
+                score=final_decision.final_score,
+                recommendation=final_decision.recommendation,
+                summary=ai_evaluation.summary,
+                result=result_payload,
+            )
+            ranked.append((stored_offer, rule_evaluation, ai_evaluation, final_decision))
+            reused_ai += 1
+
+        if reused_ai:
+            _emit(
+                messages,
+                progress,
+                f"Reused {reused_ai} existing AI reviews and recomputed final scores.",
+            )
+
         def evaluate_candidate(
             index: int,
             stored_offer: StoredOffer,
@@ -205,12 +274,14 @@ def rank_offers(
 
         completed_ai = 0
         failed_ai = 0
+        if remaining_candidates:
+            _emit(messages, progress, f"Need {len(remaining_candidates)} new AI reviews.")
         with ThreadPoolExecutor(max_workers=ai_concurrency) as executor:
             futures = {}
-            for index, (stored_offer, rule_evaluation) in enumerate(candidates, start=1):
+            for index, (stored_offer, rule_evaluation) in enumerate(remaining_candidates, start=1):
                 _raise_if_cancelled(cancelled)
-                _emit(messages, progress, f"AI task {index}/{len(candidates)} started: {stored_offer.job.title}")
-                _emit(messages, progress, f"Evaluating {index}/{len(candidates)}: {stored_offer.job.title}")
+                _emit(messages, progress, f"AI task {index}/{len(remaining_candidates)} started: {stored_offer.job.title}")
+                _emit(messages, progress, f"Evaluating {index}/{len(remaining_candidates)}: {stored_offer.job.title}")
                 futures[executor.submit(evaluate_candidate, index, stored_offer, rule_evaluation)] = (
                     index,
                     stored_offer,
@@ -233,7 +304,7 @@ def rank_offers(
                     _emit(
                         messages,
                         progress,
-                        f"AI evaluation failed {index}/{len(candidates)}: {submitted_offer.job.title}: {error}",
+                        f"AI evaluation failed {index}/{len(remaining_candidates)}: {submitted_offer.job.title}: {error}",
                     )
                     if ai_abort_on_error:
                         raise RuntimeError(f"AI evaluation failed for {submitted_offer.job.title}: {error}") from error
@@ -241,7 +312,7 @@ def rank_offers(
 
                 _raise_if_cancelled(cancelled)
                 completed_ai += 1
-                _emit(messages, progress, f"AI task {index}/{len(candidates)} completed: {stored_offer.job.title}")
+                _emit(messages, progress, f"AI task {index}/{len(remaining_candidates)} completed: {stored_offer.job.title}")
                 _emit(messages, progress, f"Model response parsed in {elapsed:.1f}s.")
                 result_payload = ranking_result_payload(
                     stored_offer=stored_offer,
@@ -275,15 +346,20 @@ def rank_offers(
                     model=model_name,
                     profile_path=str(profile_path),
                     profile_id=profile_id,
-                    preset_id=scoring_preset.id,
-                    score=final_decision.final_score,
-                    recommendation=final_decision.recommendation,
+                    preset_id="profile_ai",
+                    score=ai_evaluation.fit_score,
+                    recommendation=ai_evaluation.recommendation,
                     summary=ai_evaluation.summary,
-                    result=result_payload,
+                    result={
+                        "offer_id": stored_offer.id,
+                        "job": stored_offer.job.model_dump(mode="json"),
+                        "raw_ai_evaluation": ai_evaluation.model_dump(mode="json"),
+                    },
                 )
                 ranked.append((stored_offer, rule_evaluation, ai_evaluation, final_decision))
-                _emit(messages, progress, f"Completed {completed_ai}/{len(candidates)} AI evaluations.")
+                _emit(messages, progress, f"Completed {completed_ai}/{len(remaining_candidates)} new AI evaluations.")
 
+        ai_evaluation_count = completed_ai
         if failed_ai:
             skipped_count += failed_ai
             _emit(messages, progress, f"Skipped {failed_ai} failed AI evaluations.")

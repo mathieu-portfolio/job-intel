@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from app.storage._common import *  # noqa: F401,F403
+from app.ai.decision import DecisionWeights, blend_seniority, weighted_base_score
+from app.filtering.rule_scoring import score_category_scores
+from app.models.evaluation import recommendation_from_score
 
 def create_ranking_run(
     *,
@@ -110,7 +113,7 @@ def save_ai_review(
     with _connect(db_path) as connection:
         connection.execute(
             load_sql("ai_reviews/delete_existing.sql"),
-            (offer_id, provider, model, profile_id, preset_id),
+            (offer_id, provider, model, profile_id),
         )
         connection.execute(
             load_sql("ai_reviews/insert.sql"),
@@ -129,6 +132,50 @@ def save_ai_review(
                 reviewed_at,
             ),
         )
+
+
+def list_ai_reviews_for_offers(
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+    offer_ids: list[int],
+    provider: str | None,
+    model: str | None,
+    profile_id: str,
+) -> dict[int, dict[str, Any]]:
+    """Return existing pure AI reviews keyed by offer id.
+
+    AI reviews are intentionally independent of scoring presets. A saved review
+    answers "what does the AI think of this offer for this profile?", and the
+    active preset is applied later when computing the final score.
+    """
+    if not offer_ids:
+        return {}
+    init_db(db_path)
+    placeholders = ",".join("?" for _ in offer_ids)
+    params: list[Any] = [provider, model, profile_id, *offer_ids]
+    with _connect(db_path) as connection:
+        rows = connection.execute(
+            f"""
+            SELECT *
+            FROM ai_reviews
+            WHERE provider IS ?
+              AND model IS ?
+              AND profile_id = ?
+              AND offer_id IN ({placeholders})
+            """,
+            params,
+        ).fetchall()
+
+    reviews: dict[int, dict[str, Any]] = {}
+    for row in rows:
+        item = dict(row)
+        try:
+            item["review"] = json.loads(row["review_json"])
+        except json.JSONDecodeError:
+            item["review"] = {}
+        reviews[int(row["offer_id"])] = item
+    return reviews
+
 
 
 def list_screening_results(db_path: Path = DEFAULT_DB_PATH) -> list[dict[str, Any]]:
@@ -157,6 +204,102 @@ def _like_pattern(value: str | None) -> str | None:
     return f"%{escaped}%"
 
 
+
+def _review_ai_score(result: dict[str, Any]) -> int | None:
+    raw_ai = result.get("raw_ai_evaluation")
+    if isinstance(raw_ai, dict):
+        try:
+            return max(0, min(100, int(raw_ai.get("fit_score"))))
+        except (TypeError, ValueError):
+            pass
+    final = result.get("final_decision")
+    if isinstance(final, dict):
+        try:
+            value = final.get("ai_component")
+            return None if value is None else max(0, min(100, int(value)))
+        except (TypeError, ValueError):
+            pass
+    return None
+
+
+def _review_seniority_score(rule: dict[str, Any]) -> int:
+    seniority = rule.get("seniority")
+    if isinstance(seniority, dict):
+        try:
+            return max(0, min(100, int(seniority.get("score"))))
+        except (TypeError, ValueError):
+            pass
+    return 70
+
+
+def _review_rule_score_for_preset(rule: dict[str, Any], preset: Any) -> int:
+    category_scores = rule.get("category_scores")
+    if isinstance(category_scores, dict) and category_scores:
+        return score_category_scores(category_scores, preset.weights)[1]
+    try:
+        return max(0, min(100, int(rule.get("normalized_score"))))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _apply_review_display_preset(item: dict[str, Any], preset: Any) -> None:
+    """Recompute displayed AI-reviewed score for the selected preset.
+
+    AI reviews are stored independently of presets. The active preset should
+    only change the deterministic rule component and the resulting final score
+    shown in the AI reviewed list.
+    """
+    result = item.get("result")
+    if not isinstance(result, dict):
+        return
+    rule = result.get("rule_evaluation")
+    if not isinstance(rule, dict):
+        return
+
+    rule_score = _review_rule_score_for_preset(rule, preset)
+    ai_score = _review_ai_score(result)
+    seniority_score = _review_seniority_score(rule)
+    weights = DecisionWeights()
+    base_score = weighted_base_score(rule_score, ai_score, weights)
+    final_score = blend_seniority(base_score, seniority_score, weights.seniority)
+    recommendation = recommendation_from_score(final_score)
+
+    rule["normalized_score"] = rule_score
+    rule["score"] = rule_score
+    final = result.get("final_decision")
+    if not isinstance(final, dict):
+        final = {}
+        result["final_decision"] = final
+    final.update(
+        {
+            "final_score": final_score,
+            "recommendation": recommendation,
+            "rule_component": rule_score,
+            "ai_component": ai_score,
+            "base_component": base_score,
+            "seniority_component": seniority_score,
+            "penalty_component": 0,
+            "seniority_mismatch_penalty": max(0, 100 - seniority_score),
+            "policy_adjustments": [],
+            "reasoning": [
+                (
+                    f"Base score {base_score}/100 from rule component "
+                    f"{rule_score}/100 and AI semantic component {ai_score}/100."
+                    if ai_score is not None
+                    else f"Base score {base_score}/100 from calibrated rule score {rule_score}/100."
+                ),
+                (
+                    "Final score blends base score with deterministic seniority "
+                    f"{seniority_score}/100 using seniority weight {weights.seniority:.0%}."
+                ),
+            ],
+        }
+    )
+    item["score"] = final_score
+    item["recommendation"] = recommendation
+    item["selected_preset_id"] = getattr(preset, "id", "")
+    item["selected_preset_name"] = getattr(preset, "name", "Selected preset")
+
 def list_ranked_offers(
     *,
     db_path: Path = DEFAULT_DB_PATH,
@@ -167,6 +310,7 @@ def list_ranked_offers(
     ranking_mode: str | None = None,
     profile_id: str | None = None,
     profile_path: str | None = None,
+    preset: Any | None = None,
     only_recent_days: int | None = None,
     ai_only: bool = False,
     sort: str = "score_desc",
@@ -175,9 +319,8 @@ def list_ranked_offers(
     init_db(db_path)
     clauses: list[str] = []
     params: list[Any] = []
-    if recommendation:
-        clauses.append("rankings.recommendation = ?")
-        params.append(recommendation)
+    # Recommendation depends on the active preset because final scores are
+    # recomputed at display time. Filter it after recomputing below.
     if status:
         clauses.append("offers.review_status = ?")
         params.append(status)
@@ -220,7 +363,8 @@ def list_ranked_offers(
         "source": "offers.source ASC, rankings.score DESC",
     }.get(sort, "rankings.score DESC, rankings.ranked_at DESC")
 
-    params.append(limit)
+    fetch_limit = max(limit * 10, 1000)
+    params.append(fetch_limit)
     with _connect(db_path) as connection:
         sql = (
             load_sql("rankings/select_review.sql")
@@ -235,8 +379,29 @@ def list_ranked_offers(
             result_json = json.loads(row["result_json"])
         except json.JSONDecodeError:
             result_json = {}
-        results.append({**dict(row), "result": result_json})
-    return results
+        item = {**dict(row), "result": result_json}
+        if preset is not None:
+            _apply_review_display_preset(item, preset)
+        if recommendation and item.get("recommendation") != recommendation:
+            continue
+        results.append(item)
+
+    def display_sort_key(item: dict[str, Any]) -> tuple[Any, ...]:
+        if sort == "ranked_newest":
+            return (item.get("ranked_at") or "", item.get("score") or 0)
+        if sort == "offer_newest":
+            return (item.get("published_at") or item.get("first_seen_at") or "", item.get("score") or 0)
+        if sort == "recommendation":
+            order = {"high": 0, "medium": 1, "low": 2, "skip": 3}
+            return (-order.get(str(item.get("recommendation")), 99), item.get("score") or 0)
+        if sort == "status":
+            return (item.get("review_status") or "", item.get("score") or 0)
+        if sort == "source":
+            return (item.get("source") or "", item.get("score") or 0)
+        return (item.get("score") or 0, item.get("ranked_at") or "")
+
+    reverse = sort not in {"status", "source", "recommendation"}
+    return sorted(results, key=display_sort_key, reverse=reverse)[:limit]
 
 
 def list_unranked_review_offers(

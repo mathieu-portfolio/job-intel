@@ -66,15 +66,6 @@
             </label>
 
             <label>
-              Preset
-              <select name="preset">
-                {% for preset in scoring_presets %}
-                  <option value="{{ preset.id }}" {% if preset.id == "balanced" %}selected{% endif %}>{{ preset.name }}</option>
-                {% endfor %}
-              </select>
-            </label>
-
-            <label>
               Screened offers to review
               <input name="limit" type="number" min="1" value="10">
             </label>
@@ -154,6 +145,14 @@
         <label>
           Recent days
           <input name="recency" type="number" min="1" required value="{{ filters.recency }}">
+        </label>
+        <label>
+          Preset
+          <select name="preset">
+            {% for preset in scoring_presets %}
+              <option value="{{ preset.id }}" {% if filters.preset == preset.id %}selected{% endif %}>{{ preset.name }}</option>
+            {% endfor %}
+          </select>
         </label>
         <label>
           Sort
@@ -293,6 +292,9 @@
                   <h3>Final decision</h3>
                   <p>Score: {{ final.get("final_score") }}/100</p>
                   <p>Recommendation: {{ final.get("recommendation") }}</p>
+                  {% if offer.selected_preset_name %}
+                    <p>Displayed with preset: {{ offer.selected_preset_name }}</p>
+                  {% endif %}
                   {% if final.get("ai_component") is not none %}
                     <p>Base: 50% rule ({{ final.get("rule_component") }}/100) + 50% AI fit ({{ final.get("ai_component") }}/100) = {{ final.get("base_component") }}/100.</p>
                     <p>Formula: 70% base ({{ final.get("base_component") }}/100) + 30% seniority ({{ final.get("seniority_component") }}/100).</p>

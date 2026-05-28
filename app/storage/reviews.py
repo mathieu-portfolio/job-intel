@@ -3,6 +3,7 @@ from app.storage._maintenance_impl import clear_rankings
 
 from app.storage._reviews_impl import (
     save_ai_review,
+    list_ai_reviews_for_offers,
     list_screening_results,
     list_ai_reviews,
     list_ranked_offers,
@@ -14,6 +15,7 @@ from app.storage._reviews_impl import (
 
 __all__ = [
     "save_ai_review",
+    "list_ai_reviews_for_offers",
     "list_screening_results",
     "list_ai_reviews",
     "list_ranked_offers",

@@ -346,11 +346,25 @@ def select_screened_offers(
     min_score: int | None = None,
     limit: int,
     only_recent_days: int | None = None,
+    exclude_ai_reviewed: bool = True,
 ) -> list[StoredOffer]:
     init_db(db_path)
     profile_id = profile_id or profile_id_from_path(profile_path)
     preset = get_scoring_preset(preset_id, db_path=db_path)
-    params: list[Any] = [profile_id, provider, model, profile_id, preset_id]
+    params: list[Any] = [profile_id]
+    review_clause = ""
+    if exclude_ai_reviewed:
+        review_clause = """
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM ai_reviews
+                  WHERE ai_reviews.offer_id = offers.id
+                    AND ai_reviews.provider IS ?
+                    AND ai_reviews.model IS ?
+                    AND ai_reviews.profile_id = ?
+              )
+        """
+        params.extend([provider, model, profile_id])
     recent_clause = ""
     if only_recent_days is not None:
         cutoff = (datetime.now() - timedelta(days=only_recent_days)).isoformat(timespec="seconds")
@@ -368,15 +382,7 @@ def select_screened_offers(
             JOIN screening_results ON screening_results.offer_id = offers.id
             WHERE screening_results.profile_id = ?
               AND screening_results.passed = 1
-              AND NOT EXISTS (
-                  SELECT 1
-                  FROM ai_reviews
-                  WHERE ai_reviews.offer_id = offers.id
-                    AND ai_reviews.provider IS ?
-                    AND ai_reviews.model IS ?
-                    AND ai_reviews.profile_id = ?
-                    AND ai_reviews.preset_id = ?
-              )
+              {review_clause}
               {recent_clause}
             """,
             params,
@@ -429,7 +435,7 @@ def list_screened_offers(
         clauses.append("offers.source = ?")
         where_params.append(source)
     where_sql = " AND ".join(clauses)
-    params = [preset_id, preset_id, preset.name, preset_id, profile_id, *where_params]
+    params = [preset_id, preset_id, preset.name, profile_id, *where_params]
     with _connect(db_path) as connection:
         rows = connection.execute(
             f"""
@@ -461,7 +467,6 @@ def list_screened_offers(
             JOIN screening_results ON screening_results.offer_id = offers.id
             LEFT JOIN ai_reviews
              ON ai_reviews.offer_id = offers.id
-             AND ai_reviews.preset_id = ?
              AND ai_reviews.profile_id = ?
             WHERE {where_sql};
             """,

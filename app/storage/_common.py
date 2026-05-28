@@ -427,26 +427,34 @@ def _migrate_profile_ids(connection: sqlite3.Connection) -> None:
         ON screening_results(offer_id, profile_id);
         """
     )
+    # AI reviews are profile+offer artifacts, not preset artifacts. The preset_id
+    # column is kept only for backwards compatibility with existing databases.
     connection.execute("DROP INDEX IF EXISTS idx_ai_reviews_lookup;")
-    connection.execute(
-        """
-        CREATE INDEX IF NOT EXISTS idx_ai_reviews_lookup
-        ON ai_reviews(profile_id, profile_path, preset_id, provider, model, score DESC);
-        """
-    )
     connection.execute("DROP INDEX IF EXISTS idx_ai_reviews_unique_offer_provider_model_profile;")
     connection.execute("DROP INDEX IF EXISTS idx_ai_reviews_unique_offer_provider_model_profile_preset;")
     connection.execute("DROP INDEX IF EXISTS idx_ai_reviews_unique_offer_provider_model_profile_id_preset;")
+    connection.execute("DROP INDEX IF EXISTS idx_ai_reviews_unique_offer_provider_model_profile_id;")
+    connection.execute("DROP INDEX IF EXISTS idx_ai_reviews_profile_preset_lookup;")
     connection.execute(
         """
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_reviews_unique_offer_provider_model_profile_id_preset
-        ON ai_reviews(offer_id, profile_id, preset_id, COALESCE(provider, ''), COALESCE(model, ''));
+        DELETE FROM ai_reviews
+        WHERE id NOT IN (
+            SELECT MAX(id)
+            FROM ai_reviews
+            GROUP BY offer_id, profile_id, COALESCE(provider, ''), COALESCE(model, '')
+        );
         """
     )
     connection.execute(
         """
-        CREATE INDEX IF NOT EXISTS idx_ai_reviews_profile_preset_lookup
-        ON ai_reviews(profile_id, preset_id, provider, model, score DESC);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_reviews_unique_offer_provider_model_profile_id
+        ON ai_reviews(offer_id, profile_id, COALESCE(provider, ''), COALESCE(model, ''));
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_ai_reviews_profile_lookup
+        ON ai_reviews(profile_id, provider, model, score DESC);
         """
     )
 

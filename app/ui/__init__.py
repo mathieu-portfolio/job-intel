@@ -25,7 +25,7 @@ from app.storage.reviews import (
     list_ranked_offers,
     list_unranked_review_offers,
 )
-from app.storage.scoring import list_scoring_presets, list_screened_offers
+from app.storage.scoring import get_scoring_preset, list_scoring_presets, list_screened_offers
 from app.ui_options import ADZUNA_MARKETS, discover_profiles
 from app.workflows import WorkflowCancelled, fetch_offers, rank_offers
 from app.ui.state import (
@@ -143,11 +143,14 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
         ranking_mode: str | None = None,
         recency: str | None = None,
         ai_only: bool = False,
+        preset: str = "balanced",
         sort: str = "score_desc",
         limit: int = 100,
     ) -> HTMLResponse:
         recency_days = _positive_int(recency, DEFAULT_RECENCY_DAYS)
         active_profile = _active_profile_path(request)
+        scoring_presets = list_scoring_presets(request.app.state.db_path, enabled_only=True)
+        selected_preset = get_scoring_preset(preset, db_path=request.app.state.db_path)
         offers = list_ranked_offers(
             db_path=request.app.state.db_path,
             recommendation=recommendation or None,
@@ -156,6 +159,7 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
             location=location or None,
             ranking_mode=ranking_mode or None,
             profile_path=active_profile,
+            preset=selected_preset,
             only_recent_days=recency_days,
             ai_only=ai_only,
             sort=sort,
@@ -175,11 +179,12 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                     "ranking_mode": ranking_mode or "",
                     "recency": recency_days,
                     "ai_only": ai_only,
+                    "preset": selected_preset.id,
                     "sort": sort,
                     "limit": limit,
                 },
                 "options": get_review_filter_options(request.app.state.db_path),
-                "scoring_presets": list_scoring_presets(request.app.state.db_path, enabled_only=True),
+                "scoring_presets": scoring_presets,
                 **_common_template_context(request),
                 "location_suggestions": list_offer_locations(request.app.state.db_path),
                 "db_path": request.app.state.db_path,
@@ -403,7 +408,6 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
                 ranking_mode="ai",
                 provider=((form.get("provider") or "").strip() or None),  # type: ignore[arg-type]
                 model=(form.get("model") or "").strip() or None,
-                preset_id=(form.get("preset") or "balanced").strip() or "balanced",
                 ai_concurrency=_positive_int(form.get("ai_concurrency"), 1),
                 ai_retry_attempts=_positive_int(form.get("ai_retry_attempts"), 1),
                 ai_retry_backoff=_nonnegative_float(form.get("ai_retry_backoff"), 0.0),
