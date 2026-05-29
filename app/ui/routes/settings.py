@@ -5,10 +5,12 @@ import shutil
 import tempfile
 import zipfile
 from pathlib import Path
+from urllib.parse import urlencode
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 
+from app.desktop.paths import set_desktop_database_path
 from app.storage.scoring import get_scoring_preset, list_scoring_presets
 from app.ui.config_io import (
     _config_archive_name,
@@ -33,13 +35,13 @@ from app.ui_options import discover_profiles
 
 
 def _settings_redirect(tab: str, return_to: str = "/", **params: str) -> RedirectResponse:
-    query = [f"tab={tab}"]
+    query: dict[str, str] = {"tab": tab}
     for key, value in params.items():
         if value:
-            query.append(f"{key}={value}")
+            query[key] = value
     if return_to:
-        query.append(f"return_to={return_to}")
-    return RedirectResponse(f"/settings?{'&'.join(query)}", status_code=303)
+        query["return_to"] = return_to
+    return RedirectResponse(f"/settings?{urlencode(query)}", status_code=303)
 
 
 def register_settings_routes(app: FastAPI) -> None:
@@ -204,6 +206,45 @@ def register_settings_routes(app: FastAPI) -> None:
             if temp_path is not None:
                 temp_path.unlink(missing_ok=True)
         return _settings_redirect("presets")
+
+
+    @app.get("/settings/database/path")
+    @app.get("/settings/database-location")
+    @app.get("/settings/data/database-path")
+    def database_path_form_requires_post(request: Request):
+        request.app.state.workflow_notice = _workflow_notice(
+            "error",
+            "Database path change failed",
+            {"Error": "Use the Settings form to change the database path."},
+        )
+        return _settings_redirect("data")
+
+    @app.post("/settings/database/path")
+    @app.post("/settings/database-location")
+    @app.post("/settings/data/database-path")
+    async def change_database_path(request: Request):
+        form = await _form_data(request)
+        requested_path = (form.get("database_path") or "").strip()
+        move_existing = form.get("move_existing") == "true"
+        if not requested_path:
+            request.app.state.workflow_notice = _workflow_notice("error", "Database path change failed", {"Error": "Enter a folder or database file path."})
+            return _settings_redirect("data")
+        runtime_paths = request.app.state.runtime_paths
+        if runtime_paths is None:
+            request.app.state.workflow_notice = _workflow_notice("error", "Database path change failed", {"Error": "Database path changes are only available in desktop mode."})
+            return _settings_redirect("data")
+        try:
+            updated_paths = set_desktop_database_path(runtime_paths, requested_path, move_existing=move_existing)
+            request.app.state.runtime_paths = updated_paths
+            request.app.state.db_path = updated_paths.db_path
+            request.app.state.workflow_notice = _workflow_notice(
+                "success",
+                "Database path updated",
+                {"Database": str(updated_paths.db_path)},
+            )
+        except Exception as error:
+            request.app.state.workflow_notice = _workflow_notice("error", "Database path change failed", {"Error": str(error)})
+        return _settings_redirect("data")
 
     @app.get("/settings/database/export")
     def export_database(request: Request):

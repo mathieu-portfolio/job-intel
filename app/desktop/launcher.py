@@ -7,7 +7,7 @@ import urllib.request
 import webbrowser
 from pathlib import Path
 
-from app.desktop.paths import ensure_desktop_runtime_paths, get_desktop_db_path
+from app.desktop.paths import ensure_desktop_runtime_paths
 from app.ui.server import DEFAULT_UI_HOST, DEFAULT_UI_PORT, local_url, run_server
 
 

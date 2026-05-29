@@ -6,6 +6,7 @@ from pathlib import Path
 
 APP_NAME = "JobIntel"
 JOB_INTEL_DATA_DIR_ENV = "JOB_INTEL_DATA_DIR"
+JOB_INTEL_DB_PATH_ENV = "JOB_INTEL_DB_PATH"
 JOB_INTEL_PROFILES_DIR_ENV = "JOB_INTEL_PROFILES_DIR"
 JOB_INTEL_SCORING_PRESET_DIR_ENV = "JOB_INTEL_SCORING_PRESET_DIR"
 
@@ -52,5 +53,6 @@ def apply_runtime_paths(paths: RuntimePaths) -> None:
     """Expose runtime paths to code paths that are not request-aware yet."""
 
     os.environ[JOB_INTEL_DATA_DIR_ENV] = str(paths.data_dir)
+    os.environ[JOB_INTEL_DB_PATH_ENV] = str(paths.db_path)
     os.environ[JOB_INTEL_PROFILES_DIR_ENV] = str(paths.profiles_dir)
     os.environ[JOB_INTEL_SCORING_PRESET_DIR_ENV] = str(paths.scoring_presets_dir)

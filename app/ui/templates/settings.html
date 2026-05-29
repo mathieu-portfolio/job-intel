@@ -222,6 +222,19 @@
               {% endif %}
               <div><dt>Status</dt><dd>{{ 'Available' if db_exists else 'Not created yet' }}</dd></div>
             </dl>
+            {% if runtime_paths %}
+              <form method="post" action="/settings/database/path" class="import-form">
+                <label>
+                  Database folder or file path
+                  <input name="database_path" type="text" value="{{ db_path }}" required>
+                </label>
+                <p class="profile-note">Use a folder path to store <code>job_intel.sqlite</code> there, or type a full <code>.sqlite</code>/<code>.db</code> file path. The profiles and presets can stay in the normal app data folder.</p>
+                <label class="checkbox-filter"><input name="move_existing" type="checkbox" value="true" checked> Move existing database to the new location</label>
+                <button type="submit">Change database location</button>
+              </form>
+            {% else %}
+              <p class="profile-note">Database path changes are available in desktop mode.</p>
+            {% endif %}
             <div class="settings-actions-row">
               {% if db_exists %}
                 <a class="primary" href="/settings/database/export">Save database</a>
