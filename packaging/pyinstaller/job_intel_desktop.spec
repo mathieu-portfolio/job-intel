@@ -4,6 +4,8 @@
 
 from pathlib import Path
 
+from PyInstaller.utils.hooks import collect_submodules
+
 block_cipher = None
 
 SPEC_DIR = Path(globals().get("SPECPATH", Path.cwd() / "packaging" / "pyinstaller")).resolve()
@@ -18,6 +20,24 @@ def data_dir(source: Path, destination: str) -> tuple[str, str] | None:
     if not source.exists():
         return None
     return (str(source), destination)
+
+
+hiddenimports = []
+for package_name in [
+    "fastapi",
+    "starlette",
+    "pydantic",
+    "pydantic_core",
+    "uvicorn",
+    "anyio",
+    "jinja2",
+    "typer",
+    "rich",
+    "requests",
+    "openai",
+    "dotenv",
+]:
+    hiddenimports += collect_submodules(package_name)
 
 
 datas = [
@@ -35,7 +55,7 @@ a = Analysis(
     pathex=[str(PROJECT_ROOT)],
     binaries=[],
     datas=datas,
-    hiddenimports=[],
+    hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
