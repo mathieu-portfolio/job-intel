@@ -130,18 +130,21 @@
             {% endfor %}
           </select>
         </label>
-        <label>
-          Sort
-          <select name="sort">
-            <option value="score_desc" {% if filters.sort == "score_desc" %}selected{% endif %}>Score</option>
-            <option value="ranked_newest" {% if filters.sort == "ranked_newest" %}selected{% endif %}>Ranked newest</option>
-            <option value="offer_newest" {% if filters.sort == "offer_newest" %}selected{% endif %}>Offer newest</option>
-            <option value="recommendation" {% if filters.sort == "recommendation" %}selected{% endif %}>Recommendation</option>
-            <option value="status" {% if filters.sort == "status" %}selected{% endif %}>Status</option>
-            <option value="source" {% if filters.sort == "source" %}selected{% endif %}>Source</option>
-          </select>
-        </label>
-        <label>
+        <div class="filter-group sort-filter">
+          <span class="filter-label">Sort</span>
+          <span class="inline-control">
+            <select name="sort">
+              <option value="score" {% if filters.sort in ["score", "score_desc"] %}selected{% endif %}>Score</option>
+              <option value="date" {% if filters.sort in ["date", "ranked_newest", "offer_newest"] %}selected{% endif %}>Date</option>
+            </select>
+            <label class="sort-direction-label" title="Toggle sort direction">
+              <span class="visually-hidden">Reverse sort direction</span>
+              <input class="sort-direction-checkbox" name="reverse_order" type="checkbox" value="true" {% if filters.reverse_order %}checked{% endif %}>
+              <span class="sort-direction-icon" aria-hidden="true"></span>
+            </label>
+          </span>
+        </div>
+        <label class="compact-filter">
           Per page
           <input name="page_size" type="number" min="1" max="100" value="{{ filters.page_size }}">
         </label>

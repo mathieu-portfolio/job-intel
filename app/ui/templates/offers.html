@@ -134,13 +134,6 @@
         data-persist-key="jobIntel.offersFilters"
         data-sync-query="true"
       >
-        <label>
-          View
-          <select name="view">
-            <option value="ready" {% if filters.view == "ready" %}selected{% endif %}>Ready for AI review</option>
-            <option value="screened" {% if filters.view == "screened" %}selected{% endif %}>All screened</option>
-          </select>
-        </label>
         <label class="wide-filter">
           Search
           <input name="q" type="search" value="{{ filters.q }}" placeholder="Title, company, description">
@@ -154,6 +147,19 @@
             {% endfor %}
           </select>
         </label>
+        <label>
+          Location
+          <input name="location" type="text" value="{{ filters.location }}" placeholder="Any" list="location-suggestions">
+        </label>
+        <label>
+          Status
+          <select name="status">
+            <option value="">Any</option>
+            {% for value in options.statuses %}
+              <option value="{{ value }}" {% if filters.status == value %}selected{% endif %}>{{ value }}</option>
+            {% endfor %}
+          </select>
+        </label>
         {% if show_screened_filters %}
           <label>
             Preset
@@ -163,21 +169,22 @@
               {% endfor %}
             </select>
           </label>
-          <label>
-            Sort
-            <select name="sort">
-              <option value="score_desc" {% if filters.sort == "score_desc" %}selected{% endif %}>Score</option>
-              <option value="offer_newest" {% if filters.sort == "offer_newest" %}selected{% endif %}>Offer newest</option>
-              <option value="status" {% if filters.sort == "status" %}selected{% endif %}>Status</option>
-              <option value="source" {% if filters.sort == "source" %}selected{% endif %}>Source</option>
-            </select>
-          </label>
-          <label class="checkbox-filter">
-            <input name="show_all_presets" type="checkbox" value="true" {% if filters.show_all_presets %}checked{% endif %}>
-            Show all matching presets
-          </label>
+          <div class="filter-group sort-filter">
+            <span class="filter-label">Sort</span>
+            <span class="inline-control">
+              <select name="sort">
+                <option value="score" {% if filters.sort in ["score", "score_desc"] %}selected{% endif %}>Score</option>
+                <option value="date" {% if filters.sort in ["date", "offer_newest"] %}selected{% endif %}>Date</option>
+              </select>
+              <label class="sort-direction-label" title="Toggle sort direction">
+                <span class="visually-hidden">Reverse sort direction</span>
+                <input class="sort-direction-checkbox" name="reverse_order" type="checkbox" value="true" {% if filters.reverse_order %}checked{% endif %}>
+                <span class="sort-direction-icon" aria-hidden="true"></span>
+              </label>
+            </span>
+          </div>
         {% endif %}
-        <label>
+        <label class="compact-filter">
           Per page
           <input name="page_size" type="number" min="1" max="100" value="{{ filters.page_size }}">
         </label>
@@ -195,9 +202,6 @@
       {% include "_pagination.html" %}
 
       <section class="list">
-        {% if show_screened_filters and filters.show_all_presets %}
-          <p class="mode-note">Showing one row per offer and matching preset; the same offer can appear more than once.</p>
-        {% endif %}
         {% for offer in offers %}
           <article class="offer raw-offer">
             <div class="offer-main">

@@ -11,7 +11,7 @@ from app.storage.maintenance import (
     get_storage_counts,
 )
 from app.storage.offers import list_offer_locations
-from app.storage.reviews import get_review_filter_options, list_ranked_offers, list_unranked_review_offers
+from app.storage.reviews import get_review_filter_options, list_ranked_offers
 from app.storage.scoring import get_scoring_preset, list_scoring_presets, list_screened_offers
 from app.ui.context import _active_profile_path, _common_template_context
 from app.ui.review_display import _normalize_review_offers
@@ -55,7 +55,8 @@ def register_page_routes(app: FastAPI) -> None:
         recency: str | None = None,
         ai_only: bool = False,
         preset: str = "balanced",
-        sort: str = "score_desc",
+        sort: str = "score",
+        reverse_order: bool = False,
         page: int = 1,
         page_size: int = DEFAULT_PAGE_SIZE,
     ) -> HTMLResponse:
@@ -78,6 +79,7 @@ def register_page_routes(app: FastAPI) -> None:
             only_recent_days=recency_days,
             ai_only=ai_only,
             sort=sort,
+            reverse_order=reverse_order,
             limit=current_page_size + 1,
             offset=offset,
         )
@@ -98,6 +100,7 @@ def register_page_routes(app: FastAPI) -> None:
                     "ai_only": ai_only,
                     "preset": selected_preset.id,
                     "sort": sort,
+                    "reverse_order": reverse_order,
                     "page": current_page,
                     "page_size": current_page_size,
                 },
@@ -117,23 +120,24 @@ def register_page_routes(app: FastAPI) -> None:
     def legacy_explore(request: Request) -> HTMLResponse:
         from fastapi.responses import RedirectResponse
 
-        return RedirectResponse("/offers?view=ready", status_code=303)
+        return RedirectResponse("/offers", status_code=303)
 
     @app.get("/screened", response_class=HTMLResponse)
     def legacy_screened(request: Request) -> HTMLResponse:
         from fastapi.responses import RedirectResponse
 
-        return RedirectResponse("/offers?view=screened", status_code=303)
+        return RedirectResponse("/offers", status_code=303)
 
     @app.get("/offers", response_class=HTMLResponse)
     def offers_page(
         request: Request,
-        view: str = "ready",
         q: str | None = None,
         source: str | None = None,
+        location: str | None = None,
+        status: str | None = None,
         preset: str = "balanced",
-        show_all_presets: bool = False,
-        sort: str = "score_desc",
+        sort: str = "score",
+        reverse_order: bool = False,
         page: int = 1,
         page_size: int = DEFAULT_PAGE_SIZE,
     ) -> HTMLResponse:
@@ -142,33 +146,23 @@ def register_page_routes(app: FastAPI) -> None:
         offset = (current_page - 1) * current_page_size
         active_profile = _active_profile_path(request)
         profile_id = profile_id_from_path(active_profile)
-        selected_view = "screened" if view == "screened" else "ready"
         scoring_presets = list_scoring_presets(request.app.state.db_path, enabled_only=True)
-        if selected_view == "screened":
-            loaded_offers = list_screened_offers(
-                db_path=request.app.state.db_path,
-                preset_id=preset,
-                profile_id=profile_id,
-                show_all_matching_presets=show_all_presets,
-                search=q or None,
-                source=source or None,
-                sort=sort,
-                limit=current_page_size + 1,
-                offset=offset,
-            )
-            page_title = "Offers"
-            empty_message = "No screened offers match these filters."
-        else:
-            loaded_offers = list_unranked_review_offers(
-                db_path=request.app.state.db_path,
-                search=q or None,
-                source=source or None,
-                profile_id=profile_id,
-                limit=current_page_size + 1,
-                offset=offset,
-            )
-            page_title = "Offers"
-            empty_message = "No offers are ready for AI review. Fetch new offers or switch to All screened."
+        loaded_offers = list_screened_offers(
+            db_path=request.app.state.db_path,
+            preset_id=preset,
+            profile_id=profile_id,
+            search=q or None,
+            source=source or None,
+            location=location or None,
+            review_status=status or None,
+            ready_for_ai_review=False,
+            sort=sort,
+            reverse_order=reverse_order,
+            limit=current_page_size + 1,
+            offset=offset,
+        )
+        page_title = "Offers"
+        empty_message = "No screened offers match these filters."
         offers = loaded_offers[:current_page_size]
         return templates.TemplateResponse(
             request,
@@ -176,12 +170,13 @@ def register_page_routes(app: FastAPI) -> None:
             {
                 "offers": offers,
                 "filters": {
-                    "view": selected_view,
                     "q": q or "",
                     "source": source or "",
+                    "location": location or "",
+                    "status": status or "",
                     "preset": preset,
-                    "show_all_presets": show_all_presets,
                     "sort": sort,
+                    "reverse_order": reverse_order,
                     "page": current_page,
                     "page_size": current_page_size,
                 },
@@ -199,7 +194,7 @@ def register_page_routes(app: FastAPI) -> None:
                     "ranked": DEFAULT_RANKED_CAPACITY,
                 },
                 "show_fetch_workflow": True,
-                "show_screened_filters": selected_view == "screened",
+                "show_screened_filters": True,
                 "page_title": page_title,
                 "empty_message": empty_message,
                 "listing_path": "/offers",

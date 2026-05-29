@@ -411,10 +411,14 @@ def list_screened_offers(
     preset_id: str = DEFAULT_SCORING_PRESET_ID,
     profile_id: str = "default",
     threshold: int | None = None,
-    show_all_matching_presets: bool = False,
     search: str | None = None,
     source: str | None = None,
-    sort: str = "score_desc",
+    location: str | None = None,
+    review_status: str | None = None,
+    min_score: int | None = None,
+    ready_for_ai_review: bool = False,
+    sort: str = "score",
+    reverse_order: bool = False,
     limit: int = 100,
     offset: int = 0,
 ) -> list[dict[str, Any]]:
@@ -435,6 +439,24 @@ def list_screened_offers(
     if source:
         clauses.append("offers.source = ?")
         where_params.append(source)
+    location_pattern = _like_pattern(location)
+    if location_pattern:
+        clauses.append("LOWER(offers.location) LIKE ? ESCAPE '\\'")
+        where_params.append(location_pattern)
+    if review_status:
+        clauses.append("offers.review_status = ?")
+        where_params.append(review_status)
+    if min_score is not None:
+        clauses.append("screening_results.score >= ?")
+        where_params.append(min_score)
+    if ready_for_ai_review:
+        clauses.append(
+            "NOT EXISTS ("
+            "SELECT 1 FROM rankings "
+            "WHERE rankings.offer_id = offers.id "
+            "AND rankings.profile_id = screening_results.profile_id"
+            ")"
+        )
     where_sql = " AND ".join(clauses)
     params = [preset_id, preset_id, preset.name, profile_id, *where_params]
     with _connect(db_path) as connection:
@@ -487,14 +509,10 @@ def list_screened_offers(
         results.append(item)
 
     def sort_key(item: dict[str, Any]) -> tuple[Any, ...]:
-        if sort == "offer_newest":
+        if sort in {"date", "offer_newest"}:
             return (item["published_at"] or item["first_seen_at"] or "", item["fast_score"])
-        if sort == "source":
-            return (item["source"] or "", item["fast_score"])
-        if sort == "status":
-            return (item["review_status"] or "", item["fast_score"])
         return (item["fast_score"], item["last_fetched_at"] or "")
 
-    reverse = sort not in {"source", "status"}
+    reverse = not reverse_order
     safe_offset = max(offset, 0)
     return sorted(results, key=sort_key, reverse=reverse)[safe_offset:safe_offset + limit]

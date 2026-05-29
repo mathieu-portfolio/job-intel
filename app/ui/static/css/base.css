@@ -342,7 +342,8 @@ main {
   border-radius: 8px;
 }
 
-label {
+label,
+.filter-group {
   display: grid;
   gap: 6px;
   color: var(--muted);
@@ -351,13 +352,28 @@ label {
   min-width: 0;
 }
 
-.filters label:nth-of-type(6),
-.filters label:nth-of-type(8) {
+.filter-label {
+  color: var(--muted);
+}
+
+.filters label.compact-filter {
   flex-basis: 96px;
 }
 
-.filters label:nth-of-type(7) {
+.filters .sort-filter {
   flex-basis: 150px;
+}
+
+.inline-control {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.inline-control select,
+.inline-control input {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .filters button,
@@ -731,3 +747,56 @@ li span {
   margin-top: 1rem;
 }
 
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.sort-direction-label {
+  display: inline-flex;
+  flex: 0 0 38px;
+  min-width: 38px;
+  padding: 0;
+}
+
+.sort-direction-checkbox {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.sort-direction-icon {
+  align-items: center;
+  background: var(--panel-strong);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 16px;
+  font-weight: 700;
+  height: 38px;
+  justify-content: center;
+  width: 38px;
+}
+
+.sort-direction-icon::before {
+  content: "↓";
+}
+
+.sort-direction-checkbox:checked + .sort-direction-icon::before {
+  content: "↑";
+}
+
+.sort-direction-checkbox:focus-visible + .sort-direction-icon {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

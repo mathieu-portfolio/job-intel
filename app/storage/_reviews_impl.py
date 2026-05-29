@@ -313,7 +313,8 @@ def list_ranked_offers(
     preset: Any | None = None,
     only_recent_days: int | None = None,
     ai_only: bool = False,
-    sort: str = "score_desc",
+    sort: str = "score",
+    reverse_order: bool = False,
     limit: int = 100,
     offset: int = 0,
 ) -> list[dict[str, Any]]:
@@ -356,12 +357,11 @@ def list_ranked_offers(
 
     where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     order_by = {
+        "score": "rankings.score DESC, rankings.ranked_at DESC",
         "score_desc": "rankings.score DESC, rankings.ranked_at DESC",
+        "date": "rankings.ranked_at DESC, rankings.score DESC",
         "ranked_newest": "rankings.ranked_at DESC, rankings.score DESC",
         "offer_newest": "COALESCE(offers.published_at, offers.first_seen_at) DESC, rankings.score DESC",
-        "recommendation": "rankings.recommendation ASC, rankings.score DESC",
-        "status": "offers.review_status ASC, rankings.score DESC",
-        "source": "offers.source ASC, rankings.score DESC",
     }.get(sort, "rankings.score DESC, rankings.ranked_at DESC")
 
     safe_offset = max(offset, 0)
@@ -389,20 +389,13 @@ def list_ranked_offers(
         results.append(item)
 
     def display_sort_key(item: dict[str, Any]) -> tuple[Any, ...]:
-        if sort == "ranked_newest":
+        if sort in {"date", "ranked_newest"}:
             return (item.get("ranked_at") or "", item.get("score") or 0)
         if sort == "offer_newest":
             return (item.get("published_at") or item.get("first_seen_at") or "", item.get("score") or 0)
-        if sort == "recommendation":
-            order = {"high": 0, "medium": 1, "low": 2, "skip": 3}
-            return (-order.get(str(item.get("recommendation")), 99), item.get("score") or 0)
-        if sort == "status":
-            return (item.get("review_status") or "", item.get("score") or 0)
-        if sort == "source":
-            return (item.get("source") or "", item.get("score") or 0)
         return (item.get("score") or 0, item.get("ranked_at") or "")
 
-    reverse = sort not in {"status", "source", "recommendation"}
+    reverse = not reverse_order
     return sorted(results, key=display_sort_key, reverse=reverse)[safe_offset:safe_offset + limit]
 
 
