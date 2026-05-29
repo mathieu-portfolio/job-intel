@@ -1,19 +1,15 @@
 {
-  "id": "balanced",
-  "name": "Balanced",
-  "description": "General fit across profile match, technical relevance, and risk.",
-  "order": 0,
-  "is_builtin": true,
+  "id": "example",
+  "name": "Example Preset",
+  "description": "Demonstrates the preset format.",
+  "order": 999,
+  "is_builtin": false,
   "enabled": true,
   "weights": {
     "category_weights": {
       "interests": 0.25,
-      "preferred_domains": 0.15,
       "strengths": 0.20,
-      "portfolio_projects": 0.15,
-      "location_preferences": 0.15,
       "disliked_work": -0.20,
-      "exclusions": -0.80,
       "positive_signals": 0.50,
       "negative_signals": -0.50
     },

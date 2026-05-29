@@ -2,6 +2,8 @@
 __pycache__/
 *.py[cod]
 *$py.class
+
+# Tool caches
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
@@ -13,21 +15,32 @@ env/
 
 # Environment variables
 .env
+.env.*
 
 # Build artifacts
 build/
 dist/
 *.egg-info/
 
-# Local generated data
-data/raw/*.json
-data/normalized/*.json
-data/ranked/*.json
-
-# IDE
+# IDEs
 .vscode/
 .idea/
 
+# Archives
 *.zip
+
+# Databases
 *.sqlite
+
+# Benchmark outputs
 benchmarks/results/
+
+# Personal profiles
+profiles/*.json
+!profiles/example.json
+!profiles/README.md
+
+# Personal scoring presets
+config/scoring_presets/*.json
+!config/scoring_presets/example.json
+!config/scoring_presets/README.md

@@ -1,0 +1,55 @@
+{
+  "search_queries": {
+    "en": [
+      "software engineer",
+      "backend engineer"
+    ],
+    "fr": [
+      "ingénieur logiciel"
+    ]
+  },
+  "must_match": {
+    "any": [
+      {
+        "term": "software",
+        "aliases": {
+          "en": ["software"],
+          "fr": ["logiciel"]
+        }
+      }
+    ]
+  },
+  "signals": {
+    "interests": [
+      {
+        "term": "distributed systems",
+        "weight": 1.0,
+        "aliases": {
+          "en": ["distributed systems"],
+          "fr": ["systèmes distribués"]
+        }
+      }
+    ],
+    "strengths": [
+      {
+        "term": "C++",
+        "weight": 1.0,
+        "aliases": {
+          "en": ["C++"],
+          "fr": ["C++"]
+        }
+      }
+    ],
+    "disliked_work": [
+      {
+        "term": "legacy maintenance",
+        "weight": 1.0,
+        "aliases": {
+          "en": ["legacy maintenance"],
+          "fr": ["maintenance legacy"]
+        }
+      }
+    ]
+  },
+  "target_seniority": "mid"
+}
