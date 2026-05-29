@@ -5,6 +5,7 @@ from app.cli.clear import clear
 from app.cli.fetch import fetch
 from app.cli.rank import rank
 from app.cli.ui import ui
+from app.cli.desktop import desktop
 
 
 @app.callback()
@@ -17,6 +18,7 @@ app.command(name="clear")(clear)
 app.command(name="fetch")(fetch)
 app.command(name="rank")(rank)
 app.command(name="ui")(ui)
+app.command(name="desktop")(desktop)
 
 
 if __name__ == "__main__":

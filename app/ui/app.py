@@ -26,4 +26,8 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
     register_workflow_routes(app)
     register_storage_routes(app)
 
+    @app.get("/health")
+    def health() -> dict[str, str]:
+        return {"status": "ok"}
+
     return app
