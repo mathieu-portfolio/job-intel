@@ -37,3 +37,11 @@ macOS/Linux: dist/JobIntel/JobIntel
 The executable should start the local server, open the browser, use the desktop data folder, and expose diagnostics in Settings and `/runtime`.
 
 See `docs/PACKAGING.md` for the fuller checklist.
+
+
+## GitHub Actions
+
+Release artifacts are built by `.github/workflows/release.yml`.
+
+- Manual runs upload `JobIntel-Windows.zip` as a workflow artifact.
+- Pushing a tag like `v0.1.0` also attaches the ZIP to the GitHub Release.

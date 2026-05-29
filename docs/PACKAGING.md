@@ -56,6 +56,28 @@ After launching the packaged app:
 
 HTTP `304 Not Modified` entries in the console are normal browser-cache responses, not errors.
 
+
+## GitHub release workflow
+
+The repository includes a GitHub Actions workflow that builds the Windows ZIP automatically.
+
+Manual build from GitHub:
+
+1. Open the repository on GitHub.
+2. Go to **Actions**.
+3. Select **Build release artifacts**.
+4. Click **Run workflow**.
+5. Download the `JobIntel-Windows` artifact.
+
+Tagged release build:
+
+```powershell
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+When a `v*` tag is pushed, GitHub Actions builds `JobIntel-Windows.zip` and attaches it to the GitHub Release for that tag.
+
 ## Current release format
 
 The current release artifact is a zip:
