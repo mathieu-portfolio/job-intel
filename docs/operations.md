@@ -1,156 +1,53 @@
 # Operations
 
-This page covers storage-oriented commands and behavior that are too detailed for the README quick start.
+## Database Save and Load
 
-## Fetch Collection
+The application can export and restore the complete SQLite state from the Settings page.
 
-Fetch supports two modes:
+Use this before upgrades, experiments, or deployments.
 
-- Target mode: `--new-offers N` scans provider pages until N newly explored provider offers are processed.
-- Page scan mode: omit `--new-offers` and use `--pages` to scan a fixed number of pages for debugging.
+## Profiles
 
-Fetch also supports exploration strategies:
+Profiles define:
 
-- `safe`: normal exploration; every provider row is checked against `explored_offers`.
-- `fast_backfill`: uses per-scope metadata to process new top results, skip a previously explored range, then resume normal deduplication for older history.
+- fetch queries
+- required terms
+- weighted interests
+- weighted strengths
+- weighted dislikes
 
-Example:
-
-```bash
-python -m app.cli fetch --source arbeitnow --new-offers 20 --max-pages 10
-```
-
-Fast backfill example:
-
-```bash
-python -m app.cli fetch --source arbeitnow --new-offers 20 --max-pages 10 --exploration-mode fast_backfill
-```
-
-Stop conditions:
-
-- the target number of newly explored offers is processed
-- `--max-pages` is reached
-- the provider returns no results
-- `--max-seen-pages` consecutive pages contain only already-explored offers
-
-Fetch only inserts offers that pass the rule filter. Already-explored items are skipped quickly by provider identity or canonical URL. Filtered-out offers still count as newly explored and are recorded in explored tracking.
-
-## Explored Offers
-
-The `explored_offers` table records provider items even when they are not inserted into `offers`.
-
-Tracked fields include:
-
-- provider/source name
-- external provider ID when available
-- canonical URL when available
-- first and last seen timestamps
-- status such as `duplicate`, `filtered_out`, `inserted`, `updated`, or `error`
-- optional reason such as `already_seen`, `missing_description`, or `rule_filter_failed`
-
-This prevents repeated parsing/filtering of the same irrelevant or duplicate provider results.
-
-## Exploration Scope Metadata
-
-Fast backfill stores minimal metadata in `exploration_scopes`, keyed by a stable hash of the source, profile, query, filters, and other parameters that define a result set.
-
-Tracked fields:
-
-- `newest_id`
-- `oldest_id`
-- `last_explored_page`
-- `updated_at`
-
-This metadata is an optimization only. `explored_offers` remains the correctness layer for deduplication. If metadata is missing or incomplete, fast backfill falls back to normal exploration.
-
-Clearing explored tracking also clears exploration scope metadata so stale skip ranges are not reused.
-
-## Scoring Profiles
-
-Candidate-specific scoring terms live in profile JSON files. The scorer reads `signals` categories:
-
-```json
-{
-  "must_match": {
-    "any": ["systems", "simulation", "C++"]
-  },
-  "signals": {
-    "interests": [
-      { "term": "systems", "weight": 1.0 },
-      { "term": "simulation", "weight": 0.8 }
-    ],
-    "disliked_work": [
-      { "term": "generic CRUD", "weight": 1.0 }
-    ]
-  }
-}
-```
-
-If `must_match.any` is present and non-empty in either the profile or the selected preset's `weights`, an offer must match at least one listed term before normal scoring runs. Otherwise it is assigned a skip decision with a zero fast score.
-
-Category scores are normalized by total item weight:
+Profiles can be managed from:
 
 ```text
-matched item weights / total item weights
+Settings → Profiles
 ```
 
-Then category contribution is:
+## Scoring Presets
+
+Presets define:
+
+- category weights
+- scoring behavior
+- thresholds
+
+Presets can be managed from:
 
 ```text
-category score * category weight
+Settings → Presets
 ```
 
-Category weights come from JSON scoring presets under `config/scoring_presets/`; profile files own only item terms and item weights.
+## Import and Export
 
-The legacy profile fields (`interests`, `preferred_domains`, `positive_signals`, `negative_signals`, and similar) and the previous `{ "weight": ..., "items": [...] }` signal-category shape are still accepted and converted at load time, but new profiles should use `signals` as category-to-item-list mappings.
+Profiles and presets support JSON import/export from the Settings page.
 
-Each built-in preset has its own JSON file containing generic category-weight and score-calibration settings. User-specific terms should stay in profile JSON.
+## Exploration Tracking
 
-## Automatic Pruning
+Explored offers are tracked separately from stored offers to avoid repeatedly processing the same provider results.
 
-Fetch runs storage pruning after each successful fetch. Defaults:
+Fast backfill uses exploration metadata to revisit result sets efficiently while preserving correctness through explored-offer tracking.
 
-- explored offers: `10000`
-- unranked offers: `1000`
-- ranked offers: `300`
+## Data Ownership
 
-Override from the CLI:
+Profiles and presets are personal configuration.
 
-```bash
-python -m app.cli fetch \
-  --new-offers 20 \
-  --explored-capacity 10000 \
-  --unranked-capacity 1000 \
-  --ranked-capacity 300
-```
-
-Deletion priority:
-
-1. unmarked rows first
-2. unranked rows before ranked rows where that distinction applies
-3. oldest rows first within each priority bucket
-
-For `offers`, `review_status = 'new'` is unmarked. Other statuses such as `saved`, `skipped`, and `applied` are treated as user-marked and are preserved until unmarked candidates are exhausted. Explored offers have a minimal `keep_flag` for the same purpose.
-
-The UI also shows current counts and capacities and has a confirmed manual cleanup action.
-
-## Clear Command
-
-Use `clear` for explicit data removal:
-
-```bash
-python -m app.cli clear --scope rankings --db data/job_intel.sqlite
-```
-
-Supported scopes:
-
-- `rankings`: clears ranking rows only
-- `offers`: clears offers and dependent rankings through foreign-key cascade
-- `explored`: clears only explored-offer tracking
-- `all`: clears explored offers, offers, rankings, and ranking run metadata
-
-The command validates the scope, prints the exact affected counts, and requires confirmation unless `--yes` is provided:
-
-```bash
-python -m app.cli clear --scope all --db data/job_intel.sqlite --yes
-```
+Keep your own versions local and use the example files as templates.

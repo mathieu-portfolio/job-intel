@@ -1,30 +1,48 @@
-# Module cleanup
+# Architecture Overview
 
-This cleanup introduces focused import surfaces without changing runtime behavior.
+## UI
 
-## Storage
+- FastAPI
+- Jinja templates
+- SQLite-backed views
 
-Existing imports from `app.storage.sqlite` still work. New code can prefer:
-
-- `app.storage.connection`
-- `app.storage.offers`
-- `app.storage.exploration`
-- `app.storage.scoring`
-- `app.storage.reviews`
-- `app.storage.maintenance`
-- `app.storage.models`
-
-The original implementation is kept in `app.storage._sqlite_impl` during this compatibility step.
+The web UI is the primary interface for the application.
 
 ## Workflows
 
-Existing imports from `app.workflows` still work. New code can prefer:
+### Fetch
 
-- `app.workflow_parts.fetch`
-- `app.workflow_parts.review`
+Collects offers from supported providers and records exploration history.
 
-The original implementation is kept in `app._workflows_impl` during this compatibility step.
+### Review
 
-## Next step
+Uses profile matching, scoring presets and optional AI review to rank opportunities.
 
-Move implementation functions from the internal modules into their focused modules in small follow-up commits, while keeping the compatibility facades stable.
+## Configuration
+
+### Profiles
+
+Profiles define:
+
+- fetch queries
+- required terms
+- weighted interests
+- weighted strengths
+- weighted dislikes
+
+### Scoring Presets
+
+Presets define:
+
+- category weights
+- scoring calibration
+- thresholds
+
+## Storage
+
+SQLite is the source of truth for:
+
+- offers
+- reviews
+- exploration tracking
+- review decisions
