@@ -10,6 +10,7 @@ from urllib.parse import urlencode
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 
+from app.desktop.open_path import open_path
 from app.desktop.paths import set_desktop_database_path
 from app.storage.scoring import get_scoring_preset, list_scoring_presets
 from app.ui.config_io import (
@@ -28,6 +29,7 @@ from app.ui.config_io import (
     _write_preset,
     _write_profile,
 )
+from app.resources import app_version, executable_path, is_frozen
 from app.ui.context import _active_profile_path, _common_template_context, _safe_local_path
 from app.ui.shared import templates
 from app.ui.state import _consume_workflow_notice, _form_data, _workflow_notice
@@ -89,6 +91,10 @@ def register_settings_routes(app: FastAPI) -> None:
                 "db_exists": request.app.state.db_path.exists(),
                 "db_path": request.app.state.db_path,
                 "runtime_paths": request.app.state.runtime_paths,
+                "runtime_mode": getattr(request.app.state, "runtime_mode", "cli"),
+                "app_version": app_version(),
+                "is_frozen": is_frozen(),
+                "executable_path": executable_path(),
                 "workflow_notice": _consume_workflow_notice(request),
                 "active_page": "settings",
                 "return_to": return_to,
@@ -207,6 +213,34 @@ def register_settings_routes(app: FastAPI) -> None:
                 temp_path.unlink(missing_ok=True)
         return _settings_redirect("presets")
 
+
+
+    @app.post("/settings/open-folder")
+    async def open_runtime_folder(request: Request):
+        form = await _form_data(request)
+        target = (form.get("target") or "").strip()
+        runtime_paths = request.app.state.runtime_paths
+        allowed_paths = {
+            "database": request.app.state.db_path,
+        }
+        if runtime_paths is not None:
+            allowed_paths.update(
+                {
+                    "data": runtime_paths.data_dir,
+                    "profiles": runtime_paths.profiles_dir,
+                    "presets": runtime_paths.scoring_presets_dir,
+                }
+            )
+        path = allowed_paths.get(target)
+        if path is None:
+            request.app.state.workflow_notice = _workflow_notice("error", "Open folder failed", {"Error": "Unknown folder target."})
+        else:
+            try:
+                open_path(Path(path))
+                request.app.state.workflow_notice = _workflow_notice("success", "Folder opened", {"Folder": str(Path(path).parent if Path(path).suffix else path)})
+            except Exception as error:
+                request.app.state.workflow_notice = _workflow_notice("error", "Open folder failed", {"Error": str(error)})
+        return _settings_redirect("data")
 
     @app.get("/settings/database/path")
     @app.get("/settings/database-location")

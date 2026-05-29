@@ -214,6 +214,9 @@
               </div>
             </div>
             <dl class="settings-summary-list">
+              <div><dt>Version</dt><dd>{{ app_version }}</dd></div>
+              <div><dt>Runtime mode</dt><dd>{{ runtime_mode }}{% if is_frozen %} · packaged{% else %} · source{% endif %}</dd></div>
+              <div><dt>Executable</dt><dd>{{ executable_path }}</dd></div>
               <div><dt>Database path</dt><dd>{{ db_path }}</dd></div>
               {% if runtime_paths %}
                 <div><dt>Data folder</dt><dd>{{ runtime_paths.data_dir }}</dd></div>
@@ -222,6 +225,14 @@
               {% endif %}
               <div><dt>Status</dt><dd>{{ 'Available' if db_exists else 'Not created yet' }}</dd></div>
             </dl>
+            <div class="settings-actions-row">
+              <form method="post" action="/settings/open-folder" class="inline-settings-form"><input type="hidden" name="target" value="database"><button type="submit">Open database folder</button></form>
+              {% if runtime_paths %}
+                <form method="post" action="/settings/open-folder" class="inline-settings-form"><input type="hidden" name="target" value="data"><button type="submit">Open data folder</button></form>
+                <form method="post" action="/settings/open-folder" class="inline-settings-form"><input type="hidden" name="target" value="profiles"><button type="submit">Open profiles folder</button></form>
+                <form method="post" action="/settings/open-folder" class="inline-settings-form"><input type="hidden" name="target" value="presets"><button type="submit">Open presets folder</button></form>
+              {% endif %}
+            </div>
             {% if runtime_paths %}
               <form method="post" action="/settings/database/path" class="import-form">
                 <label>

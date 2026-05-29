@@ -4,7 +4,9 @@ from pathlib import Path
 
 from fastapi.templating import Jinja2Templates
 
-UI_DIR = Path(__file__).parent
+from app.resources import resource_path
+
+UI_DIR = resource_path("app", "ui")
 templates = Jinja2Templates(directory=str(UI_DIR / "templates"))
 
 DEFAULT_RECENCY_DAYS = 30

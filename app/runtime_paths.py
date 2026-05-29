@@ -4,15 +4,15 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-APP_NAME = "JobIntel"
+from app.resources import APP_NAME, resource_path
+
 JOB_INTEL_DATA_DIR_ENV = "JOB_INTEL_DATA_DIR"
 JOB_INTEL_DB_PATH_ENV = "JOB_INTEL_DB_PATH"
 JOB_INTEL_PROFILES_DIR_ENV = "JOB_INTEL_PROFILES_DIR"
 JOB_INTEL_SCORING_PRESET_DIR_ENV = "JOB_INTEL_SCORING_PRESET_DIR"
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_PROFILES_DIR = PROJECT_ROOT / "profiles"
-DEFAULT_SCORING_PRESET_DIR = PROJECT_ROOT / "config" / "scoring_presets"
+DEFAULT_PROFILES_DIR = resource_path("profiles")
+DEFAULT_SCORING_PRESET_DIR = resource_path("config", "scoring_presets")
 
 
 @dataclass(frozen=True)

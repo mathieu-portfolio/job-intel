@@ -3,8 +3,10 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
+from app.resources import resource_path
 
-SQL_DIR = Path(__file__).parent
+
+SQL_DIR = resource_path("app", "sql")
 
 
 @lru_cache(maxsize=None)
