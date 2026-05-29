@@ -34,6 +34,7 @@
         <a class="{% if settings_tab == 'profiles' %}active{% endif %}" href="/settings?tab=profiles&return_to={{ return_to }}">Profile editor</a>
         <a class="{% if settings_tab == 'presets' %}active{% endif %}" href="/settings?tab=presets&return_to={{ return_to }}">Preset editor</a>
         <a class="{% if settings_tab == 'data' %}active{% endif %}" href="/settings?tab=data&return_to={{ return_to }}">Save / Load</a>
+        <a class="{% if settings_tab == 'storage' %}active{% endif %}" href="/settings?tab=storage&return_to={{ return_to }}">Storage</a>
       </nav>
 
       {% if settings_tab == 'profiles' %}
@@ -204,13 +205,44 @@
           <section class="profile-section"><div class="profile-section-head"><div><h2>Scoring parameters</h2><p>Calibration values for converting matched signals into normalized scores.</p></div></div><div class="workflow-grid"><label>No signal score <input data-weight-field="no_signal_score" type="number" min="0" max="100"></label><label>Positive score scale <input data-weight-field="positive_score_scale" type="number" min="0" step="1"></label><label>Negative score scale <input data-weight-field="negative_score_scale" type="number" min="0" step="1"></label><label>Strong negative threshold <input data-weight-field="strong_negative_threshold" type="number" min="-1" max="0" step="0.01"></label><label>Strong negative score cap <input data-weight-field="strong_negative_score_cap" type="number" min="0" max="100"></label></div></section>
         </form>
 
-      {% else %}
+      {% elif settings_tab == 'data' %}
         <section class="settings-grid-single">
           <article class="workflow-card settings-data-card settings-data-card-wide">
             <div class="workflow-head">
               <div>
-                <h2>Data saving system</h2>
+                <h2>Save / Load</h2>
                 <p class="profile-note">Save or load the SQLite database containing fetched offers, screened states, AI reviews, statuses, and run data.</p>
+              </div>
+            </div>
+            <dl class="settings-summary-list">
+              <div><dt>Database path</dt><dd>{{ db_path }}</dd></div>
+              <div><dt>Status</dt><dd>{{ 'Available' if db_exists else 'Not created yet' }}</dd></div>
+            </dl>
+            <div class="settings-actions-row">
+              {% if db_exists %}
+                <a class="primary" href="/settings/database/export">Save database</a>
+              {% else %}
+                <button type="button" disabled>Save database</button>
+              {% endif %}
+            </div>
+            <form method="post" action="/settings/database/import" enctype="multipart/form-data" class="import-form">
+              <label>
+                Load database snapshot
+                <input name="database_file" type="file" accept=".sqlite,.sqlite3,.db,application/vnd.sqlite3" required>
+              </label>
+              <p class="profile-note">Loading replaces the current database file. A <code>.bak</code> copy is created first when an existing database is present.</p>
+              <button type="submit">Load database</button>
+            </form>
+          </article>
+        </section>
+
+      {% elif settings_tab == 'storage' %}
+        <section class="settings-grid-single">
+          <article class="workflow-card settings-data-card settings-data-card-wide">
+            <div class="workflow-head">
+              <div>
+                <h2>Storage</h2>
+                <p class="profile-note">Review where Job Intel stores local application files and move the database when it grows.</p>
               </div>
             </div>
             <dl class="settings-summary-list">
@@ -239,30 +271,14 @@
                   Database folder or file path
                   <input name="database_path" type="text" value="{{ db_path }}" required>
                 </label>
-                <p class="profile-note">Use a folder path to store <code>job_intel.sqlite</code> there, or type a full <code>.sqlite</code>/<code>.db</code> file path. The profiles and presets can stay in the normal app data folder.</p>
+                <p class="profile-note">Use a folder path to store <code>job_intel.sqlite</code> there, or type a full <code>.sqlite</code>/<code>.db</code> file path. Profiles and presets stay in the normal app data folder.</p>
                 <label class="checkbox-filter"><input name="move_existing" type="checkbox" value="true" checked> Move existing database to the new location</label>
                 <button type="submit">Change database location</button>
               </form>
             {% else %}
               <p class="profile-note">Database path changes are available in desktop mode.</p>
             {% endif %}
-            <div class="settings-actions-row">
-              {% if db_exists %}
-                <a class="primary" href="/settings/database/export">Save database</a>
-              {% else %}
-                <button type="button" disabled>Save database</button>
-              {% endif %}
-            </div>
-            <form method="post" action="/settings/database/import" enctype="multipart/form-data" class="import-form">
-              <label>
-                Load database snapshot
-                <input name="database_file" type="file" accept=".sqlite,.sqlite3,.db,application/vnd.sqlite3" required>
-              </label>
-              <p class="profile-note">Loading replaces the current database file. A <code>.bak</code> copy is created first when an existing database is present.</p>
-              <button type="submit">Load database</button>
-            </form>
           </article>
-
         </section>
       {% endif %}
 

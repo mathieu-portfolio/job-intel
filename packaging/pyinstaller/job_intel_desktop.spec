@@ -2,25 +2,39 @@
 # Build from the repository root with:
 #   pyinstaller packaging/pyinstaller/job_intel_desktop.spec
 
-from PyInstaller.utils.hooks import collect_data_files
+from pathlib import Path
 
 block_cipher = None
 
-app_datas = collect_data_files("app", includes=[
-    "ui/templates/*.html",
-    "ui/static/*",
-    "sql/**/*.sql",
-])
+SPEC_DIR = Path(globals().get("SPECPATH", Path.cwd() / "packaging" / "pyinstaller")).resolve()
+PROJECT_ROOT = SPEC_DIR.parents[1]
+
+ENTRYPOINT = PROJECT_ROOT / "app" / "desktop" / "__main__.py"
+
+
+def data_dir(source: Path, destination: str) -> tuple[str, str] | None:
+    """Return a PyInstaller data tuple only when the source exists."""
+
+    if not source.exists():
+        return None
+    return (str(source), destination)
+
+
+datas = [
+    data_dir(PROJECT_ROOT / "app" / "ui" / "templates", "app/ui/templates"),
+    data_dir(PROJECT_ROOT / "app" / "ui" / "static", "app/ui/static"),
+    data_dir(PROJECT_ROOT / "app" / "sql", "app/sql"),
+    data_dir(PROJECT_ROOT / "profiles", "profiles"),
+    data_dir(PROJECT_ROOT / "config" / "scoring_presets", "config/scoring_presets"),
+]
+datas = [item for item in datas if item is not None]
 
 
 a = Analysis(
-    ["app/desktop/__main__.py"],
-    pathex=[],
+    [str(ENTRYPOINT)],
+    pathex=[str(PROJECT_ROOT)],
     binaries=[],
-    datas=app_datas + [
-        ("profiles", "profiles"),
-        ("config/scoring_presets", "config/scoring_presets"),
-    ],
+    datas=datas,
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

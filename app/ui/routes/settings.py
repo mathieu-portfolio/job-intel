@@ -67,7 +67,7 @@ def register_settings_routes(app: FastAPI) -> None:
         preset: str = "balanced",
         return_to: str = "/",
     ) -> HTMLResponse:
-        settings_tab = tab if tab in {"profiles", "presets", "data"} else "profiles"
+        settings_tab = tab if tab in {"profiles", "presets", "data", "storage"} else "profiles"
         return_to = _safe_local_path(return_to)
         selected_profile_path = profile if profile in {item["value"] for item in discover_profiles()} else _active_profile_path(request)
         scoring_presets = list_scoring_presets(request.app.state.db_path, enabled_only=False)
@@ -240,7 +240,7 @@ def register_settings_routes(app: FastAPI) -> None:
                 request.app.state.workflow_notice = _workflow_notice("success", "Folder opened", {"Folder": str(Path(path).parent if Path(path).suffix else path)})
             except Exception as error:
                 request.app.state.workflow_notice = _workflow_notice("error", "Open folder failed", {"Error": str(error)})
-        return _settings_redirect("data")
+        return _settings_redirect("storage")
 
     @app.get("/settings/database/path")
     @app.get("/settings/database-location")
@@ -251,7 +251,7 @@ def register_settings_routes(app: FastAPI) -> None:
             "Database path change failed",
             {"Error": "Use the Settings form to change the database path."},
         )
-        return _settings_redirect("data")
+        return _settings_redirect("storage")
 
     @app.post("/settings/database/path")
     @app.post("/settings/database-location")
@@ -262,11 +262,11 @@ def register_settings_routes(app: FastAPI) -> None:
         move_existing = form.get("move_existing") == "true"
         if not requested_path:
             request.app.state.workflow_notice = _workflow_notice("error", "Database path change failed", {"Error": "Enter a folder or database file path."})
-            return _settings_redirect("data")
+            return _settings_redirect("storage")
         runtime_paths = request.app.state.runtime_paths
         if runtime_paths is None:
             request.app.state.workflow_notice = _workflow_notice("error", "Database path change failed", {"Error": "Database path changes are only available in desktop mode."})
-            return _settings_redirect("data")
+            return _settings_redirect("storage")
         try:
             updated_paths = set_desktop_database_path(runtime_paths, requested_path, move_existing=move_existing)
             request.app.state.runtime_paths = updated_paths
@@ -278,7 +278,7 @@ def register_settings_routes(app: FastAPI) -> None:
             )
         except Exception as error:
             request.app.state.workflow_notice = _workflow_notice("error", "Database path change failed", {"Error": str(error)})
-        return _settings_redirect("data")
+        return _settings_redirect("storage")
 
     @app.get("/settings/database/export")
     def export_database(request: Request):

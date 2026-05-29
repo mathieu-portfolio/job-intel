@@ -24,6 +24,7 @@ def test_settings_page_exposes_contextual_profile_and_preset_editors(tmp_path: P
     profiles = client.get("/settings", params={"tab": "profiles"})
     presets = client.get("/settings", params={"tab": "presets"})
     data = client.get("/settings", params={"tab": "data"})
+    storage = client.get("/settings", params={"tab": "storage"})
 
     assert profiles.status_code == 200
     assert "Profile editor" in profiles.text
@@ -34,8 +35,11 @@ def test_settings_page_exposes_contextual_profile_and_preset_editors(tmp_path: P
     assert "Create preset" in presets.text
     assert "Preset import / export" in presets.text
     assert data.status_code == 200
-    assert "Data saving system" in data.text
+    assert "Save / Load" in data.text
     assert "Load database snapshot" in data.text
+    assert storage.status_code == 200
+    assert "Storage" in storage.text
+    assert "Database path" in storage.text
 
 
 def test_settings_create_profile_and_preset_in_runtime_config(tmp_path: Path) -> None:
