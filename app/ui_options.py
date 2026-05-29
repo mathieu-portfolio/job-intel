@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from app.runtime_paths import get_profiles_dir
 from app.storage.files import discover_profiles as discover_profile_infos
 
 
@@ -31,7 +32,8 @@ def _readable_label(path: Path) -> str:
     return label.title() if label else path.name
 
 
-def discover_profiles(profiles_dir: Path = Path("profiles")) -> list[dict[str, str]]:
+def discover_profiles(profiles_dir: Path | None = None) -> list[dict[str, str]]:
+    profiles_dir = profiles_dir or get_profiles_dir()
     return [
         {
             "id": profile.profile_id,

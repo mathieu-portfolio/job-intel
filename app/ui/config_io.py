@@ -8,7 +8,8 @@ from pathlib import Path
 from fastapi import HTTPException
 from fastapi.responses import FileResponse
 
-from app.filtering.presets import SCORING_PRESET_DIR, ScoringPresetFile
+from app.filtering.presets import ScoringPresetFile
+from app.runtime_paths import get_profiles_dir, get_scoring_preset_dir
 from app.models.profile import CandidateProfile
 from app.storage.files import load_profile
 from app.storage.scoring import get_scoring_preset
@@ -36,7 +37,7 @@ def _preset_file_path(preset_id: str) -> Path:
     safe_id = preset_id.strip()
     if not safe_id or "/" in safe_id or "\\" in safe_id or safe_id in {".", ".."}:
         raise ValueError("Invalid preset id.")
-    return SCORING_PRESET_DIR / f"{safe_id}.json"
+    return get_scoring_preset_dir() / f"{safe_id}.json"
 
 
 def _preset_payload(preset_id: str) -> dict[str, object]:
@@ -59,7 +60,7 @@ def _preset_payload(preset_id: str) -> dict[str, object]:
 def _write_preset(original_id: str, payload: dict[str, object]) -> Path:
     preset_file = ScoringPresetFile.model_validate(payload)
     normalized = preset_file.model_dump(mode="json", exclude_none=True)
-    SCORING_PRESET_DIR.mkdir(parents=True, exist_ok=True)
+    get_scoring_preset_dir().mkdir(parents=True, exist_ok=True)
     path = _preset_file_path(preset_file.id)
     old_path = _preset_file_path(original_id)
     if old_path != path and old_path.exists():
@@ -76,14 +77,14 @@ def _safe_config_id(value: str) -> str:
 
 
 def _profile_file_path(profile_id: str) -> Path:
-    return Path("profiles") / f"{_safe_config_id(profile_id)}.json"
+    return get_profiles_dir() / f"{_safe_config_id(profile_id)}.json"
 
 
 def _write_new_profile(profile_id: str, source_profile: str, name: str | None) -> Path:
     path = _profile_file_path(profile_id)
     if path.exists():
         raise ValueError(f"Profile already exists: {path}")
-    source = Path(source_profile or "profiles/default.json")
+    source = Path(source_profile) if source_profile else get_profiles_dir() / "default.json"
     payload = load_profile(source).model_dump(mode="json", exclude_none=True)
     if name and name.strip():
         payload["name"] = name.strip()
@@ -109,13 +110,13 @@ def _write_new_preset(preset_id: str, source_preset: str, name: str | None, db_p
         "enabled": True,
         "weights": source.weights.model_dump(mode="json"),
     }
-    SCORING_PRESET_DIR.mkdir(parents=True, exist_ok=True)
+    get_scoring_preset_dir().mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return path
 
 
 def _config_export_paths() -> list[Path]:
-    roots = [Path("profiles"), SCORING_PRESET_DIR]
+    roots = [get_profiles_dir(), get_scoring_preset_dir()]
     files: list[Path] = []
     for root in roots:
         if root.exists():
@@ -124,7 +125,7 @@ def _config_export_paths() -> list[Path]:
 
 
 def _config_archive_name(path: Path) -> str:
-    profile_root = Path("profiles")
+    profile_root = get_profiles_dir()
     try:
         return path.relative_to(profile_root.parent).as_posix()
     except ValueError:
@@ -137,16 +138,17 @@ def _config_archive_name(path: Path) -> str:
 
 
 def _profile_export_paths() -> list[Path]:
-    root = Path("profiles")
+    root = get_profiles_dir()
     if not root.exists():
         return []
     return sorted(path for path in root.rglob("*.json") if path.is_file())
 
 
 def _preset_export_paths() -> list[Path]:
-    if not SCORING_PRESET_DIR.exists():
+    preset_dir = get_scoring_preset_dir()
+    if not preset_dir.exists():
         return []
-    return sorted(path for path in SCORING_PRESET_DIR.rglob("*.json") if path.is_file())
+    return sorted(path for path in preset_dir.rglob("*.json") if path.is_file())
 
 
 def _export_json_zip(files: list[Path], filename: str) -> FileResponse:
@@ -202,9 +204,9 @@ def _safe_import_member(name: str) -> tuple[str, Path] | None:
     if ".." in target.parts or target.suffix.lower() != ".json":
         return None
     if len(target.parts) == 2 and target.parts[0] == "profiles":
-        return "profile", Path("profiles") / target.name
+        return "profile", get_profiles_dir() / target.name
     if len(target.parts) == 3 and target.parts[0] == "config" and target.parts[1] == "scoring_presets":
-        return "preset", SCORING_PRESET_DIR / target.name
+        return "preset", get_scoring_preset_dir() / target.name
     return None
 
 

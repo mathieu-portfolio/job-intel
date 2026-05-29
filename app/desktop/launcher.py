@@ -7,7 +7,7 @@ import urllib.request
 import webbrowser
 from pathlib import Path
 
-from app.desktop.paths import ensure_desktop_data_dir, get_desktop_db_path
+from app.desktop.paths import ensure_desktop_runtime_paths, get_desktop_db_path
 from app.ui.server import DEFAULT_UI_HOST, DEFAULT_UI_PORT, local_url, run_server
 
 
@@ -53,8 +53,8 @@ def launch_desktop(
     Browser opening is the only background work.
     """
 
-    ensure_desktop_data_dir()
-    resolved_db_path = db_path or get_desktop_db_path()
+    runtime_paths = ensure_desktop_runtime_paths()
+    resolved_db_path = db_path or runtime_paths.db_path
     resolved_db_path.parent.mkdir(parents=True, exist_ok=True)
     url = local_url(host, port)
 
@@ -66,4 +66,4 @@ def launch_desktop(
         )
         browser_thread.start()
 
-    run_server(db_path=resolved_db_path, host=host, port=port)
+    run_server(db_path=resolved_db_path, host=host, port=port, runtime_paths=runtime_paths)

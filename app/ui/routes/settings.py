@@ -86,6 +86,7 @@ def register_settings_routes(app: FastAPI) -> None:
                 "preset_export_count": len(_preset_export_paths()),
                 "db_exists": request.app.state.db_path.exists(),
                 "db_path": request.app.state.db_path,
+                "runtime_paths": request.app.state.runtime_paths,
                 "workflow_notice": _consume_workflow_notice(request),
                 "active_page": "settings",
                 "return_to": return_to,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from app.runtime_paths import RuntimePaths
 from app.storage.connection import DEFAULT_DB_PATH
 from app.ui import create_app
 
@@ -18,6 +19,7 @@ def run_server(
     *,
     host: str = DEFAULT_UI_HOST,
     port: int = DEFAULT_UI_PORT,
+    runtime_paths: RuntimePaths | None = None,
 ) -> None:
     """Run the local FastAPI review dashboard."""
 
@@ -29,4 +31,4 @@ def run_server(
             "or `python -m pip install -r requirements.txt`."
         ) from error
 
-    uvicorn.run(create_app(db_path), host=host, port=port)
+    uvicorn.run(create_app(db_path, runtime_paths=runtime_paths), host=host, port=port)

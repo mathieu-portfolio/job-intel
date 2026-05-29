@@ -215,6 +215,11 @@
             </div>
             <dl class="settings-summary-list">
               <div><dt>Database path</dt><dd>{{ db_path }}</dd></div>
+              {% if runtime_paths %}
+                <div><dt>Data folder</dt><dd>{{ runtime_paths.data_dir }}</dd></div>
+                <div><dt>Profiles folder</dt><dd>{{ runtime_paths.profiles_dir }}</dd></div>
+                <div><dt>Presets folder</dt><dd>{{ runtime_paths.scoring_presets_dir }}</dd></div>
+              {% endif %}
               <div><dt>Status</dt><dd>{{ 'Available' if db_exists else 'Not created yet' }}</dd></div>
             </dl>
             <div class="settings-actions-row">

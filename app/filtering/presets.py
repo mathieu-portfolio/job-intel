@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
 from pydantic import BaseModel, ValidationError
 
 from app.filtering.rules import RuleScoringConfig
+from app.runtime_paths import DEFAULT_SCORING_PRESET_DIR, JOB_INTEL_SCORING_PRESET_DIR_ENV
 
 
-SCORING_PRESET_DIR = Path(__file__).resolve().parents[2] / "config" / "scoring_presets"
+SCORING_PRESET_DIR = DEFAULT_SCORING_PRESET_DIR
 
 
 @dataclass(frozen=True)
@@ -33,7 +35,8 @@ class ScoringPresetFile(BaseModel):
     order: int = 100
 
 
-def load_builtin_scoring_presets(directory: Path = SCORING_PRESET_DIR) -> tuple[ScoringPreset, ...]:
+def load_builtin_scoring_presets(directory: Path | None = None) -> tuple[ScoringPreset, ...]:
+    directory = directory or Path(os.environ.get(JOB_INTEL_SCORING_PRESET_DIR_ENV, "").strip() or SCORING_PRESET_DIR)
     presets: list[ScoringPreset] = []
     for path in sorted(directory.glob("*.json")):
         try:
