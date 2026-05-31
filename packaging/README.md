@@ -17,6 +17,21 @@ dist/JobIntel/
 dist/releases/JobIntel-Windows.zip
 ```
 
+## Recommended macOS build
+
+From a macOS terminal:
+
+```bash
+./scripts/build_macos.sh
+```
+
+This creates:
+
+```text
+dist/JobIntel.app
+dist/releases/JobIntel-macOS-x64.zip
+```
+
 ## Manual build
 
 Build a local desktop bundle from the repository root:
@@ -43,5 +58,5 @@ See `docs/PACKAGING.md` for the fuller checklist.
 
 Release artifacts are built by `.github/workflows/release.yml`.
 
-- Manual runs upload `JobIntel-Windows.zip` as a workflow artifact.
-- Pushing a tag like `v0.1.0` also attaches the ZIP to the GitHub Release.
+- Manual runs upload `JobIntel-Windows.zip` and `JobIntel-macOS-x64.zip` as workflow artifacts.
+- Pushing a tag like `v0.1.0` also attaches both ZIP files to the GitHub Release.

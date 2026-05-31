@@ -37,8 +37,47 @@ jobs:
           path: dist/releases/JobIntel-Windows.zip
           if-no-files-found: error
 
-      - name: Attach artifact to GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
+  build-macos-x64:
+    name: Build macOS x64 ZIP
+    runs-on: macos-13
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Build macOS x64 release ZIP
+        shell: bash
+        run: ./scripts/build_macos.sh
+
+      - name: Upload macOS x64 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: JobIntel-macOS-x64
+          path: dist/releases/JobIntel-macOS-x64.zip
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs:
+      - build-windows
+      - build-macos-x64
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Attach artifacts to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/releases/JobIntel-Windows.zip
+          files: release-assets/*.zip
