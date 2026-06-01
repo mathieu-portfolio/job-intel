@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Build the macOS desktop distribution bundle for Job Intel.
 # Run from anywhere inside the repository:
-#   ./scripts/build_macos.sh
+#   bash ./scripts/build_macos.sh
+#
+# Optional:
+#   JOB_INTEL_RELEASE_NAME=JobIntel-macOS-Intel bash ./scripts/build_macos.sh
 
 set -euo pipefail
 
@@ -11,7 +14,8 @@ SPEC_PATH="$PROJECT_ROOT/packaging/pyinstaller/job_intel_desktop_macos.spec"
 DIST_DIR="$PROJECT_ROOT/dist"
 RELEASE_DIR="$DIST_DIR/releases"
 APP_PATH="$DIST_DIR/JobIntel.app"
-RELEASE_ZIP="$RELEASE_DIR/JobIntel-macOS.zip"
+RELEASE_NAME="${JOB_INTEL_RELEASE_NAME:-JobIntel-macOS}"
+RELEASE_ZIP="$RELEASE_DIR/$RELEASE_NAME.zip"
 
 SKIP_INSTALL=0
 NO_CLEAN=0
