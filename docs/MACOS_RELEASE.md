@@ -1,6 +1,6 @@
 # macOS release build
 
-The macOS release build creates a `.app` bundle and wraps it in a ZIP file for GitHub Releases. The first macOS artifact is an x64 build made on `macos-13`.
+The macOS release build creates a `.app` bundle and wraps it in a ZIP file for GitHub Releases. The first macOS artifact is a build made on `macos-latest`.
 
 ## Local build on macOS
 
@@ -14,7 +14,7 @@ This creates:
 
 ```text
 dist/JobIntel.app
-dist/releases/JobIntel-macOS-x64.zip
+dist/releases/JobIntel-macOS.zip
 ```
 
 ## Manual test
@@ -47,6 +47,6 @@ A later pass should add Apple Developer signing and notarization if this app is 
 
 ## GitHub Actions
 
-The release workflow builds `JobIntel-macOS-x64.zip` on `macos-13`.
+The release workflow builds `JobIntel-macOS.zip` on `macos-latest`.
 
 Manual workflow runs upload the ZIP as a workflow artifact. Tag pushes like `v0.1.0` attach it to the GitHub Release.

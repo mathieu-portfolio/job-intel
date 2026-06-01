@@ -11,7 +11,7 @@ SPEC_PATH="$PROJECT_ROOT/packaging/pyinstaller/job_intel_desktop_macos.spec"
 DIST_DIR="$PROJECT_ROOT/dist"
 RELEASE_DIR="$DIST_DIR/releases"
 APP_PATH="$DIST_DIR/JobIntel.app"
-RELEASE_ZIP="$RELEASE_DIR/JobIntel-macOS-x64.zip"
+RELEASE_ZIP="$RELEASE_DIR/JobIntel-macOS.zip"
 
 SKIP_INSTALL=0
 NO_CLEAN=0

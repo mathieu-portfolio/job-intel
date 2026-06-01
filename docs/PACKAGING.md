@@ -43,7 +43,7 @@ The script:
 1. Installs or updates PyInstaller.
 2. Runs the macOS PyInstaller spec in clean mode.
 3. Builds `dist/JobIntel.app`.
-4. Creates `dist/releases/JobIntel-macOS-x64.zip`.
+4. Creates `dist/releases/JobIntel-macOS.zip`.
 
 Manual test:
 
@@ -102,7 +102,7 @@ Manual build from GitHub:
 2. Go to **Actions**.
 3. Select **Build release artifacts**.
 4. Click **Run workflow**.
-5. Download the `JobIntel-Windows` or `JobIntel-macOS-x64` artifact.
+5. Download the `JobIntel-Windows` or `JobIntel-macOS` artifact.
 
 Tagged release build:
 
@@ -111,7 +111,7 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-When a `v*` tag is pushed, GitHub Actions builds `JobIntel-Windows.zip` and `JobIntel-macOS-x64.zip`, then attaches both to the GitHub Release for that tag.
+When a `v*` tag is pushed, GitHub Actions builds `JobIntel-Windows.zip` and `JobIntel-macOS.zip`, then attaches both to the GitHub Release for that tag.
 
 ## Current release format
 
@@ -119,7 +119,7 @@ The current release artifacts are ZIP files:
 
 ```text
 dist/releases/JobIntel-Windows.zip
-dist/releases/JobIntel-macOS-x64.zip
+dist/releases/JobIntel-macOS.zip
 ```
 
 Windows users can unzip it and run:
