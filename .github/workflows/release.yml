@@ -53,7 +53,7 @@ jobs:
 
       - name: Build macOS release ZIP
         shell: bash
-        run: ./scripts/build_macos.sh
+        run: bash ./scripts/build_macos.sh
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
