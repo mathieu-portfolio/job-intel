@@ -37,35 +37,8 @@ jobs:
           path: dist/releases/JobIntel-Windows.zip
           if-no-files-found: error
 
-  build-macos-intel:
-    name: Build macOS Intel ZIP
-    runs-on: macos-13
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: "pip"
-
-      - name: Build macOS Intel release ZIP
-        shell: bash
-        env:
-          JOB_INTEL_RELEASE_NAME: JobIntel-macOS-Intel
-        run: bash ./scripts/build_macos.sh
-
-      - name: Upload macOS Intel artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: JobIntel-macOS-Intel
-          path: dist/releases/JobIntel-macOS-Intel.zip
-          if-no-files-found: error
-
-  build-macos-apple-silicon:
-    name: Build macOS Apple Silicon ZIP
+  build-macos:
+    name: Build macOS ZIP
     runs-on: macos-latest
 
     steps:
@@ -78,17 +51,15 @@ jobs:
           python-version: "3.11"
           cache: "pip"
 
-      - name: Build macOS Apple Silicon release ZIP
+      - name: Build macOS release ZIP
         shell: bash
-        env:
-          JOB_INTEL_RELEASE_NAME: JobIntel-macOS-AppleSilicon
         run: bash ./scripts/build_macos.sh
 
-      - name: Upload macOS Apple Silicon artifact
+      - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
         with:
-          name: JobIntel-macOS-AppleSilicon
-          path: dist/releases/JobIntel-macOS-AppleSilicon.zip
+          name: JobIntel-macOS
+          path: dist/releases/JobIntel-macOS.zip
           if-no-files-found: error
 
   publish-release:
@@ -96,8 +67,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     needs:
       - build-windows
-      - build-macos-intel
-      - build-macos-apple-silicon
+      - build-macos
     runs-on: ubuntu-latest
 
     steps:
