@@ -37,9 +37,9 @@ jobs:
           path: dist/releases/JobIntel-Windows.zip
           if-no-files-found: error
 
-  build-macos-x64:
-    name: Build macOS x64 ZIP
-    runs-on: macos-13
+  build-macos:
+    name: Build macOS ZIP
+    runs-on: macos-latest
 
     steps:
       - name: Check out repository
@@ -51,15 +51,15 @@ jobs:
           python-version: "3.11"
           cache: "pip"
 
-      - name: Build macOS x64 release ZIP
+      - name: Build macOS release ZIP
         shell: bash
         run: ./scripts/build_macos.sh
 
-      - name: Upload macOS x64 artifact
+      - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
         with:
-          name: JobIntel-macOS-x64
-          path: dist/releases/JobIntel-macOS-x64.zip
+          name: JobIntel-macOS
+          path: dist/releases/JobIntel-macOS.zip
           if-no-files-found: error
 
   publish-release:
@@ -67,7 +67,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     needs:
       - build-windows
-      - build-macos-x64
+      - build-macos
     runs-on: ubuntu-latest
 
     steps:
