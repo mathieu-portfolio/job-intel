@@ -5,6 +5,7 @@ import shutil
 import tempfile
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 from urllib.parse import urlencode
 
 from fastapi import FastAPI, HTTPException, Request
@@ -16,6 +17,8 @@ from app.storage.scoring import get_scoring_preset, list_scoring_presets
 from app.ui.config_io import (
     _config_archive_name,
     _config_export_paths,
+    _empty_preset_payload,
+    _empty_profile_payload,
     _export_json_zip,
     _import_config_zip,
     _import_config_zip_kind,
@@ -69,11 +72,20 @@ def register_settings_routes(app: FastAPI) -> None:
     ) -> HTMLResponse:
         settings_tab = tab if tab in {"profiles", "presets", "data", "storage"} else "profiles"
         return_to = _safe_local_path(return_to)
-        selected_profile_path = profile if profile in {item["value"] for item in discover_profiles()} else _active_profile_path(request)
+        profile_options = discover_profiles()
+        selected_profile_path = profile if profile in {item["value"] for item in profile_options} else _active_profile_path(request)
         scoring_presets = list_scoring_presets(request.app.state.db_path, enabled_only=False)
-        selected_preset = get_scoring_preset(preset, db_path=request.app.state.db_path)
-        profile_payload = _profile_payload(selected_profile_path)
-        preset_payload = _preset_payload(selected_preset.id)
+        if profile_options:
+            profile_payload = _profile_payload(selected_profile_path)
+        else:
+            profile_payload = _empty_profile_payload()
+            selected_profile_path = profile_payload["path"]  # type: ignore[assignment]
+        try:
+            selected_preset = get_scoring_preset(preset, db_path=request.app.state.db_path)
+            preset_payload = _preset_payload(selected_preset.id)
+        except ValueError:
+            preset_payload = _empty_preset_payload()
+            selected_preset = SimpleNamespace(id=preset_payload["preset"]["id"], name=preset_payload["preset"]["name"])
         return templates.TemplateResponse(
             request,
             "settings.html",

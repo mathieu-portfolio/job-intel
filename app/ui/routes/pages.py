@@ -17,7 +17,7 @@ from app.ui.context import _active_profile_path, _common_template_context
 from app.ui.review_display import _normalize_review_offers
 from app.ui.shared import CLEAR_SUMMARIES, DEFAULT_RECENCY_DAYS, templates
 from app.ui.state import _consume_workflow_notice, _positive_int
-from app.ui_options import ADZUNA_MARKETS
+from app.ui_options import ADZUNA_MARKETS, discover_profiles
 
 DEFAULT_PAGE_SIZE = 25
 MAX_PAGE_SIZE = 100
@@ -42,6 +42,52 @@ def _pagination(*, page: int, page_size: int, loaded_count: int) -> dict[str, in
     }
 
 
+def _setup_required_response(
+    request: Request,
+    *,
+    active_page: str,
+    require_profile: bool = True,
+    require_preset: bool = True,
+) -> HTMLResponse | None:
+    """Return a setup page when required user config is missing.
+
+    Packaged builds may start with empty user-data folders. In that case the
+    main workflow pages should not crash while trying to select a profile or
+    scoring preset. They should point the user to Settings instead.
+    """
+
+    missing: list[str] = []
+    actions: list[dict[str, str]] = []
+
+    if require_profile and not discover_profiles():
+        missing.append("at least one profile")
+        actions.append({"label": "Open profile settings", "href": "/settings?tab=profiles"})
+
+    if require_preset and not list_scoring_presets(request.app.state.db_path, enabled_only=True):
+        missing.append("at least one enabled scoring preset")
+        actions.append({"label": "Open preset settings", "href": "/settings?tab=presets"})
+
+    if not missing:
+        return None
+
+    if len(missing) == 1:
+        setup_message = f"Create or import {missing[0]} in Settings before using this page."
+    else:
+        setup_message = "Create or import a profile and an enabled scoring preset in Settings before using this page."
+
+    return templates.TemplateResponse(
+        request,
+        "setup_required.html",
+        {
+            **_common_template_context(request),
+            "db_path": request.app.state.db_path,
+            "setup_message": setup_message,
+            "setup_actions": actions,
+            "active_page": active_page,
+        },
+    )
+
+
 def register_page_routes(app: FastAPI) -> None:
     @app.get("/", response_class=HTMLResponse)
     @app.get("/ai-reviewed", response_class=HTMLResponse)
@@ -60,6 +106,10 @@ def register_page_routes(app: FastAPI) -> None:
         page: int = 1,
         page_size: int = DEFAULT_PAGE_SIZE,
     ) -> HTMLResponse:
+        setup_response = _setup_required_response(request, active_page="ai_reviewed")
+        if setup_response is not None:
+            return setup_response
+
         current_page = _page(page)
         current_page_size = _page_size(page_size)
         offset = (current_page - 1) * current_page_size
@@ -141,6 +191,10 @@ def register_page_routes(app: FastAPI) -> None:
         page: int = 1,
         page_size: int = DEFAULT_PAGE_SIZE,
     ) -> HTMLResponse:
+        setup_response = _setup_required_response(request, active_page="offers")
+        if setup_response is not None:
+            return setup_response
+
         current_page = _page(page)
         current_page_size = _page_size(page_size)
         offset = (current_page - 1) * current_page_size
@@ -205,6 +259,10 @@ def register_page_routes(app: FastAPI) -> None:
 
     @app.get("/maintenance", response_class=HTMLResponse)
     def maintenance(request: Request) -> HTMLResponse:
+        setup_response = _setup_required_response(request, active_page="maintenance", require_preset=False)
+        if setup_response is not None:
+            return setup_response
+
         return templates.TemplateResponse(
             request,
             "maintenance.html",

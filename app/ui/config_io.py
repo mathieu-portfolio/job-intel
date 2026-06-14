@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from fastapi.responses import FileResponse
 
 from app.filtering.presets import ScoringPresetFile
+from app.filtering.rule_config import RuleScoringConfig
 from app.runtime_paths import get_profiles_dir, get_scoring_preset_dir
 from app.models.profile import CandidateProfile
 from app.storage.files import load_profile
@@ -57,6 +58,33 @@ def _preset_payload(preset_id: str) -> dict[str, object]:
     }
 
 
+
+
+def _empty_profile_payload(profile_id: str = "new_profile") -> dict[str, object]:
+    raw = CandidateProfile(profile_id=profile_id, name=profile_id.replace("_", " ").title()).model_dump(mode="json", exclude_none=True)
+    path = get_profiles_dir() / f"{profile_id}.json"
+    return {
+        "path": str(path).replace("\\", "/"),
+        "profile": raw,
+        "payload_json": json.dumps(raw, ensure_ascii=False),
+    }
+
+
+def _empty_preset_payload(preset_id: str = "new_preset") -> dict[str, object]:
+    raw = {
+        "id": preset_id,
+        "name": preset_id.replace("_", " ").title(),
+        "description": "Created from an empty configuration.",
+        "order": 100,
+        "is_builtin": False,
+        "enabled": True,
+        "weights": _default_preset_weights().model_dump(mode="json"),
+    }
+    return {
+        "preset": raw,
+        "payload_json": json.dumps(raw, ensure_ascii=False),
+    }
+
 def _write_preset(original_id: str, payload: dict[str, object]) -> Path:
     preset_file = ScoringPresetFile.model_validate(payload)
     normalized = preset_file.model_dump(mode="json", exclude_none=True)
@@ -81,18 +109,36 @@ def _profile_file_path(profile_id: str) -> Path:
 
 
 def _write_new_profile(profile_id: str, source_profile: str, name: str | None) -> Path:
-    path = _profile_file_path(profile_id)
+    safe_id = _safe_config_id(profile_id)
+    path = _profile_file_path(safe_id)
     if path.exists():
         raise ValueError(f"Profile already exists: {path}")
     source = Path(source_profile) if source_profile else get_profiles_dir() / "default.json"
-    payload = load_profile(source).model_dump(mode="json", exclude_none=True)
+    if source.exists():
+        payload = load_profile(source).model_dump(mode="json", exclude_none=True)
+    else:
+        payload = CandidateProfile(profile_id=safe_id).model_dump(mode="json", exclude_none=True)
+    payload["profile_id"] = safe_id
     if name and name.strip():
         payload["name"] = name.strip()
     elif not payload.get("name"):
-        payload["name"] = _safe_config_id(profile_id).replace("_", " ").title()
+        payload["name"] = safe_id.replace("_", " ").title()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return path
+
+
+def _default_preset_weights() -> RuleScoringConfig:
+    return RuleScoringConfig(
+        category_weights={},
+        cumulative_categories=set(),
+        exclusive_categories={"location", "location_preferences"},
+        no_signal_score=50,
+        positive_score_scale=12.0,
+        negative_score_scale=12.0,
+        strong_negative_threshold=-0.4,
+        strong_negative_score_cap=35,
+    )
 
 
 def _write_new_preset(preset_id: str, source_preset: str, name: str | None, db_path: Path) -> Path:
@@ -100,15 +146,23 @@ def _write_new_preset(preset_id: str, source_preset: str, name: str | None, db_p
     path = _preset_file_path(safe_id)
     if path.exists():
         raise ValueError(f"Preset already exists: {path}")
-    source = get_scoring_preset(source_preset or "balanced", db_path=db_path)
+    try:
+        source = get_scoring_preset(source_preset or "balanced", db_path=db_path)
+        description = source.description
+        order = source.order + 1
+        weights = source.weights
+    except ValueError:
+        description = "Created from an empty configuration."
+        order = 100
+        weights = _default_preset_weights()
     payload = {
         "id": safe_id,
         "name": name.strip() if name and name.strip() else safe_id.replace("_", " ").title(),
-        "description": source.description,
-        "order": source.order + 1,
+        "description": description,
+        "order": order,
         "is_builtin": False,
         "enabled": True,
-        "weights": source.weights.model_dump(mode="json"),
+        "weights": weights.model_dump(mode="json"),
     }
     get_scoring_preset_dir().mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

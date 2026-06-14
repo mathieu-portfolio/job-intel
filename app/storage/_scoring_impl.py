@@ -173,7 +173,12 @@ def list_scoring_presets(
     preset from the UI and from runtime scoring.
     """
     del db_path  # Kept for API compatibility with callers.
-    presets = list(load_builtin_scoring_presets())
+    try:
+        presets = list(load_builtin_scoring_presets())
+    except RuntimeError as error:
+        if str(error).startswith("No scoring presets found"):
+            return []
+        raise
     if enabled_only:
         presets = [preset for preset in presets if preset.enabled]
     return sorted(presets, key=lambda preset: (preset.order, preset.name.lower()))

@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Setup required - Job Intel Review</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='styles.css') }}">
+  </head>
+  <body>
+    {% include "_hero_bar.html" %}
+
+    <main>
+      <section class="empty">
+        <h2>Setup required</h2>
+        <p>{{ setup_message }}</p>
+        <div class="actions" style="justify-content: center; margin-top: 1rem;">
+          {% for action in setup_actions %}
+            <a class="primary" href="{{ action.href }}">{{ action.label }}</a>
+          {% endfor %}
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
